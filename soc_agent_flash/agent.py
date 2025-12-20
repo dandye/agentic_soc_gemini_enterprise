@@ -122,7 +122,7 @@ def create_agent():
 
     # RAG configuration
     RAG_CORPUS_ID = os.environ.get("RAG_CORPUS_ID")
-    RESULT_MODE = os.environ.get("RESULT_MODE", "chunks")
+    RAG_RESULT_MODE = os.environ.get("RAG_RESULT_MODE", "documents")
 
     # Parse RAG numeric configuration with error handling
     try:
@@ -259,7 +259,7 @@ def create_agent():
             rag_resources=[rag.RagResource(rag_corpus=RAG_CORPUS_ID)],
             similarity_top_k=RAG_SIMILARITY_TOP_K,
             vector_distance_threshold=RAG_DISTANCE_THRESHOLD,
-            result_mode=RESULT_MODE,
+            result_mode=RAG_RESULT_MODE,
         )
         tools.append(ask_vertex_retrieval)
     else:

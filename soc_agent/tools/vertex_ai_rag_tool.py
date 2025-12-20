@@ -2,7 +2,7 @@
 Vertex AI RAG Retrieval Tool with Full Document Support
 
 This module extends the standard VertexAiRagRetrieval tool to support retrieving
-full documents from Google Cloud Storage when RESULT_MODE is set to 'documents'.
+full documents from Google Cloud Storage when RAG_RESULT_MODE is set to 'documents'.
 """
 
 import logging
@@ -34,7 +34,7 @@ class VertexAiRagRetrievalWithDocs(VertexAiRagRetrieval):
         rag_resources: List[rag.RagResource] = None,
         similarity_top_k: int = None,
         vector_distance_threshold: float = None,
-        result_mode: str = "chunks",
+        result_mode: str = "documents",
     ):
         super().__init__(
             name=name,

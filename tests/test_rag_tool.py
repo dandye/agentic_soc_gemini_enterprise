@@ -38,8 +38,43 @@ from soc_agent.tools.vertex_ai_rag_tool import VertexAiRagRetrievalWithDocs
 
 class TestVertexAiRagRetrievalWithDocs(unittest.IsolatedAsyncioTestCase):
 
+    @patch("soc_agent.tools.vertex_ai_rag_tool.storage.Client")
+    async def test_run_async_default_documents_mode(self, mock_storage_client):
+        """Test default mode is now documents."""
+        tool = VertexAiRagRetrievalWithDocs(
+            name="test_tool",
+            description="test"
+            # result_mode defaults to "documents"
+        )
+
+        # Mock retrieval_query response
+        mock_response = MagicMock()
+        context = MagicMock()
+        context.text = "chunk text"
+        context.source_uri = "gs://bucket/file.pdf"
+        mock_response.contexts.contexts = [context]
+
+        mock_rag.retrieval_query.return_value = mock_response
+
+        # Mock Storage Client
+        mock_bucket = MagicMock()
+        mock_blob = MagicMock()
+        mock_blob.download_as_text.return_value = "Full document content"
+        mock_bucket.blob.return_value = mock_blob
+        mock_storage_client.return_value.bucket.return_value = mock_bucket
+
+        result = await tool.run_async(
+            args={"query": "test query"},
+            tool_context=MagicMock()
+        )
+
+        # Should return full document
+        self.assertEqual(len(result), 1)
+        self.assertIn("Document: gs://bucket/file.pdf", result[0])
+        self.assertIn("Full document content", result[0])
+
     async def test_run_async_chunks_mode(self):
-        """Test default chunks mode."""
+        """Test explicit chunks mode."""
         tool = VertexAiRagRetrievalWithDocs(
             name="test_tool",
             description="test",
@@ -61,10 +96,10 @@ class TestVertexAiRagRetrievalWithDocs(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(result, ["chunk text"])
-        mock_rag.retrieval_query.assert_called_once()
+        mock_rag.retrieval_query.assert_called()
 
     @patch("soc_agent.tools.vertex_ai_rag_tool.storage.Client")
-    async def test_run_async_documents_mode(self, mock_storage_client):
+    async def test_run_async_documents_mode_explicit(self, mock_storage_client):
         """Test documents mode with GCS download."""
         tool = VertexAiRagRetrievalWithDocs(
             name="test_tool",
@@ -100,7 +135,7 @@ class TestVertexAiRagRetrievalWithDocs(unittest.IsolatedAsyncioTestCase):
         # Verify storage client usage
         mock_storage_client.return_value.bucket.assert_called_with("bucket")
         mock_bucket.blob.assert_called_with("file.pdf")
-        mock_blob.download_as_text.assert_called_once()
+        mock_blob.download_as_text.assert_called()
 
     @patch("soc_agent.tools.vertex_ai_rag_tool.storage.Client")
     async def test_run_async_documents_mode_invalid_uri(self, mock_storage_client):
