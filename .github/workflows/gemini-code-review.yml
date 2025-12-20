@@ -20,5 +20,6 @@ jobs:
           prompt: "/review"
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GOOGLE_GENAI_USE_VERTEXAI: ${{ vars.GOOGLE_GENAI_USE_VERTEXAI }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GOOGLE_CLOUD_LOCATION:  ${{ vars.GOOGLE_CLOUD_LOCATION }}
+          GOOGLE_CLOUD_PROJECT:  ${{ vars.GOOGLE_CLOUD_PROJECT }}
