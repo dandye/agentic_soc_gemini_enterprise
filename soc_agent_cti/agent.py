@@ -45,6 +45,8 @@ from google.adk.tools.retrieval.vertex_ai_rag_retrieval import VertexAiRagRetrie
 from mcp import StdioServerParameters
 from vertexai.preview import rag
 
+from soc_agent.tools.vertex_ai_rag_tool import VertexAiRagRetrievalWithDocs
+
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -246,6 +248,7 @@ def create_agent():
 
     # RAG configuration
     RAG_CORPUS_ID = os.environ.get("RAG_CORPUS_ID")
+    RESULT_MODE = os.environ.get("RESULT_MODE", "chunks")
 
     # Parse RAG numeric configuration with error handling
     try:
@@ -374,7 +377,7 @@ def create_agent():
     # ========================================================================
     if RAG_CORPUS_ID:
         logger.info(f"Configuring RAG retrieval with corpus: {RAG_CORPUS_ID}")
-        ask_vertex_retrieval = VertexAiRagRetrieval(
+        ask_vertex_retrieval = VertexAiRagRetrievalWithDocs(
             name="retrieve_agentic_soc_runbooks",
             description=(
                 "Use this tool to retrieve IRPs, Runbooks, Common Steps, and Personas for the Agentic SOC. "
@@ -386,6 +389,7 @@ def create_agent():
             rag_resources=[rag.RagResource(rag_corpus=RAG_CORPUS_ID)],
             similarity_top_k=RAG_SIMILARITY_TOP_K,
             vector_distance_threshold=RAG_DISTANCE_THRESHOLD,
+            result_mode=RESULT_MODE,
         )
         tools.append(ask_vertex_retrieval)
     else:
