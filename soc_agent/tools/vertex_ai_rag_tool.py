@@ -6,13 +6,13 @@ full documents from Google Cloud Storage when RAG_RESULT_MODE is set to 'documen
 """
 
 import logging
-from typing import Any, List, Optional, Set
+from typing import Any, override
 
 from google.adk.tools.retrieval.vertex_ai_rag_retrieval import VertexAiRagRetrieval
 from google.adk.tools.tool_context import ToolContext
 from google.cloud import storage
 from vertexai.preview import rag
-from typing_extensions import override
+
 
 logger = logging.getLogger(__name__)
 
@@ -30,8 +30,8 @@ class VertexAiRagRetrievalWithDocs(VertexAiRagRetrieval):
         *,
         name: str,
         description: str,
-        rag_corpora: List[str] = None,
-        rag_resources: List[rag.RagResource] = None,
+        rag_corpora: list[str] = None,
+        rag_resources: list[rag.RagResource] = None,
         similarity_top_k: int = None,
         vector_distance_threshold: float = None,
         result_mode: str = "documents",
@@ -86,17 +86,17 @@ class VertexAiRagRetrievalWithDocs(VertexAiRagRetrieval):
     ) -> Any:
         # Perform the standard retrieval query
         response = rag.retrieval_query(
-            text=args['query'],
+            text=args["query"],
             rag_resources=self.vertex_rag_store.rag_resources,
             rag_corpora=self.vertex_rag_store.rag_corpora,
             similarity_top_k=self.vertex_rag_store.similarity_top_k,
             vector_distance_threshold=self.vertex_rag_store.vector_distance_threshold,
         )
 
-        logging.debug('RAG raw response: %s', response)
+        logging.debug("RAG raw response: %s", response)
 
         if not response.contexts.contexts:
-            return f'No matching result found with the config: {self.vertex_rag_store}'
+            return f"No matching result found with the config: {self.vertex_rag_store}"
 
         # If result_mode is chunks (default), return chunks as text
         if self.result_mode != "documents":
@@ -106,7 +106,7 @@ class VertexAiRagRetrievalWithDocs(VertexAiRagRetrieval):
         logger.info("Fetching full documents for RAG results...")
 
         # Extract unique source URIs
-        unique_uris: Set[str] = set()
+        unique_uris: set[str] = set()
         for context in response.contexts.contexts:
             if context.source_uri:
                 unique_uris.add(context.source_uri)
@@ -128,9 +128,11 @@ class VertexAiRagRetrievalWithDocs(VertexAiRagRetrieval):
                 # if we have a file name but not a gs:// URI directly in context.
                 # However, context.source_uri is typically the GCS URI for imported files.
                 logger.warning(f"Skipping non-GCS URI: {uri}")
-                full_documents.append(f"Document reference: {uri} (Content not retrieved)")
+                full_documents.append(
+                    f"Document reference: {uri} (Content not retrieved)"
+                )
 
         if not full_documents:
-             return [context.text for context in response.contexts.contexts]
+            return [context.text for context in response.contexts.contexts]
 
         return full_documents

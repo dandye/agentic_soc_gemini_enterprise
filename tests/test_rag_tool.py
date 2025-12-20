@@ -1,40 +1,49 @@
 """
 Test for VertexAiRagRetrievalWithDocs
 """
-import unittest
-from unittest.mock import MagicMock, patch, AsyncMock
-from types import SimpleNamespace
 
 # Mock necessary modules before importing the tool
 import sys
+import unittest
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
+
 
 # Mock google.adk.tools.retrieval.vertex_ai_rag_retrieval
 class MockVertexAiRagRetrieval:
+
     def __init__(self, **kwargs):
         self.vertex_rag_store = SimpleNamespace(
-            rag_resources=kwargs.get('rag_resources'),
-            rag_corpora=kwargs.get('rag_corpora'),
-            similarity_top_k=kwargs.get('similarity_top_k'),
-            vector_distance_threshold=kwargs.get('vector_distance_threshold')
+            rag_resources=kwargs.get("rag_resources"),
+            rag_corpora=kwargs.get("rag_corpora"),
+            similarity_top_k=kwargs.get("similarity_top_k"),
+            vector_distance_threshold=kwargs.get("vector_distance_threshold"),
         )
 
     async def run_async(self, **kwargs):
         pass
+
 
 # Mock vertexai.preview.rag
 mock_rag = MagicMock()
 mock_rag.RagResource = MagicMock()
 
 # Setup mocks in sys.modules
-sys.modules['google.adk.tools.retrieval.vertex_ai_rag_retrieval'] = MagicMock()
-sys.modules['google.adk.tools.retrieval.vertex_ai_rag_retrieval'].VertexAiRagRetrieval = MockVertexAiRagRetrieval
-sys.modules['vertexai.preview.rag'] = mock_rag
-sys.modules['vertexai'] = MagicMock()
-sys.modules['vertexai.preview'] = MagicMock()
-sys.modules['vertexai.preview'].rag = mock_rag
+sys.modules["google.adk.tools.retrieval.vertex_ai_rag_retrieval"] = MagicMock()
+sys.modules[
+    "google.adk.tools.retrieval.vertex_ai_rag_retrieval"
+].VertexAiRagRetrieval = MockVertexAiRagRetrieval
+sys.modules["vertexai.preview.rag"] = mock_rag
+sys.modules["vertexai"] = MagicMock()
+sys.modules["vertexai.preview"] = MagicMock()
+sys.modules["vertexai.preview"].rag = mock_rag
 
 # Now import the tool to be tested
-from soc_agent.tools.vertex_ai_rag_tool import VertexAiRagRetrievalWithDocs
+
+from soc_agent.tools.vertex_ai_rag_tool import (  # noqa: E402
+    VertexAiRagRetrievalWithDocs,  # noqa: E402
+)
+
 
 class TestVertexAiRagRetrievalWithDocs(unittest.IsolatedAsyncioTestCase):
 
@@ -43,7 +52,7 @@ class TestVertexAiRagRetrievalWithDocs(unittest.IsolatedAsyncioTestCase):
         """Test default mode is now documents."""
         tool = VertexAiRagRetrievalWithDocs(
             name="test_tool",
-            description="test"
+            description="test",
             # result_mode defaults to "documents"
         )
 
@@ -64,8 +73,7 @@ class TestVertexAiRagRetrievalWithDocs(unittest.IsolatedAsyncioTestCase):
         mock_storage_client.return_value.bucket.return_value = mock_bucket
 
         result = await tool.run_async(
-            args={"query": "test query"},
-            tool_context=MagicMock()
+            args={"query": "test query"}, tool_context=MagicMock()
         )
 
         # Should return full document
@@ -76,9 +84,7 @@ class TestVertexAiRagRetrievalWithDocs(unittest.IsolatedAsyncioTestCase):
     async def test_run_async_chunks_mode(self):
         """Test explicit chunks mode."""
         tool = VertexAiRagRetrievalWithDocs(
-            name="test_tool",
-            description="test",
-            result_mode="chunks"
+            name="test_tool", description="test", result_mode="chunks"
         )
 
         # Mock retrieval_query response
@@ -91,8 +97,7 @@ class TestVertexAiRagRetrievalWithDocs(unittest.IsolatedAsyncioTestCase):
         mock_rag.retrieval_query.return_value = mock_response
 
         result = await tool.run_async(
-            args={"query": "test query"},
-            tool_context=MagicMock()
+            args={"query": "test query"}, tool_context=MagicMock()
         )
 
         self.assertEqual(result, ["chunk text"])
@@ -102,9 +107,7 @@ class TestVertexAiRagRetrievalWithDocs(unittest.IsolatedAsyncioTestCase):
     async def test_run_async_documents_mode_explicit(self, mock_storage_client):
         """Test documents mode with GCS download."""
         tool = VertexAiRagRetrievalWithDocs(
-            name="test_tool",
-            description="test",
-            result_mode="documents"
+            name="test_tool", description="test", result_mode="documents"
         )
 
         # Mock retrieval_query response
@@ -124,8 +127,7 @@ class TestVertexAiRagRetrievalWithDocs(unittest.IsolatedAsyncioTestCase):
         mock_storage_client.return_value.bucket.return_value = mock_bucket
 
         result = await tool.run_async(
-            args={"query": "test query"},
-            tool_context=MagicMock()
+            args={"query": "test query"}, tool_context=MagicMock()
         )
 
         self.assertEqual(len(result), 1)
@@ -141,9 +143,7 @@ class TestVertexAiRagRetrievalWithDocs(unittest.IsolatedAsyncioTestCase):
     async def test_run_async_documents_mode_invalid_uri(self, mock_storage_client):
         """Test documents mode with non-GCS URI."""
         tool = VertexAiRagRetrievalWithDocs(
-            name="test_tool",
-            description="test",
-            result_mode="documents"
+            name="test_tool", description="test", result_mode="documents"
         )
 
         # Mock retrieval_query response
@@ -156,8 +156,7 @@ class TestVertexAiRagRetrievalWithDocs(unittest.IsolatedAsyncioTestCase):
         mock_rag.retrieval_query.return_value = mock_response
 
         result = await tool.run_async(
-            args={"query": "test query"},
-            tool_context=MagicMock()
+            args={"query": "test query"}, tool_context=MagicMock()
         )
 
         # Should fallback to or return a message about non-GCS URI
@@ -168,5 +167,6 @@ class TestVertexAiRagRetrievalWithDocs(unittest.IsolatedAsyncioTestCase):
         # Verify storage client was NOT used for download
         mock_storage_client.return_value.bucket.assert_not_called()
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     unittest.main()
