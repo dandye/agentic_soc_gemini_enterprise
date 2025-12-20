@@ -1,6 +1,6 @@
 .env
 venv
 installation_scripts/__pycache__/manage_agentspace.cpython-312.pyc
-CLAUDE.md
+GEMINI.md
 .env.ltstrtn
 .venv
