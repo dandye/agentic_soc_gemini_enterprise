@@ -41,6 +41,7 @@ from google.adk.agents import Agent
 from google.adk.tools import AgentTool, google_search
 from google.adk.tools.mcp_tool.mcp_session_manager import StdioConnectionParams
 from google.adk.tools.mcp_tool.mcp_toolset import McpToolset
+from google.adk.tools.preload_memory_tool import PreloadMemoryTool
 from google.adk.tools.retrieval.vertex_ai_rag_retrieval import VertexAiRagRetrieval
 from mcp import StdioServerParameters
 from vertexai.preview import rag
@@ -49,6 +50,20 @@ from vertexai.preview import rag
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+async def auto_save_session_to_memory_callback(callback_context):
+    """
+    Callback to automatically save the session to memory at the end of a turn.
+
+    This ensures that all interactions are preserved in the configured memory service
+    (InMemory or Vertex AI Memory Bank) for future recall.
+    """
+    if callback_context._invocation_context.memory_service:
+        await callback_context._invocation_context.memory_service.add_session_to_memory(
+            callback_context._invocation_context.session
+        )
+
 
 # ========================================================================
 # CTI Researcher Persona Definition
@@ -397,6 +412,13 @@ def create_agent():
     tools.append(AgentTool(agent=google_search))
 
     # ========================================================================
+    # Configure Memory Tools
+    # ========================================================================
+    logger.info("Configuring Memory tools...")
+    # Add PreloadMemoryTool to automatically load relevant memories at the start of each turn
+    tools.append(PreloadMemoryTool())
+
+    # ========================================================================
     # Create the Agent with all configured tools
     # ========================================================================
     logger.info(f"Creating CTI Agent with {len(tools)} tools...")
@@ -459,6 +481,7 @@ IMPORTANT GUIDELINES:
 
 When researching threats, ALWAYS retrieve relevant runbooks first for structured methodologies. Your RAG corpus contains proven threat research workflows and analytical techniques.""",
         tools=tools,
+        after_agent_callback=auto_save_session_to_memory_callback,
     )
 
     logger.info("CTI Agent created successfully!")
