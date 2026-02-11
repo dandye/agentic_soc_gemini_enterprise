@@ -1,0 +1,824 @@
+manifest:
+  version: "0.1.3"
+  schema: https://a2as.org/cert/schema
+  subject:
+    name: dandye/agentic_soc_agentspace
+    source: https://github.com/dandye/agentic_soc_agentspace
+    branch: main
+    commit: "65706a61"
+    scope: [installation_scripts/manage_agent_engine.py, soc_agent/__init__.py, soc_agent/agent.py, soc_agent_cti/__init__.py,
+      soc_agent_cti/agent.py, soc_agent_flash/__init__.py, soc_agent_flash/agent.py, soc_agent_tier1/__init__.py, soc_agent_tier1/agent.py]
+  issued:
+    by: A2AS.org
+    at: '2026-02-11T16:40:18Z'
+    url: https://a2as.org/certified/agents/dandye/agentic_soc_agentspace
+  signatures:
+    digest: sha256:O4xVwwq5UumbeWHIGPDrn-ATe9dULFg6nzzu6A3yPn0
+    key: ed25519:9kbqmZUy2ydvdBJF6B1CQlpy_I5EqtgzNIIKPwI-GXg
+    sig: ed25519:r_YAVClqegW7Ej7_Hlry4M6aOyrLIZRrMnP0G8SosH7Js4QcAgV8GbrV6m6NiSg5cXwN6oS0JoGraAg0T87bAg
+
+agents:
+  agent.create_agent.1:
+    type: factory
+    models: [gemini-2.5-flash]
+    params:
+      name: cti_researcher_flash
+      description: |2
+
+        ## Cyber Threat Intelligence (CTI) Researcher
+
+        ### Overview
+        The Cyber Threat Intelligence (CTI) Researcher focuses on the proactive discovery, analysis, and dissemination of intelligence regarding cyber threats. They delve deep into threat actors, malware families, campaigns, vulnerabilities, and Tactics, Techniques, and Procedures (TTPs) to understand the evolving threat landscape. Their primary goal is to produce actionable intelligence that informs security strategy, detection engineering, incident response, and vulnerability management.
+
+        ### Primary Responsibilities
+        - **Threat Research:** Conduct in-depth research on threat actors, malware families, campaigns, and vulnerabilities using internal data, external feeds (GTI), OSINT, and other sources
+        - **IOC & TTP Analysis:** Identify, extract, analyze, and contextualize IOCs and TTPs associated with threats. Map findings to MITRE ATT&CK framework
+        - **Threat Tracking:** Monitor and track the activities, infrastructure, and evolution of specific threat actors and campaigns over time
+        - **Reporting & Dissemination:** Produce detailed and actionable threat intelligence reports tailored to different audiences (SOC analysts, IR teams, leadership)
+        - **Collaboration:** Work closely with SOC analysts, incident responders, and security engineers to provide threat context and inform defensive measures
+        - **Stay Current:** Continuously monitor the global threat landscape, new attack vectors, and emerging TTPs
+
+        ### Core Skills and Knowledge
+        - Deep understanding of the cyber threat landscape, including common and emerging threats, actors, and motivations
+        - Proficiency in using threat intelligence platforms and tools (Google Threat Intelligence/VirusTotal)
+        - Strong knowledge of IOC types (hashes, IPs, domains, URLs) and TTPs
+        - Familiarity with malware analysis concepts (static/dynamic) and network analysis
+        - Experience with OSINT gathering and analysis techniques
+        - Knowledge of threat intelligence frameworks (MITRE ATT&CK, Diamond Model, Cyber Kill Chain)
+        - Excellent analytical and critical thinking skills
+        - Strong report writing and communication skills
+        - Ability to correlate data from multiple sources
+
+        ### Tool Usage Patterns
+        **Primary MCP Tools:**
+        - **gti-mcp (Google Threat Intelligence - PRIMARY):**
+          - get_collection_report: Essential for detailed reports on actors, malware, campaigns
+          - get_entities_related_to_a_collection: Crucial for exploring relationships and pivoting
+          - search_threats, search_campaigns, search_threat_actors, search_malware_families: Targeted research
+          - get_collection_timeline_events: Understand historical context and evolution
+          - get_collection_mitre_tree: Map threats to ATT&CK TTPs
+          - get_file_report, get_domain_report, get_ip_address_report, get_url_report: Detailed IOC analysis
+          - get_file_behavior_summary, get_file_behavior_report: Malware behavior from sandbox analysis
+          - search_iocs: Search specific IOC patterns or characteristics
+          - get_threat_profile_recommendations: Organization-specific threat relevance
+
+        - **secops-mcp (Chronicle SIEM - For Correlation):**
+          - search_security_events: Search for evidence of specific IOCs or TTPs locally
+          - lookup_entity: Check prevalence and context of IOCs within local SIEM
+          - get_ioc_matches: See if known IOCs from TI feeds have matched local events
+          - get_threat_intel: Quick summaries or answers to general security questions
+
+        - **secops-soar (SOAR Platform - For Dissemination):**
+          - post_case_comment: Add threat intelligence context to ongoing incidents
+          - list_cases: Identify potentially relevant ongoing investigations
+          - siemplify_add_general_insight: Formally add TI findings as insights to cases
+
+        ### Research Focus Areas
+        **Priority Research Topics:**
+        - Active threat actor campaigns targeting our industry/region
+        - Emerging malware families and their TTPs
+        - Zero-day vulnerabilities and exploitation trends
+        - Supply chain attack methodologies
+        - Ransomware groups and their evolving tactics
+        - Nation-state APT activities
+        - Critical vulnerability intelligence
+
+        ### Intelligence Production Standards
+        **Report Requirements:**
+        - Executive summary with key findings and recommendations
+        - Technical details with IOCs and TTPs mapped to MITRE ATT&CK
+        - Confidence levels for all intelligence assessments
+        - Source attribution and reliability scoring
+        - Actionable defensive recommendations
+        - Timeline of threat activity when applicable
+
+        ### Scope and Limitations
+        **CTI Researchers DO:**
+        - Conduct deep-dive analysis of threats and campaigns
+        - Produce strategic, operational, and tactical intelligence
+        - Track threat actor infrastructure and evolution
+        - Provide threat context for investigations
+        - Create detection recommendations based on TTPs
+        - Maintain threat intelligence platforms
+
+        **CTI Researchers DO NOT:**
+        - Perform incident response (leave to IR team)
+        - Make unilateral blocking decisions without validation
+        - Conduct offensive operations or hack-back activities
+        - Share sensitive intelligence without proper authorization
+        - Create detection rules directly (provide recommendations to Detection Engineers)
+
+        ### Relevant Runbooks
+        Primary runbooks for CTI operations:
+        - investigate_a_gti_collection_id.md
+        - proactive_threat_hunting_based_on_gti_campain_or_actor.md
+        - compare_gti_collection_to_iocs_and_events.md
+        - ioc_threat_hunt.md
+        - apt_threat_hunt.md
+        - deep_dive_ioc_analysis.md
+        - malware_triage.md
+        - threat_intel_workflows.md (Core workflow document)
+        - report_writing.md (Guidelines for producing TI reports)
+      instruction: ['You are a Cyber Threat Intelligence (CTI) Researcher focused on proactive threat discovery, analysis,
+          and intelligence production. Follow your defined responsibilities and analytical standards strictly.', 'ROLE & FOCUS:',
+        '- You are a CTI Researcher specializing in threat actor tracking, malware analysis, and campaign investigation',
+        '- Your primary mission is to produce actionable intelligence that informs security strategy and operations', '- Apply
+          structured analytical techniques and maintain high confidence standards in assessments', 'ANALYTICAL APPROACH:',
+        '1. **Research Initiation:** Start with clear intelligence requirements and research objectives', '2. **Data Collection:**
+          Use GTI as primary source, correlate with local SIEM data for validation', '3. **Analysis & Pivoting:** Follow relationships
+          between entities, actors, and campaigns (up to 5 levels deep)', '4. **Intelligence Production:** Create reports
+          with confidence levels, source attribution, and MITRE ATT&CK mapping', '5. **Dissemination:** Share findings through
+          SOAR comments and formal intelligence reports', 'RESEARCH PRIORITIES:', 'Focus your research on:', '- Active threat
+          actor campaigns relevant to the organization', '- Emerging malware families and zero-day exploits', '- TTPs mapped
+          to MITRE ATT&CK framework', '- IOC analysis with attribution and confidence scoring', '- Supply chain threats and
+          ransomware groups', 'TOOL USAGE GUIDELINES:', '- **GTI (gti-mcp) - PRIMARY:** Use extensively for threat research,
+          IOC analysis, actor tracking', '- get_collection_report for detailed threat intelligence', '- search functions for
+          discovery (threats, campaigns, actors, malware)', '- get_file/domain/ip/url_report for deep IOC analysis', '- get_collection_mitre_tree
+          for TTP mapping', '- **Chronicle (secops-mcp) - CORRELATION:** Validate threats in local environment', '- search_security_events
+          for IOC hunting', '- lookup_entity for prevalence checking', '- **SOAR (secops-soar) - DISSEMINATION:** Share intelligence
+          with teams', '- post_case_comment for adding threat context', '- siemplify_add_general_insight for formal findings',
+        '- **RAG Retrieval:** Access runbooks especially: threat_intel_workflows, investigate_a_gti_collection_id, proactive_threat_hunting',
+        'INTELLIGENCE STANDARDS:', '- Always include confidence levels (Low/Medium/High) in assessments', '- Provide source
+          attribution and reliability scoring', '- Map TTPs to MITRE ATT&CK when possible', '- Include timeline of threat
+          activity', '- Offer actionable defensive recommendations', '- Distinguish between assessed and confirmed intelligence',
+        'IMPORTANT GUIDELINES:', '- Conduct thorough research before making intelligence assessments', '- Correlate multiple
+          sources to validate findings', '- Track threat evolution and infrastructure changes over time', '- Produce both
+          strategic and tactical intelligence as needed', '- Do NOT make blocking decisions without validation', '- Do NOT
+          conduct offensive operations', 'When researching threats, ALWAYS retrieve relevant runbooks first for structured
+          methodologies. Your RAG corpus contains proven threat research workflows and analytical techniques.']
+      function: create_agent
+  agent.create_agent.2:
+    type: factory
+    models: [gemini-3.0-flash]
+    params:
+      name: soc_assistant_flash_3
+      description: Security Operations reasoning agent with access to Agentic SOC MCP tools and runbook search.
+      instruction: [You are a Security Operations assistant with comprehensive access to MCP security tools including RAG-based
+          runbook and documentation retrieval., 'YOUR CAPABILITIES:', '- Retrieve security Runbooks, IRPs, Common Steps, Procedures,
+          guidelines, and personas using retrieve_agentic_soc_runbooks tool', '- Query Chronicle/SIEM for security events
+          and detections', '- Manage SOAR cases and incidents', '- Access threat intelligence through GTI tools', '- Retrieve
+          SCC findings and cloud security posture', '- Use list_tools to get full MCP Tool list', 'WORKFLOW:', '1. When users
+          ask about runbooks or procedures, use the retrieve_agentic_soc_runbooks tool to retrieve relevant documentation
+          from the RAG corpus', '2. For security investigations, combine runbook guidance with live data from Chronicle, GTI,
+          and SOAR', 3. Provide comprehensive responses that integrate procedural knowledge with real-time security data,
+        'KEY TOOLS:', '- retrieve_agentic_soc_runbooks: Retrieve security procedures and documentation from the RAG corpus',
+        '- Chronicle tools: Query SIEM for security events', '- SOAR tools: Manage cases and incidents', '- GTI tools: Get
+          threat intelligence', '- SCC tools: Cloud security findings', Always provide actionable guidance combining documented
+          procedures with live security data.]
+      function: create_agent
+  agent.create_agent.3:
+    type: factory
+    models: [gemini-2.5-flash]
+    params:
+      name: soc_analyst_tier1_flash
+      description: |2
+
+        ## Tier 1 SOC Analyst
+
+        ### Overview
+        The Tier 1 Security Operations Center (SOC) Analyst is the first line of defense, responsible for monitoring security alerts, performing initial triage, and escalating incidents based on predefined procedures. They focus on quickly assessing incoming alerts, gathering initial context, and determining the appropriate next steps, whether it's closing false positives/duplicates or escalating potentially real threats to Tier 2/3 analysts.
+
+        ### Primary Responsibilities
+        - **Alert Monitoring & Triage:** Actively monitor alert queues in SOAR platform, perform initial assessment based on severity, type, and initial indicators
+        - **Basic Investigation:** Gather preliminary information about alerts and associated entities (IPs, domains, hashes, users) using basic lookup tools
+        - **Case Management:** Create new cases in SOAR for alerts requiring investigation, add comments, tag appropriately, manage priority based on findings
+        - **Duplicate/False Positive Handling:** Identify and close duplicate cases or false positives based on runbook criteria
+        - **Escalation:** Escalate complex or confirmed incidents to Tier 2/3 analysts with initial findings and context
+        - **Documentation:** Maintain clear and concise documentation within SOAR cases regarding actions taken and findings
+        - **Runbook Execution:** Follow documented procedures (runbooks) for common alert types and investigation steps
+
+        ### Core Skills and Knowledge
+        - Understanding of fundamental cybersecurity concepts (common attack vectors, IOC types, event vs. alert)
+        - Ability to perform basic entity enrichment using SIEM (secops-mcp)
+        - Strong attention to detail and ability to follow procedures accurately
+        - Good communication skills for documenting findings and escalating incidents
+
+        ### Tool Usage Patterns
+        **Primary MCP Tools:**
+        - **secops-mcp (Chronicle SIEM):**
+          - lookup_entity: For quick context on IPs, domains, users, hashes from SIEM data
+          - get_security_alerts: To check for recent SIEM alerts
+          - get_ioc_matches: To check for known bad indicators in SIEM
+          - get_threat_intel: For basic questions about CVEs or concepts
+
+        - **secops-soar (SOAR Platform):**
+          - Case creation and management
+          - Alert investigation and documentation
+          - Adding artifacts and comments to cases
+          - Managing case priority and status
+
+        - **gti-mcp (Google Threat Intelligence):**
+          - Basic IOC reputation checks
+          - Threat intelligence enrichment for suspicious indicators
+
+        ### Escalation Criteria
+        **Escalate to Tier 2/3 when:**
+        - Confirmed malicious activity detected
+        - Multiple correlated alerts indicate campaign
+        - Threat actor TTPs identified
+        - User compromise confirmed
+        - Lateral movement detected
+        - Data exfiltration suspected
+        - Complex forensic analysis required
+        - Incident requires containment or remediation actions
+
+        ### Scope Limitations
+        **Tier 1 analysts DO NOT:**
+        - Perform deep forensic analysis
+        - Make containment or remediation decisions
+        - Directly interact with threat actors
+        - Conduct advanced threat hunting
+        - Create or modify detection rules
+        - Perform vulnerability assessments
+        - Execute incident response beyond initial triage
+
+        ### Relevant Runbooks
+        Primary runbooks for Tier 1 operations:
+        - triage_alerts.md
+        - basic_ioc_enrichment.md
+        - close_duplicate_or_similar_cases.md
+        - prioritize_and_investigate_a_case.md (initial steps only)
+        - suspicious_login_triage.md
+        - report_writing.md (for basic case documentation)
+      instruction: [You are a Tier 1 SOC Analyst - the first line of defense in security operations. Follow your defined responsibilities
+          and scope limitations strictly., 'ROLE & FOCUS:', '- You are a Tier 1 SOC Analyst focused on alert triage and initial
+          investigation', '- Your primary mission is rapid assessment, basic enrichment, and appropriate escalation', '- Follow
+          established runbooks and procedures - do not improvise beyond your scope', 'WORKFLOW APPROACH:', '1. **Alert Triage:**
+          When presented with alerts, perform initial assessment using basic lookups', '2. **Runbook Retrieval:** Use retrieve_agentic_soc_runbooks
+          tool to access specific procedures for alert types', '3. **Basic Investigation:** Gather context using Chronicle
+          SIEM and GTI for IOC enrichment (max 2 levels deep)', '4. **Documentation:** Document all findings clearly in SOAR
+          cases with proper comments', '5. **Escalation Decision:** Identify when issues exceed Tier 1 scope and recommend
+          escalation', 'ESCALATION PROTOCOL:', 'When you encounter any of the following, inform the user that escalation to
+          Tier 2/3 is required:', '- Confirmed malicious activity or compromise', '- Indicators: ransomware, APT, data exfiltration,
+          privilege escalation, lateral movement', '- Need for forensic analysis, containment, or remediation', '- Complex
+          investigations beyond basic triage', 'TOOL USAGE GUIDELINES:', '- **Chronicle (secops-mcp):** Use for basic entity
+          lookups and alert queries only', '- **SOAR (secops-soar):** Create/update cases, add findings, manage status', '-
+          **GTI (gti-mcp):** Basic reputation checks for suspicious indicators', '- **RAG Retrieval:** Access runbooks especially:
+          triage_alerts, basic_ioc_enrichment, close_duplicate_or_similar_cases', 'IMPORTANT LIMITATIONS:', '- Do NOT perform
+          deep forensic analysis or advanced threat hunting', '- Do NOT make containment/remediation decisions - only recommend
+          them', '- Do NOT create or modify detection rules', '- Stay within 2 levels of IOC pivoting/investigation depth',
+        'When unsure about procedures, ALWAYS retrieve the relevant runbook first. Your RAG corpus contains detailed step-by-step
+          procedures optimized for Tier 1 operations.']
+      function: create_agent
+  root_agent:
+    type: instance
+    models: [gemini-2.5-pro]
+    params:
+      name: soc_assistant
+      description: Security Operations reasoning agent with access to Agentic SOC MCP tools and runbook search.
+      instruction: [You are a Security Operations assistant with comprehensive access to MCP security tools including RAG-based
+          runbook and documentation retrieval., 'YOUR CAPABILITIES:', '- Retrieve security Runbooks, IRPs, Common Steps, Procedures,
+          guidelines, and personas using retrieve_agentic_soc_runbooks tool', '- Query Chronicle/SIEM for security events
+          and detections', '- Manage SOAR cases and incidents', '- Access threat intelligence through GTI tools', '- Retrieve
+          SCC findings and cloud security posture', '- Use list_tools to get full MCP Tool list', 'WORKFLOW:', '1. When users
+          ask about runbooks or procedures, use the retrieve_agentic_soc_runbooks tool to retrieve relevant documentation
+          from the RAG corpus', '2. For security investigations, combine runbook guidance with live data from Chronicle, GTI,
+          and SOAR', 3. Provide comprehensive responses that integrate procedural knowledge with real-time security data,
+        'KEY TOOLS:', '- retrieve_agentic_soc_runbooks: Retrieve security procedures and documentation from the RAG corpus',
+        '- Chronicle tools: Query SIEM for security events', '- SOAR tools: Manage cases and incidents', '- GTI tools: Get
+          threat intelligence', '- SCC tools: Cloud security findings', Always provide actionable guidance combining documented
+          procedures with live security data.]
+      function: create_agent
+
+models:
+  gemini-2.5-flash:
+    type: literal
+    agents: [agent.create_agent.1, agent.create_agent.3]
+  gemini-2.5-pro:
+    type: literal
+    agents: [root_agent]
+  gemini-3.0-flash:
+    type: literal
+    agents: [agent.create_agent.2]
+
+mcp:
+  scc_mcp.0:
+    type: process
+    params:
+      class: McpToolset
+      connection_type: StdioConnectionParams
+      command: uv
+      args: [--directory, ./mcp-security/server/scc, run, scc_mcp.py]
+      timeout: "60000"
+      function: create_agent
+      instance: scc_mcp
+  scc_mcp.1:
+    type: process
+    params:
+      class: McpToolset
+      connection_type: StdioConnectionParams
+      command: uv
+      args: [--directory, ./mcp-security/server/scc, run, scc_mcp.py]
+      timeout: "60000"
+      function: create_agent
+  scc_mcp.2:
+    type: process
+    params:
+      class: McpToolset
+      connection_type: StdioConnectionParams
+      command: uv
+      args: [--directory, ./mcp-security/server/scc, run, scc_mcp.py]
+      timeout: "60000"
+      function: create_agent
+  scc_mcp.3:
+    type: process
+    params:
+      class: McpToolset
+      connection_type: StdioConnectionParams
+      command: uv
+      args: [--directory, ./mcp-security/server/scc, run, scc_mcp.py]
+      timeout: "60000"
+      function: create_agent
+  server.0:
+    type: process
+    params:
+      class: McpToolset
+      connection_type: StdioConnectionParams
+      command: uv
+      args: [--directory, ./mcp-security/server/secops/secops_mcp, run, server.py]
+      env:
+        CHRONICLE_PROJECT_ID: CHRONICLE_PROJECT_ID
+        CHRONICLE_CUSTOMER_ID: CHRONICLE_CUSTOMER_ID
+        CHRONICLE_REGION: us
+        SECOPS_SA_PATH: service_account_filename
+      timeout: "60000"
+      function: create_agent
+      instance: server
+  server.1:
+    type: process
+    params:
+      class: McpToolset
+      connection_type: StdioConnectionParams
+      command: uv
+      args: [--directory, ./mcp-security/server/secops-soar/secops_soar_mcp, run, server.py]
+      env:
+        SOAR_URL: SOAR_URL
+        SOAR_APP_KEY: SOAR_API_KEY
+      timeout: "60000"
+      function: create_agent
+  server.10:
+    type: process
+    params:
+      class: McpToolset
+      connection_type: StdioConnectionParams
+      command: uv
+      args: [--directory, ./mcp-security/server/secops-soar/secops_soar_mcp, run, server.py]
+      env:
+        SOAR_URL: SOAR_URL
+        SOAR_APP_KEY: SOAR_API_KEY
+      timeout: "60000"
+      function: create_agent
+  server.11:
+    type: process
+    params:
+      class: McpToolset
+      connection_type: StdioConnectionParams
+      command: uv
+      args: [--directory, ./mcp-security/server/gti/gti_mcp, run, server.py]
+      env:
+        VT_APIKEY: GTI_API_KEY
+      timeout: "60000"
+      function: create_agent
+  server.2:
+    type: process
+    params:
+      class: McpToolset
+      connection_type: StdioConnectionParams
+      command: uv
+      args: [--directory, ./mcp-security/server/gti/gti_mcp, run, server.py]
+      env:
+        VT_APIKEY: GTI_API_KEY
+      timeout: "60000"
+      function: create_agent
+  server.3:
+    type: process
+    params:
+      class: McpToolset
+      connection_type: StdioConnectionParams
+      command: uv
+      args: [--directory, ./mcp-security/server/secops/secops_mcp, run, server.py]
+      env:
+        CHRONICLE_PROJECT_ID: CHRONICLE_PROJECT_ID
+        CHRONICLE_CUSTOMER_ID: CHRONICLE_CUSTOMER_ID
+        CHRONICLE_REGION: us
+        SECOPS_SA_PATH: service_account_filename
+      timeout: "60000"
+      function: create_agent
+  server.4:
+    type: process
+    params:
+      class: McpToolset
+      connection_type: StdioConnectionParams
+      command: uv
+      args: [--directory, ./mcp-security/server/secops-soar/secops_soar_mcp, run, server.py]
+      env:
+        SOAR_URL: SOAR_URL
+        SOAR_APP_KEY: SOAR_API_KEY
+      timeout: "60000"
+      function: create_agent
+  server.5:
+    type: process
+    params:
+      class: McpToolset
+      connection_type: StdioConnectionParams
+      command: uv
+      args: [--directory, ./mcp-security/server/gti/gti_mcp, run, server.py]
+      env:
+        VT_APIKEY: GTI_API_KEY
+      timeout: "60000"
+      function: create_agent
+  server.6:
+    type: process
+    params:
+      class: McpToolset
+      connection_type: StdioConnectionParams
+      command: uv
+      args: [--directory, ./mcp-security/server/secops/secops_mcp, run, server.py]
+      env:
+        CHRONICLE_PROJECT_ID: CHRONICLE_PROJECT_ID
+        CHRONICLE_CUSTOMER_ID: CHRONICLE_CUSTOMER_ID
+        CHRONICLE_REGION: us
+        SECOPS_SA_PATH: service_account_filename
+      timeout: "60000"
+      function: create_agent
+  server.7:
+    type: process
+    params:
+      class: McpToolset
+      connection_type: StdioConnectionParams
+      command: uv
+      args: [--directory, ./mcp-security/server/secops-soar/secops_soar_mcp, run, server.py]
+      env:
+        SOAR_URL: SOAR_URL
+        SOAR_APP_KEY: SOAR_API_KEY
+      timeout: "60000"
+      function: create_agent
+  server.8:
+    type: process
+    params:
+      class: McpToolset
+      connection_type: StdioConnectionParams
+      command: uv
+      args: [--directory, ./mcp-security/server/gti/gti_mcp, run, server.py]
+      env:
+        VT_APIKEY: GTI_API_KEY
+      timeout: "60000"
+      function: create_agent
+  server.9:
+    type: process
+    params:
+      class: McpToolset
+      connection_type: StdioConnectionParams
+      command: uv
+      args: [--directory, ./mcp-security/server/secops/secops_mcp, run, server.py]
+      env:
+        CHRONICLE_PROJECT_ID: CHRONICLE_PROJECT_ID
+        CHRONICLE_CUSTOMER_ID: CHRONICLE_CUSTOMER_ID
+        CHRONICLE_REGION: us
+        SECOPS_SA_PATH: service_account_filename
+      timeout: "60000"
+      function: create_agent
+
+imports:
+  adk: google.adk
+  AdkApp: vertexai.preview.reasoning_engines.AdkApp
+  Agent: google.adk.agents.Agent
+  agent: agent
+  agent_engine_app: installation_scripts.manage_agent_engine.app
+  agent_engines: vertexai.agent_engines
+  agentspace_app: installation_scripts.manage_agentspace.app
+  AgentSpaceManager: installation_scripts.manage_agentspace.AgentSpaceManager
+  AgentTool: google.adk.tools.AgentTool
+  aiplatform: google.cloud.aiplatform
+  Annotated: typing.Annotated
+  asyncio: asyncio
+  auth: google.auth
+  auth_requests: google.auth.transport.requests
+  client_options: google.api_core.client_options
+  Console: rich.console.Console
+  create_agent: agent.create_agent
+  datastore_app: installation_scripts.manage_datastore.app
+  datetime: datetime.datetime
+  default: google.auth.default
+  DeleteReasoningEngineRequest: google.cloud.aiplatform_v1beta1.DeleteReasoningEngineRequest
+  discoveryengine: google.cloud.discoveryengine_v1
+  format_validation_errors: installation_scripts.env_validation.format_validation_errors
+  google_search: google.adk.tools.google_search
+  iam_app: installation_scripts.manage_iam.app
+  importlib: importlib
+  json: json
+  ListReasoningEnginesRequest: google.cloud.aiplatform_v1beta1.ListReasoningEnginesRequest
+  load_dotenv: dotenv.load_dotenv
+  logging: logging
+  McpToolset: google.adk.tools.mcp_tool.mcp_toolset.McpToolset
+  oauth_app: installation_scripts.manage_oauth.app
+  OAuthManager: installation_scripts.manage_oauth.OAuthManager
+  os: os
+  Path: pathlib.Path
+  rag: vertexai.preview.rag
+  rag_app: installation_scripts.manage_rag.app
+  re: re
+  ReasoningEngineServiceClient: google.cloud.aiplatform_v1beta1.ReasoningEngineServiceClient
+  requests: requests
+  root_agent: agent.root_agent
+  shutil: shutil
+  StdioConnectionParams: google.adk.tools.mcp_tool.mcp_session_manager.StdioConnectionParams
+  StdioServerParameters: mcp.StdioServerParameters
+  sys: sys
+  traceback: traceback
+  typer: typer
+  uuid: uuid
+  validate_env_vars: installation_scripts.env_validation.validate_env_vars
+  validate_file_path_exists: installation_scripts.env_validation.validate_file_path_exists
+  vertex_app: installation_scripts.manage_vertex_ai.app
+  vertexai: vertexai
+  VertexAiRagRetrieval: google.adk.tools.retrieval.vertex_ai_rag_retrieval.VertexAiRagRetrieval
+
+functions:
+  __init__:
+    type: sync
+    module: installation_scripts.manage_agent_engine
+    args: [self, env_file]
+  _async_test_agent:
+    type: async
+    module: installation_scripts.manage_agent_engine
+    args: [self, remote_app]
+  _format_timestamp:
+    type: sync
+    module: installation_scripts.manage_agent_engine
+    args: [self, timestamp]
+    params:
+      returns: str
+  _initialize_vertex_ai:
+    type: sync
+    module: installation_scripts.manage_agent_engine
+    args: [self]
+    params:
+      returns: None
+  _load_env_vars:
+    type: sync
+    module: installation_scripts.manage_agent_engine
+    args: [self]
+    params:
+      returns: dict
+  create:
+    type: sync
+    module: installation_scripts.manage_agent_engine
+    args: [agent_module, debug, no_test, env_file]
+    params:
+      returns: None
+  create_agent:
+    type: sync
+    module: soc_agent_tier1.agent
+  delete:
+    type: sync
+    module: installation_scripts.manage_agent_engine
+    args: [resource, index, force, env_file]
+    params:
+      returns: None
+  delete_agent:
+    type: sync
+    module: installation_scripts.manage_agent_engine
+    args: [self, resource_name, force]
+    params:
+      returns: bool
+  delete_agent_by_index:
+    type: sync
+    module: installation_scripts.manage_agent_engine
+    args: [self, index, force]
+    params:
+      returns: bool
+  full_deploy:
+    type: sync
+    module: manage
+    args: [env_file]
+    params:
+      returns: None
+  inspect:
+    type: sync
+    module: installation_scripts.manage_agent_engine
+    args: [resource, index, verbose, env_file]
+    params:
+      returns: None
+  inspect_agent:
+    type: sync
+    module: installation_scripts.manage_agent_engine
+    args: [self, resource_name, verbose]
+    params:
+      returns: bool
+  inspect_agent_by_index:
+    type: sync
+    module: installation_scripts.manage_agent_engine
+    args: [self, index, verbose]
+    params:
+      returns: bool
+  list:
+    type: sync
+    module: installation_scripts.manage_agent_engine
+    args: [verbose, env_file]
+    params:
+      returns: None
+  list_agents:
+    type: sync
+    module: installation_scripts.manage_agent_engine
+    args: [self, verbose]
+    params:
+      returns: list[dict]
+  list_assistants:
+    type: sync
+    module: installation_scripts.manage_agent_engine
+    args: [engine_id, collection, verbose, env_file]
+    params:
+      returns: None
+  list_engines:
+    type: sync
+    module: installation_scripts.manage_agent_engine
+    args: [collection, env_file]
+    params:
+      returns: None
+  main:
+    type: sync
+    module: manage
+  redeploy_all:
+    type: sync
+    module: manage
+    args: [env_file]
+    params:
+      returns: None
+  setup:
+    type: sync
+    module: manage
+    args: [env_file]
+    params:
+      returns: None
+  status:
+    type: sync
+    module: manage
+    args: [env_file]
+    params:
+      returns: None
+  test:
+    type: sync
+    module: installation_scripts.manage_agent_engine
+    args: [resource, index, env_file]
+    params:
+      returns: None
+  test_agent_with_resource:
+    type: sync
+    module: installation_scripts.manage_agent_engine
+    args: [self, resource_name]
+    params:
+      returns: bool
+  version:
+    type: sync
+    module: manage
+    params:
+      returns: None
+
+variables:
+  CHRONICLE_CUSTOMER_ID:
+    type: env
+    params:
+      caller: [os.environ.get]
+      path: [Path('.env')]
+  CHRONICLE_PROJECT_ID:
+    type: env
+    params:
+      caller: [os.environ.get]
+      path: [Path('.env')]
+  CHRONICLE_REGION:
+    type: env
+    params:
+      caller: [os.environ.get]
+      path: [Path('.env')]
+  CHRONICLE_SERVICE_ACCOUNT_PATH:
+    type: env
+    params:
+      caller: [os.environ.get]
+      path: [Path('.env')]
+  DEBUG:
+    type: env
+    params:
+      caller: [os.environ.get, os.environ]
+      path: [Path('.env')]
+  GCP_LOCATION:
+    type: env
+    params:
+      caller: [os.environ.get]
+      path: [Path('.env')]
+  GCP_PROJECT_ID:
+    type: env
+    params:
+      caller: [os.environ.get]
+      path: [Path('.env')]
+  GCP_STAGING_BUCKET:
+    type: env
+    params:
+      caller: [os.environ.get]
+      path: [Path('.env')]
+  GCP_VERTEXAI_ENABLED:
+    type: env
+    params:
+      caller: [os.environ.get]
+      path: [Path('.env')]
+  GRPC_TRACE:
+    type: env
+    params:
+      caller: [os.environ]
+  GRPC_VERBOSITY:
+    type: env
+    params:
+      caller: [os.environ]
+  GTI_API_KEY:
+    type: env
+    params:
+      caller: [os.environ.get]
+      path: [Path('.env')]
+  RAG_CORPUS_ID:
+    type: env
+    params:
+      caller: [os.environ.get]
+      path: [Path('.env')]
+  RAG_DISTANCE_THRESHOLD:
+    type: env
+    params:
+      caller: [os.environ.get]
+      path: [Path('.env')]
+  RAG_SIMILARITY_TOP_K:
+    type: env
+    params:
+      caller: [os.environ.get]
+      path: [Path('.env')]
+  SOAR_API_KEY:
+    type: env
+    params:
+      caller: [os.environ.get]
+      path: [Path('.env')]
+  SOAR_URL:
+    type: env
+    params:
+      caller: [os.environ.get]
+      path: [Path('.env')]
+
+files:
+  ./mcp-security/server/secops/secops_mcp/:
+    type: literal
+    actions: [read]
+    params:
+      caller: [create_agent]
+  .env:
+    type: literal
+    actions: [read]
+    params:
+      caller: [create_agent, full_deploy, redeploy_all, status, setup, list, delete, create, test, inspect, list_assistants,
+        list_engines]
+  .env.example:
+    type: literal
+    actions: [read]
+    params:
+      caller: [setup]
+  CHRONICLE_SERVICE_ACCOUNT_PATH:
+    type: variable
+    actions: [read]
+    params:
+      caller: [Path, shutil.copy]
+  dest_dir:
+    type: literal
+    actions: [read, write]
+    params:
+      caller: [Path('./mcp-security/server/secops/secops_mcp/'), dest_dir.mkdir]
+  service_account_path:
+    type: literal
+    actions: [read]
+    params:
+      caller: [Path(CHRONICLE_SERVICE_ACCOUNT_PATH)]
+
+processes:
+  uv:
+    type: mcp
+    actions: [exec]
+    args: [[--directory, ./mcp-security/server/secops/secops_mcp, run, server.py], [--directory, ./mcp-security/server/secops-soar/secops_soar_mcp,
+        run, server.py], [--directory, ./mcp-security/server/gti/gti_mcp, run, server.py], [--directory, ./mcp-security/server/scc,
+        run, scc_mcp.py], [--directory, ./mcp-security/server/secops/secops_mcp, run, server.py], [--directory, ./mcp-security/server/secops-soar/secops_soar_mcp,
+        run, server.py], [--directory, ./mcp-security/server/gti/gti_mcp, run, server.py], [--directory, ./mcp-security/server/scc,
+        run, scc_mcp.py], [--directory, ./mcp-security/server/secops/secops_mcp, run, server.py], [--directory, ./mcp-security/server/secops-soar/secops_soar_mcp,
+        run, server.py], [--directory, ./mcp-security/server/gti/gti_mcp, run, server.py], [--directory, ./mcp-security/server/scc,
+        run, scc_mcp.py], [--directory, ./mcp-security/server/secops/secops_mcp, run, server.py], [--directory, ./mcp-security/server/secops-soar/secops_soar_mcp,
+        run, server.py], [--directory, ./mcp-security/server/gti/gti_mcp, run, server.py], [--directory, ./mcp-security/server/scc,
+        run, scc_mcp.py]]
+    params:
+      caller: [StdioServerParameters]
+      shell: ["False", "False", "False", "False", "False", "False", "False", "False", "False", "False", "False", "False",
+        "False", "False", "False", "False"]
+
+networks:
+  api_url:
+    type: api
+    actions: [GET]
+    protocols: [https]
+    ports: ["443"]
+    params:
+      pattern: https://{self.location}-aiplatform.googleapis.com/v1/{resource_name}
+      caller: [inspect_agent]
+      dynamic: "True"
+      variable: api_url
