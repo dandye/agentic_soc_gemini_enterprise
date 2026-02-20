@@ -28,6 +28,7 @@ from google.cloud.aiplatform_v1beta1 import (
 )
 from vertexai import agent_engines
 from vertexai.preview.reasoning_engines import AdkApp
+from google.adk.memory.vertex_ai_memory_bank_service import VertexAiMemoryBankService
 
 
 # Import Discovery Engine client for Agent Builder assistants
@@ -649,15 +650,40 @@ class AgentEngineManager:
             typer.echo("Creating agent...")
             agent = create_agent_func()
 
+            # Configure memory service builder for NotebookLM-like memory bank
+            # This creates a new memory scope for each investigation (session)
+            def memory_service_builder():
+                # Try to get AGENT_ENGINE_ID from environment (set after deployment)
+                agent_engine_id = os.environ.get("AGENT_ENGINE_ID")
+
+                # If not set, check if we can parse it from resource name
+                if not agent_engine_id and os.environ.get("AGENT_ENGINE_RESOURCE_NAME"):
+                    resource_name = os.environ.get("AGENT_ENGINE_RESOURCE_NAME")
+                    agent_engine_id = resource_name.split("/")[-1] if "/" in resource_name else resource_name
+
+                return VertexAiMemoryBankService(
+                    project=GCP_PROJECT_ID,
+                    location=GCP_LOCATION,
+                    agent_engine_id=agent_engine_id,
+                )
+
             # Create the ADK app
             typer.echo("Creating ADK app...")
             app = AdkApp(
                 agent=agent,
                 enable_tracing=True,
+                memory_service_builder=memory_service_builder,
             )
+
+            # Resolve AGENT_ENGINE_ID for deployment environment
+            agent_engine_id = os.environ.get("AGENT_ENGINE_ID")
+            if not agent_engine_id and os.environ.get("AGENT_ENGINE_RESOURCE_NAME"):
+                resource_name = os.environ.get("AGENT_ENGINE_RESOURCE_NAME")
+                agent_engine_id = resource_name.split("/")[-1] if "/" in resource_name else resource_name
 
             # Get environment variables for deployment
             env_vars = {
+                "AGENT_ENGINE_ID": agent_engine_id,
                 "CHRONICLE_PROJECT_ID": os.environ.get("CHRONICLE_PROJECT_ID"),
                 "CHRONICLE_CUSTOMER_ID": os.environ.get("CHRONICLE_CUSTOMER_ID"),
                 "CHRONICLE_REGION": os.environ.get("CHRONICLE_REGION", "us"),
@@ -674,6 +700,13 @@ class AgentEngineManager:
                 "SOAR_APP_KEY": os.environ.get("SOAR_API_KEY"),
                 "VT_APIKEY": os.environ.get("GTI_API_KEY"),
             }
+
+            # Check if AGENT_ENGINE_ID is set for memory features
+            if not agent_engine_id:
+                typer.secho(
+                    "\nWarning: AGENT_ENGINE_ID/RESOURCE_NAME not set. Memory features (NotebookLM notebook) will not work until redeployment.",
+                    fg=typer.colors.YELLOW
+                )
 
             # Determine display name based on agent module
             if agent_module == "soc_agent_flash":
