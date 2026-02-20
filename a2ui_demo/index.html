@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SOC Agent - A2UI Client</title>
+    <style>
+        :root {
+            --bg-color: #0d1117;
+            --text-color: #c9d1d9;
+            --card-bg: #161b22;
+            --border-color: #30363d;
+            --primary-color: #58a6ff;
+            --accent-color: #238636;
+            --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+            --mono-font: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            font-family: var(--font-family);
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        header {
+            background-color: var(--card-bg);
+            border-bottom: 1px solid var(--border-color);
+            padding: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 1.2rem;
+            font-weight: 600;
+        }
+
+        .badge {
+            background: var(--accent-color);
+            color: white;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 0.8rem;
+            font-weight: bold;
+        }
+
+        main {
+            flex: 1;
+            overflow-y: auto;
+            padding: 1rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            max-width: 800px;
+            margin: 0 auto;
+            width: 100%;
+            box-sizing: border-box;
+        }
+
+        .message {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .message.user {
+            align-items: flex-end;
+        }
+
+        .message.agent {
+            align-items: flex-start;
+        }
+
+        .message-bubble {
+            padding: 0.8rem 1rem;
+            border-radius: 8px;
+            max-width: 80%;
+            line-height: 1.5;
+        }
+
+        .user .message-bubble {
+            background-color: var(--primary-color);
+            color: #0d1117;
+            border-top-right-radius: 0;
+        }
+
+        .agent .message-bubble {
+            background-color: transparent; /* Agent uses A2UI components directly */
+            padding: 0;
+            max-width: 100%;
+            width: 100%;
+        }
+
+        /* A2UI Component Styles */
+        .a2ui-surface {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            width: 100%;
+        }
+
+        .a2ui-card {
+            background-color: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 1rem;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+        }
+
+        .a2ui-row {
+            display: flex;
+            flex-direction: row;
+            gap: 1rem;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .a2ui-column {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .a2ui-text {
+            font-size: 1rem;
+        }
+
+        .a2ui-text.h1 { font-size: 1.8rem; font-weight: bold; }
+        .a2ui-text.h2 { font-size: 1.5rem; font-weight: bold; border-bottom: 1px solid var(--border-color); padding-bottom: 0.3rem; margin-bottom: 0.5rem; }
+        .a2ui-text.h3 { font-size: 1.2rem; font-weight: bold; color: var(--primary-color); }
+        .a2ui-text.caption { font-size: 0.85rem; color: #8b949e; }
+        .a2ui-text.code { font-family: var(--mono-font); background: rgba(110,118,129,0.4); padding: 0.2em 0.4em; border-radius: 3px; }
+
+        .a2ui-button {
+            background-color: #21262d;
+            border: 1px solid var(--border-color);
+            color: var(--primary-color);
+            padding: 5px 16px;
+            border-radius: 6px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+
+        .a2ui-button:hover {
+            background-color: #30363d;
+            border-color: #8b949e;
+        }
+
+        .a2ui-divider {
+            height: 1px;
+            background-color: var(--border-color);
+            margin: 0.5rem 0;
+            width: 100%;
+        }
+
+        footer {
+            background-color: var(--card-bg);
+            border-top: 1px solid var(--border-color);
+            padding: 1rem;
+        }
+
+        form {
+            display: flex;
+            gap: 1rem;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        input[type="text"] {
+            flex: 1;
+            background-color: var(--bg-color);
+            border: 1px solid var(--border-color);
+            color: var(--text-color);
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            outline: none;
+        }
+
+        input[type="text"]:focus {
+            border-color: var(--primary-color);
+        }
+
+        button[type="submit"] {
+            background-color: var(--accent-color);
+            color: white;
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        button[type="submit"]:hover {
+            opacity: 0.9;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <svg height="32" viewBox="0 0 16 16" version="1.1" width="32" aria-hidden="true" fill="currentColor"><path d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-6.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13Z"></path></svg>
+        <h1>SOC Agent <span class="badge">A2UI Client</span></h1>
+    </header>
+
+    <main id="chat-container">
+        <!-- Messages will appear here -->
+        <div class="message agent">
+            <div class="a2ui-surface">
+                 <div class="a2ui-card">
+                     <div class="a2ui-column">
+                         <div class="a2ui-text h3">Welcome to the SOC Agent</div>
+                         <div class="a2ui-text">I am ready to assist with security operations.</div>
+                     </div>
+                 </div>
+            </div>
+        </div>
+    </main>
+
+    <footer>
+        <form id="chat-form">
+            <input type="text" id="user-input" placeholder="Ask to triage alert, hunt threat, or investigate case..." autocomplete="off">
+            <button type="submit">Send</button>
+        </form>
+    </footer>
+
+    <script>
+        const chatContainer = document.getElementById('chat-container');
+        const chatForm = document.getElementById('chat-form');
+        const userInput = document.getElementById('user-input');
+
+        chatForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const message = userInput.value.trim();
+            if (!message) return;
+
+            // Append user message
+            appendUserMessage(message);
+            userInput.value = '';
+
+            // Call API
+            try {
+                const response = await fetch('/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message })
+                });
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+
+                // Create agent message container
+                const agentMessageDiv = document.createElement('div');
+                agentMessageDiv.className = 'message agent';
+                const surfaceDiv = document.createElement('div');
+                surfaceDiv.className = 'a2ui-surface';
+                agentMessageDiv.appendChild(surfaceDiv);
+                chatContainer.appendChild(agentMessageDiv);
+
+                // A2UI State for this response
+                const componentRegistry = new Map();
+                let rootId = null;
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop(); // Keep the incomplete line
+
+                    for (const line of lines) {
+                        if (!line.trim()) continue;
+                        try {
+                            const msg = JSON.parse(line);
+                            handleA2UIMessage(msg, componentRegistry, surfaceDiv);
+                        } catch (err) {
+                            console.error('Error parsing JSONL:', err, line);
+                        }
+                    }
+                }
+            } catch (err) {
+                console.error('Fetch error:', err);
+                appendErrorMessage("Error communicating with agent.");
+            }
+        });
+
+        function appendUserMessage(text) {
+            const div = document.createElement('div');
+            div.className = 'message user';
+            div.innerHTML = `<div class="message-bubble">${text}</div>`;
+            chatContainer.appendChild(div);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
+        function appendErrorMessage(text) {
+             const div = document.createElement('div');
+            div.className = 'message agent'; // reusing agent style for simplicity
+            div.innerHTML = `<div class="a2ui-card" style="border-color: red; color: red;">${text}</div>`;
+            chatContainer.appendChild(div);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
+        function handleA2UIMessage(msg, registry, surfaceDiv) {
+            if (msg.surfaceUpdate) {
+                const update = msg.surfaceUpdate;
+                // We assume surfaceId is 'main' for this demo or we just use one surface per message
+                if (update.components) {
+                    for (const item of update.components) {
+                        registry.set(item.id, item.component);
+                    }
+                }
+            } else if (msg.beginRendering) {
+                const rootId = msg.beginRendering.root;
+                renderSurface(rootId, registry, surfaceDiv);
+            }
+        }
+
+        function renderSurface(rootId, registry, container) {
+            container.innerHTML = ''; // Clear previous render (progressive rendering usually appends or updates, but simplified here)
+            const element = renderComponent(rootId, registry);
+            if (element) {
+                container.appendChild(element);
+            }
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
+        function renderComponent(id, registry) {
+            const compData = registry.get(id);
+            if (!compData) return null;
+
+            const type = Object.keys(compData)[0];
+            const props = compData[type];
+
+            const el = document.createElement('div');
+
+            switch (type) {
+                case 'Card':
+                    el.className = 'a2ui-card';
+                    if (props.child) {
+                        const child = renderComponent(props.child, registry);
+                        if (child) el.appendChild(child);
+                    }
+                    break;
+                case 'Column':
+                    el.className = 'a2ui-column';
+                    if (props.children && props.children.explicitList) {
+                        for (const childId of props.children.explicitList) {
+                            const child = renderComponent(childId, registry);
+                            if (child) el.appendChild(child);
+                        }
+                    }
+                    break;
+                case 'Row':
+                    el.className = 'a2ui-row';
+                    if (props.children && props.children.explicitList) {
+                        for (const childId of props.children.explicitList) {
+                            const child = renderComponent(childId, registry);
+                            if (child) el.appendChild(child);
+                        }
+                    }
+                    break;
+                case 'Text':
+                    el.className = `a2ui-text ${props.usageHint || ''}`;
+                    if (props.text && props.text.literalString) {
+                        el.textContent = props.text.literalString;
+                    }
+                    if (props.color) {
+                        el.style.color = props.color;
+                    }
+                    break;
+                case 'Button':
+                    el.className = 'a2ui-button';
+                    if (props.label && props.label.literalString) {
+                        el.textContent = props.label.literalString;
+                    }
+                    el.onclick = () => {
+                        console.log('Action:', props.action);
+                        appendUserMessage(`[Action: ${props.action.name}]`);
+                        // In a real app, send userAction event to server
+                    };
+                    break;
+                case 'Divider':
+                    el.className = 'a2ui-divider';
+                    break;
+                 case 'Image':
+                    // Replaced with img tag
+                    const img = document.createElement('img');
+                    img.className = 'a2ui-image';
+                    if (props.url && props.url.literalString) {
+                        img.src = props.url.literalString;
+                    }
+                    img.style.maxWidth = '100%';
+                    img.style.borderRadius = '4px';
+                    return img;
+                default:
+                    el.textContent = `Unknown component: ${type}`;
+                    el.style.color = 'red';
+            }
+            return el;
+        }
+    </script>
+</body>
+</html>
