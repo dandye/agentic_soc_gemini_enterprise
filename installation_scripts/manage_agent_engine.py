@@ -19,6 +19,7 @@ from typing import Annotated
 import typer
 import vertexai
 from dotenv import load_dotenv
+from google.adk.memory.vertex_ai_memory_bank_service import VertexAiMemoryBankService
 from google.api_core import client_options
 from google.cloud import aiplatform
 from google.cloud.aiplatform_v1beta1 import (
@@ -28,7 +29,6 @@ from google.cloud.aiplatform_v1beta1 import (
 )
 from vertexai import agent_engines
 from vertexai.preview.reasoning_engines import AdkApp
-from google.adk.memory.vertex_ai_memory_bank_service import VertexAiMemoryBankService
 
 
 # Import Discovery Engine client for Agent Builder assistants
