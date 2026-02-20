@@ -659,7 +659,11 @@ class AgentEngineManager:
                 # If not set, check if we can parse it from resource name
                 if not agent_engine_id and os.environ.get("AGENT_ENGINE_RESOURCE_NAME"):
                     resource_name = os.environ.get("AGENT_ENGINE_RESOURCE_NAME")
-                    agent_engine_id = resource_name.split("/")[-1] if "/" in resource_name else resource_name
+                    agent_engine_id = (
+                        resource_name.split("/")[-1]
+                        if "/" in resource_name
+                        else resource_name
+                    )
 
                 return VertexAiMemoryBankService(
                     project=GCP_PROJECT_ID,
@@ -679,7 +683,11 @@ class AgentEngineManager:
             agent_engine_id = os.environ.get("AGENT_ENGINE_ID")
             if not agent_engine_id and os.environ.get("AGENT_ENGINE_RESOURCE_NAME"):
                 resource_name = os.environ.get("AGENT_ENGINE_RESOURCE_NAME")
-                agent_engine_id = resource_name.split("/")[-1] if "/" in resource_name else resource_name
+                agent_engine_id = (
+                    resource_name.split("/")[-1]
+                    if "/" in resource_name
+                    else resource_name
+                )
 
             # Get environment variables for deployment
             env_vars = {
@@ -705,7 +713,7 @@ class AgentEngineManager:
             if not agent_engine_id:
                 typer.secho(
                     "\nWarning: AGENT_ENGINE_ID/RESOURCE_NAME not set. Memory features (NotebookLM notebook) will not work until redeployment.",
-                    fg=typer.colors.YELLOW
+                    fg=typer.colors.YELLOW,
                 )
 
             # Determine display name based on agent module
