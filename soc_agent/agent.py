@@ -38,13 +38,13 @@ from pathlib import Path
 import vertexai
 from dotenv import load_dotenv
 from google.adk.agents import Agent
+from google.adk.agents.callback_context import CallbackContext
+from google.adk.models import LlmResponse
 from google.adk.tools.mcp_tool.mcp_session_manager import StdioConnectionParams
 from google.adk.tools.mcp_tool.mcp_toolset import McpToolset
 from google.adk.tools.retrieval.vertex_ai_rag_retrieval import VertexAiRagRetrieval
 from mcp import StdioServerParameters
 from vertexai.preview import rag
-from google.adk.agents.callback_context import CallbackContext
-from google.adk.models import LlmResponse
 
 
 # Configure logging
@@ -58,7 +58,9 @@ def track_token_usage(ctx: CallbackContext, response: LlmResponse) -> None:
         total_tokens_used = ctx.state.get("total_tokens_used", 0)
         prompt_tokens = response.usage_metadata.prompt_token_count or 0
         candidates_tokens = response.usage_metadata.candidates_token_count or 0
-        ctx.state["total_tokens_used"] = total_tokens_used + prompt_tokens + candidates_tokens
+        ctx.state["total_tokens_used"] = (
+            total_tokens_used + prompt_tokens + candidates_tokens
+        )
 
 
 def create_agent():
