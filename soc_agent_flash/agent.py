@@ -63,8 +63,10 @@ def prevent_runaway_loop_callback(
     current_state = callback_context.state.to_dict()
     turn_count = current_state.get("turn_count", 0) + 1
     callback_context.state.update({"turn_count": turn_count})
-
-    max_turns = 25
+    try:
+        max_turns = int(os.environ.get("MAX_SESSION_TURNS", "25"))
+    except ValueError:
+        max_turns = 25
     remaining = max_turns - turn_count
 
     instruction = f"Current turn counter is {turn_count}. There are {remaining} turns before exit. You MUST conclude the session and exit if the turn reaches {max_turns}. Prevent runaway sessions or endless loops."
