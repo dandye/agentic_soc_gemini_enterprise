@@ -38,6 +38,8 @@ from pathlib import Path
 import vertexai
 from dotenv import load_dotenv
 from google.adk.agents import Agent
+from google.adk.agents.callback_context import CallbackContext
+from google.adk.models import LlmRequest, LlmResponse
 from google.adk.tools import AgentTool, google_search
 from google.adk.tools.mcp_tool.mcp_session_manager import StdioConnectionParams
 from google.adk.tools.mcp_tool.mcp_toolset import McpToolset
@@ -49,6 +51,28 @@ from vertexai.preview import rag
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+def prevent_runaway_loop_callback(
+    callback_context: CallbackContext, llm_request: LlmRequest
+) -> LlmResponse | None:
+    """
+    Prevents runaway sessions by incrementing a turn counter and injecting
+    instructions to exit when a threshold is reached.
+    """
+    current_state = callback_context.state.to_dict()
+    turn_count = current_state.get("turn_count", 0) + 1
+    callback_context.state.update({"turn_count": turn_count})
+    try:
+        max_turns = int(os.environ.get("MAX_SESSION_TURNS", "25"))
+    except ValueError:
+        max_turns = 25
+    remaining = max_turns - turn_count
+
+    instruction = f"Current turn counter is {turn_count}. There are {remaining} turns before exit. You MUST conclude the session and exit if the turn reaches {max_turns}. Prevent runaway sessions or endless loops."
+
+    llm_request.append_instructions([instruction])
+    return None
 
 
 def create_agent():
@@ -299,6 +323,7 @@ KEY TOOLS:
 
 Always provide actionable guidance combining documented procedures with live security data.""",
         tools=tools,
+        before_model_callback=prevent_runaway_loop_callback,
     )
 
     logger.info("SOC Agent created successfully!")
