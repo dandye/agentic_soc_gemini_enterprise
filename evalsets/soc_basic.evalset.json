@@ -1,0 +1,122 @@
+{
+  "evalset_id": "soc_basic",
+  "name": "SOC Agent Basic Operations",
+  "description": "Tests fundamental agent operations: runbook retrieval, SOAR queries, and basic delegation",
+  "eval_cases": [
+    {
+      "eval_id": "runbook_ransomware",
+      "name": "Runbook Retrieval - Ransomware",
+      "conversation": [
+        {
+          "role": "user",
+          "content": "What's the procedure for handling a ransomware incident?"
+        }
+      ],
+      "reference": {
+        "expected_specialist": "orchestrator_direct",
+        "tool_trajectory": ["retrieve_agentic_soc_runbooks"],
+        "final_response_must_contain": [
+          "ransomware",
+          "containment",
+          "isolate"
+        ],
+        "success_criteria": {
+          "has_grounding_citation": true,
+          "mentions_knowledge_base": true,
+          "provides_actionable_steps": true
+        }
+      }
+    },
+    {
+      "eval_id": "list_soar_cases",
+      "name": "List SOAR Cases",
+      "conversation": [
+        {
+          "role": "user",
+          "content": "List all open SOAR cases"
+        }
+      ],
+      "reference": {
+        "expected_specialist": "tier1_analyst",
+        "tool_trajectory": ["list_cases"],
+        "final_response_must_contain": [
+          "Tier 1",
+          "list_cases"
+        ],
+        "success_criteria": {
+          "specialist_attribution": true,
+          "tool_name_mentioned": true,
+          "definitive_result_statement": true
+        }
+      }
+    },
+    {
+      "eval_id": "empty_response_clarity",
+      "name": "Empty Response Handling",
+      "conversation": [
+        {
+          "role": "user",
+          "content": "Are there any open security cases in SOAR?"
+        }
+      ],
+      "reference": {
+        "expected_specialist": "tier1_analyst",
+        "tool_trajectory": ["list_cases"],
+        "success_criteria": {
+          "no_hedging_language": true,
+          "definitive_statement": true,
+          "prohibited_phrases": [
+            "unable to retrieve",
+            "might indicate",
+            "could mean",
+            "possibly"
+          ]
+        },
+        "expected_response_pattern": "no.*cases|There are no.*cases"
+      }
+    },
+    {
+      "eval_id": "runbook_malware_triage",
+      "name": "Runbook Retrieval - Malware Triage",
+      "conversation": [
+        {
+          "role": "user",
+          "content": "Show me the malware triage procedure"
+        }
+      ],
+      "reference": {
+        "expected_specialist": "orchestrator_direct",
+        "tool_trajectory": ["retrieve_agentic_soc_runbooks"],
+        "final_response_must_contain": [
+          "malware",
+          "triage"
+        ],
+        "success_criteria": {
+          "has_grounding_citation": true,
+          "provides_procedure_steps": true
+        }
+      }
+    },
+    {
+      "eval_id": "transparency_specialist_attribution",
+      "name": "Transparency - Specialist Attribution",
+      "conversation": [
+        {
+          "role": "user",
+          "content": "Check the SOAR platform for any cases related to phishing"
+        }
+      ],
+      "reference": {
+        "expected_specialist": "tier1_analyst",
+        "success_criteria": {
+          "specialist_attribution": true,
+          "mentions_specialist_role": true,
+          "required_phrases": [
+            "Tier 1 analyst",
+            "specialist"
+          ]
+        }
+      }
+    }
+  ]
+}
