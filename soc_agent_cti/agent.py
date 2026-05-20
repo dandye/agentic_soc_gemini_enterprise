@@ -40,8 +40,10 @@ from pathlib import Path
 import vertexai
 from dotenv import load_dotenv
 from google.adk.agents import Agent
+from google.adk.agents.callback_context import CallbackContext
 from google.adk.agents.context import Context
-from google.adk.tools import google_search
+from google.adk.models import LlmRequest, LlmResponse
+from google.adk.tools import AgentTool, google_search
 from google.adk.tools.mcp_tool.mcp_session_manager import StdioConnectionParams
 from google.adk.tools.mcp_tool.mcp_toolset import McpToolset
 from vertexai.preview import rag
@@ -389,6 +391,28 @@ async def after_tool_cache(tool, args, tool_context: Context, tool_response, **k
     return tool_response  # Return result to the model
 
 
+def prevent_runaway_loop_callback(
+    callback_context: CallbackContext, llm_request: LlmRequest
+) -> LlmResponse | None:
+    """
+    Prevents runaway sessions by incrementing a turn counter and injecting
+    instructions to exit when a threshold is reached.
+    """
+    current_state = callback_context.state.to_dict()
+    turn_count = current_state.get("turn_count", 0) + 1
+    callback_context.state.update({"turn_count": turn_count})
+    try:
+        max_turns = int(os.environ.get("MAX_SESSION_TURNS", "25"))
+    except ValueError:
+        max_turns = 25
+    remaining = max_turns - turn_count
+
+    instruction = f"Current turn counter is {turn_count}. There are {remaining} turns before exit. You MUST conclude the session and exit if the turn reaches {max_turns}. Prevent runaway sessions or endless loops."
+
+    llm_request.append_instructions([instruction])
+    return None
+
+
 def create_agent():
     """
     Create the CTI Agent with all MCP tools and RAG retrieval configured.
@@ -645,6 +669,7 @@ When you retrieve a runbook or formulate a plan, you MUST summarize the standard
 CRITICAL INSTRUCTION - TOOL INTROSPECTION:
 If the user asks for a list of your tools, capabilities, or functions, you MUST introspect your own native function calling schema directly to answer. DO NOT query the RAG corpus for information about your own tools. You already have a native understanding of your `tools` array; rely strictly on that literal schema to describe what actions you can take.""",
         tools=tools,
+        before_model_callback=prevent_runaway_loop_callback,
         before_tool_callback=before_tool_cache,
         after_tool_callback=after_tool_cache,
         after_agent_callback=generate_memory,

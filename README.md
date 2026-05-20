@@ -7,6 +7,8 @@ Deploy security-focused AI agents to Gemini Enterprise with integrated access to
 
 Built with [Google ADK](https://google.github.io/adk-docs/) (Agent Development Kit) and deployed via Vertex AI Reasoning Engine.
 
+[![Watch the video](https://img.youtube.com/vi/KB2dJQEpjsw/maxresdefault.jpg)](https://www.youtube.com/watch?v=KB2dJQEpjsw)
+
 ## Table of Contents
 
 - [Quick Start](#quick-start)
