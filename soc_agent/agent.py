@@ -65,17 +65,18 @@ import google.cloud.logging  # noqa: E402
 import vertexai  # noqa: E402
 from dotenv import load_dotenv  # noqa: E402
 from google.adk.agents import Agent  # noqa: E402
+from google.adk.agents.callback_context import CallbackContext  # noqa: E402
 from google.adk.agents.context import Context  # noqa: E402
+from google.adk.models import LlmRequest, LlmResponse  # noqa: E402
 from google.adk.skills import load_skill_from_dir  # noqa: E402
 from google.adk.tools import skill_toolset  # noqa: E402
 from google.adk.tools.agent_tool import AgentTool  # noqa: E402
-from google.adk.agents.callback_context import CallbackContext  # noqa: E402
-from google.adk.models import LlmRequest, LlmResponse  # noqa: E402
-from google.adk.tools.mcp_tool.mcp_session_manager import StdioConnectionParams  # noqa: E402
+from google.adk.tools.mcp_tool.mcp_session_manager import (  # noqa: E402
+    StdioConnectionParams,  # noqa: E402
+)
 from google.adk.tools.mcp_tool.mcp_toolset import McpToolset  # noqa: E402
-from google.adk.tools.retrieval.vertex_ai_rag_retrieval import VertexAiRagRetrieval  # noqa: E402
 from mcp import StdioServerParameters  # noqa: E402
-from vertexai.preview import rag  # noqa: E402
+
 
 # Silence the harmless but noisy InMemorySessionService warning inside sub-agents
 # The AgentTool spins up sub-agents with a brand new InMemorySessionService but passes
@@ -105,10 +106,6 @@ im_session.InMemorySessionService.append_event = _patched_append_event
 
 from google.adk.tools.load_memory_tool import LoadMemoryTool  # noqa: E402
 from google.adk.tools.preload_memory_tool import PreloadMemoryTool  # noqa: E402
-from google.adk.tools.mcp_tool.mcp_session_manager import (  # noqa: E402
-    StdioConnectionParams,  # noqa: E402
-)
-from google.adk.tools.mcp_tool.mcp_toolset import McpToolset  # noqa: E402
 from google.adk.tools.retrieval import VertexAiRagRetrieval  # noqa: E402
 from google.cloud import storage  # noqa: E402
 from google.genai.types import (  # noqa: E402
@@ -116,7 +113,6 @@ from google.genai.types import (  # noqa: E402
     GenerateContentConfig,
     Part,
 )
-from mcp import StdioServerParameters  # noqa: E402
 
 from soc_agent.tools.a2ui_renderer import render_dashboard  # noqa: E402
 from soc_agent.tools.chatops_tools import (  # noqa: E402
@@ -200,17 +196,11 @@ class SharedScopePreloadMemoryTool(PreloadMemoryTool):
 
     SHARED_USER_ID = "global_soc_team"
 
-    async def process_llm_request(
-        self, *, tool_context, llm_request
-    ) -> None:
+    async def process_llm_request(self, *, tool_context, llm_request) -> None:
         from google.adk.tools import _memory_entry_utils
 
         user_content = tool_context.user_content
-        if (
-            not user_content
-            or not user_content.parts
-            or not user_content.parts[0].text
-        ):
+        if not user_content or not user_content.parts or not user_content.parts[0].text:
             return
 
         user_query = user_content.parts[0].text
@@ -221,9 +211,7 @@ class SharedScopePreloadMemoryTool(PreloadMemoryTool):
                 tool_context._invocation_context, "memory_service", None
             )
             if not memory_service:
-                logger.warning(
-                    "PRELOAD_MEMORY: No memory service available, skipping."
-                )
+                logger.warning("PRELOAD_MEMORY: No memory service available, skipping.")
                 return
 
             response = await memory_service.search_memory(
@@ -243,15 +231,11 @@ class SharedScopePreloadMemoryTool(PreloadMemoryTool):
 
         memory_text_lines = []
         for memory in response.memories:
-            if time_str := (
-                f"Time: {memory.timestamp}" if memory.timestamp else ""
-            ):
+            if time_str := (f"Time: {memory.timestamp}" if memory.timestamp else ""):
                 memory_text_lines.append(time_str)
             if memory_text := _memory_entry_utils.extract_text(memory):
                 memory_text_lines.append(
-                    f"{memory.author}: {memory_text}"
-                    if memory.author
-                    else memory_text
+                    f"{memory.author}: {memory_text}" if memory.author else memory_text
                 )
         if not memory_text_lines:
             return
@@ -865,26 +849,29 @@ def create_agent():
 
     # Build environment dict for MCP servers
     # These credentials are passed to each MCP server process
-    mcp_env = {
-        "CHRONICLE_PROJECT_ID": CHRONICLE_PROJECT_ID or "",
-        "CHRONICLE_CUSTOMER_ID": CHRONICLE_CUSTOMER_ID or "",
-        "CHRONICLE_REGION": CHRONICLE_REGION or "us",
-        "SOAR_URL": SOAR_URL or "",
-        "SOAR_APP_KEY": SOAR_APP_KEY or "",
-        "VT_APIKEY": GTI_API_KEY or "",  # GTI uses VT_APIKEY
-        "GCP_PROJECT_ID": GCP_PROJECT_ID or "",
-        # GTI caching configuration (latency optimization)
-        "GTI_CACHE_ENABLED": os.environ.get("GTI_CACHE_ENABLED", "True"),
-        "GTI_CACHE_FILE_TTL": os.environ.get("GTI_CACHE_FILE_TTL", "86400"),
-        "GTI_CACHE_IP_TTL": os.environ.get("GTI_CACHE_IP_TTL", "900"),
-        "GTI_CACHE_DOMAIN_TTL": os.environ.get("GTI_CACHE_DOMAIN_TTL", "1800"),
-        "GTI_CACHE_URL_TTL": os.environ.get("GTI_CACHE_URL_TTL", "1800"),
-        "GTI_CACHE_MAX_SIZE": os.environ.get("GTI_CACHE_MAX_SIZE", "1000"),
-        "GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY": "True",
-        "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT": "True",
-        "OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT": "32768",  # Truncate large tool payloads to prevent 64KB GCP Trace limit crash
-        "OTEL_SPAN_ATTRIBUTE_VALUE_LENGTH_LIMIT": "32768",
-    }
+    mcp_env = os.environ.copy()
+    mcp_env.update(
+        {
+            "CHRONICLE_PROJECT_ID": CHRONICLE_PROJECT_ID or "",
+            "CHRONICLE_CUSTOMER_ID": CHRONICLE_CUSTOMER_ID or "",
+            "CHRONICLE_REGION": CHRONICLE_REGION or "us",
+            "SOAR_URL": SOAR_URL or "",
+            "SOAR_APP_KEY": SOAR_APP_KEY or "",
+            "VT_APIKEY": GTI_API_KEY or "",  # GTI uses VT_APIKEY
+            "GCP_PROJECT_ID": GCP_PROJECT_ID or "",
+            # GTI caching configuration (latency optimization)
+            "GTI_CACHE_ENABLED": os.environ.get("GTI_CACHE_ENABLED", "True"),
+            "GTI_CACHE_FILE_TTL": os.environ.get("GTI_CACHE_FILE_TTL", "86400"),
+            "GTI_CACHE_IP_TTL": os.environ.get("GTI_CACHE_IP_TTL", "900"),
+            "GTI_CACHE_DOMAIN_TTL": os.environ.get("GTI_CACHE_DOMAIN_TTL", "1800"),
+            "GTI_CACHE_URL_TTL": os.environ.get("GTI_CACHE_URL_TTL", "1800"),
+            "GTI_CACHE_MAX_SIZE": os.environ.get("GTI_CACHE_MAX_SIZE", "1000"),
+            "GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY": "True",
+            "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT": "True",
+            "OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT": "32768",  # Truncate large tool payloads to prevent 64KB GCP Trace limit crash
+            "OTEL_SPAN_ATTRIBUTE_VALUE_LENGTH_LIMIT": "32768",
+        }
+    )
 
     # Add Chronicle service account if available
     if CHRONICLE_SERVICE_ACCOUNT_SECRET:
@@ -894,8 +881,12 @@ def create_agent():
         mcp_env["CHRONICLE_SERVICE_ACCOUNT_SECRET"] = CHRONICLE_SERVICE_ACCOUNT_SECRET
     elif service_account_filename:
         logger.warning("AUTH_DEBUG [soc_agent]: Adding SECOPS_SA_PATH to mcp_env")
-        # Ensure we use the filename (not absolute path) so it works in the container where the file is copied
-        mcp_env["SECOPS_SA_PATH"] = service_account_filename
+        # Ensure we use the filename (not absolute path) so it works in the container where the file is copied.
+        # For local execution, use the absolute path since the file isn't copied to the runner CWD.
+        if os.environ.get("REASONING_ENGINE_DEPLOYMENT") == "True":
+            mcp_env["SECOPS_SA_PATH"] = service_account_filename
+        else:
+            mcp_env["SECOPS_SA_PATH"] = CHRONICLE_SERVICE_ACCOUNT_PATH
     else:
         logger.warning(
             "AUTH_DEBUG [soc_agent]: NEITHER SECRET NOR PATH WAS ADDED TO mcp_env!"
@@ -1037,7 +1028,7 @@ def create_agent():
 
     cti_subagent = Agent(
         name="cti_researcher",
-        model="gemini-3-flash-preview",
+        model="gemini-2.5-flash",
         description=CTI_PERSONA,
         instruction="""You are a Cyber Threat Intelligence (CTI) Researcher focused on proactive threat discovery, analysis, and intelligence production.
 
@@ -1092,6 +1083,8 @@ CRITICAL: When formulating analysis plans, summarize your approach and ask for u
         after_tool_callback=after_tool_cache,
         after_agent_callback=generate_memory,
         generate_content_config=strict_config,
+        mode="task",
+        disallow_transfer_to_peers=True,
     )
 
     # ========================================================================
@@ -1162,7 +1155,7 @@ CRITICAL: When formulating analysis plans, summarize your approach and ask for u
 
     tier1_subagent = Agent(
         name="tier1_analyst",
-        model="gemini-3-flash-preview",
+        model="gemini-2.5-flash",
         description=TIER1_PERSONA,
         instruction="""You are a Tier 1 SOC Analyst - the first line of defense in security operations.
 
@@ -1229,6 +1222,8 @@ CRITICAL: Summarize procedures and ask for user permission before executing stat
         after_tool_callback=after_tool_cache,
         after_agent_callback=generate_memory,
         generate_content_config=strict_config,
+        mode="task",
+        disallow_transfer_to_peers=True,
     )
 
     # Flash agent removed - orchestrator will route simple queries to CTI or Tier1 based on complexity
@@ -1311,7 +1306,9 @@ CRITICAL: Summarize procedures and ask for user permission before executing stat
         )
 
     # Add Memory tools — PreloadMemory for automatic context, LoadMemory for on-demand queries
-    orchestrator_tools.append(SharedScopePreloadMemoryTool())  # Auto-load at start of every turn
+    orchestrator_tools.append(
+        SharedScopePreloadMemoryTool()
+    )  # Auto-load at start of every turn
     orchestrator_tools.append(LoadMemoryTool())  # On-demand memory queries
 
     # Build orchestrator instruction
@@ -1482,7 +1479,7 @@ Remember: Your role is to be an intelligent orchestrator that makes security ope
     # Create orchestrator with LLM delegation to specialists (as sub_agents or AgentTool wrappers)
     orchestrator = Agent(
         name="secops_assistant",
-        model="gemini-3.1-pro-preview",
+        model="gemini-2.5-pro",
         description="SecOps Security Agent - An intelligent SOC orchestrator for Google SecOps that delegates security operations to specialized persona-based agents.",
         instruction=orchestrator_instruction,
         tools=orchestrator_tools,
@@ -1491,6 +1488,7 @@ Remember: Your role is to be an intelligent orchestrator that makes security ope
         after_tool_callback=after_tool_cache,
         after_agent_callback=generate_memory,
         generate_content_config=strict_config,
+        mode="chat",
     )
 
     tools_description = []
