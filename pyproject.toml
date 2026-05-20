@@ -95,6 +95,9 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["S101"]  # Allow assert in tests
+"soc_agent/tools/chatops/test_*.py" = ["S101"]
+"soc_agent/tools/chatops/generate_test_url.py" = ["S105", "E402"]
+"soc_agent/tools/chatops/webhook_handler.py" = ["S104"]
 "installation_scripts/*.py" = [
   "S603",  # subprocess calls are trusted (gcloud CLI)
   "S607",  # partial executable paths are acceptable (gcloud in PATH)

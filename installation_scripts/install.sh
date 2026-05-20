@@ -3,14 +3,13 @@
 # Exit immediately if a command exits with a non-zero status.
 set -e
 
-echo "Starting setup..."
+echo "Starting MCP server installation..."
 
-# Install uv
-apt-get update
-apt-get install -y curl
-curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR="/usr/local/bin" sh
+# Install MCP server packages from local directories
+# These directories are copied via extra_packages in the deployment
+pip install -e /code/mcp-security/server/gti
+pip install -e /code/mcp-security/server/secops
+pip install -e /code/mcp-security/server/secops-soar
+pip install -e /code/mcp-security/server/scc
 
-# These commands will now work for ANY user because uv and uvx
-# are installed in /usr/local/bin/ which is in everyone's default PATH.
-uv --version
-uvx --version
+echo "MCP server packages installed successfully"
