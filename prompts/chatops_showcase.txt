@@ -1,0 +1,1 @@
+I have identified a critical asset (10.0.0.5) being targeted by a brute force attack from 185.123.45.67. I have already triaged the alert and confirmed it's a real attack. I need to isolate the host 10.0.0.5 to prevent further lateral movement. Get human approval for this action first.

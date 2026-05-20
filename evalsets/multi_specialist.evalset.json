@@ -1,0 +1,117 @@
+{
+  "evalset_id": "multi_specialist",
+  "name": "Multi-Specialist Workflows",
+  "description": "Tests complex scenarios requiring orchestrator to coordinate multiple specialists",
+  "eval_cases": [
+    {
+      "eval_id": "runbook_then_investigate",
+      "name": "Multi-Step: Runbook + Investigation",
+      "conversation": [
+        {
+          "role": "user",
+          "content": "Investigate suspicious activity from IP 198.51.100.42. First check our runbooks for the procedure, then investigate."
+        }
+      ],
+      "reference": {
+        "expected_specialists": ["orchestrator_direct", "cti_researcher"],
+        "tool_trajectory": ["retrieve_agentic_soc_runbooks", "get_ip_address_report", "search_security_events"],
+        "success_criteria": {
+          "mentions_runbook_retrieval": true,
+          "mentions_cti_specialist": true,
+          "combines_both_outputs": true,
+          "clear_workflow_structure": true,
+          "has_grounding_citation": true
+        }
+      }
+    },
+    {
+      "eval_id": "threat_actor_local_correlation",
+      "name": "Threat Intel + Local Correlation",
+      "conversation": [
+        {
+          "role": "user",
+          "content": "Research APT29 AND check if we've seen their IOCs in our environment"
+        }
+      ],
+      "reference": {
+        "expected_specialist": "cti_researcher",
+        "tool_trajectory": ["get_threat_actor_report", "search_security_events"],
+        "success_criteria": {
+          "specialist_attribution": true,
+          "combines_external_and_internal": true,
+          "final_response_must_contain": [
+            "APT29",
+            "IOC",
+            "environment",
+            "SecOps SIEM"
+          ]
+        }
+      }
+    },
+    {
+      "eval_id": "lateral_movement_hunt",
+      "name": "Complex Threat Hunting - Lateral Movement",
+      "conversation": [
+        {
+          "role": "user",
+          "content": "Hunt for evidence of lateral movement using SMB and RDP in the last 7 days"
+        }
+      ],
+      "reference": {
+        "expected_specialist": "cti_researcher",
+        "tool_trajectory": ["search_security_events"],
+        "success_criteria": {
+          "specialist_attribution": true,
+          "includes_udm_query": true,
+          "maps_to_mitre_attack": true,
+          "final_response_must_contain": [
+            "lateral movement",
+            "SMB",
+            "RDP",
+            "MITRE"
+          ]
+        }
+      }
+    },
+    {
+      "eval_id": "incident_workflow_phishing_to_compromise",
+      "name": "Incident Workflow - Phishing to Compromise",
+      "conversation": [
+        {
+          "role": "user",
+          "content": "User clicked a phishing link. Get the incident response runbook, then check if the user's account shows signs of compromise."
+        }
+      ],
+      "reference": {
+        "expected_specialists": ["orchestrator_direct", "tier1_analyst"],
+        "tool_trajectory": ["retrieve_agentic_soc_runbooks", "lookup_entity", "search_security_events"],
+        "success_criteria": {
+          "mentions_runbook_retrieval": true,
+          "mentions_tier1_or_cti": true,
+          "provides_workflow": true,
+          "has_grounding_citation": true
+        }
+      }
+    },
+    {
+      "eval_id": "conflicting_intel",
+      "name": "Conflicting Intelligence Sources",
+      "conversation": [
+        {
+          "role": "user",
+          "content": "GTI marks IP 203.0.113.50 as malicious, but do we see any activity from it in our SIEM?"
+        }
+      ],
+      "reference": {
+        "expected_specialist": "cti_researcher",
+        "tool_trajectory": ["get_ip_address_report", "search_security_events"],
+        "success_criteria": {
+          "specialist_attribution": true,
+          "presents_both_findings": true,
+          "acknowledges_discrepancy": true,
+          "provides_interpretation": true
+        }
+      }
+    }
+  ]
+}

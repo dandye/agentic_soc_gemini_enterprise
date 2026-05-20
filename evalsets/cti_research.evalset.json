@@ -1,0 +1,115 @@
+{
+  "evalset_id": "cti_research",
+  "name": "CTI Research Workflows",
+  "description": "Tests threat intelligence research capabilities using GTI and correlation with SecOps SIEM",
+  "eval_cases": [
+    {
+      "eval_id": "threat_actor_apt29",
+      "name": "Threat Actor Analysis - APT29",
+      "conversation": [
+        {
+          "role": "user",
+          "content": "Analyze the APT29 threat actor. What are their recent campaigns and TTPs?"
+        }
+      ],
+      "reference": {
+        "expected_specialist": "cti_researcher",
+        "tool_trajectory": ["get_threat_actor_report", "get_collection_mitre_tree"],
+        "final_response_must_contain": [
+          "APT29",
+          "MITRE ATT&CK",
+          "campaign"
+        ],
+        "success_criteria": {
+          "specialist_attribution": true,
+          "mentions_cti_researcher": true,
+          "includes_confidence_level": true,
+          "includes_source_attribution": true,
+          "maps_to_mitre_attack": true
+        }
+      }
+    },
+    {
+      "eval_id": "ioc_reputation_ip",
+      "name": "IOC Reputation Check - IP Address",
+      "conversation": [
+        {
+          "role": "user",
+          "content": "Check the reputation of IP address 198.51.100.42"
+        }
+      ],
+      "reference": {
+        "expected_specialist": "cti_researcher",
+        "tool_trajectory": ["get_ip_address_report"],
+        "success_criteria": {
+          "specialist_attribution": true,
+          "tool_name_mentioned": true,
+          "provides_verdict": true,
+          "includes_context": true
+        }
+      }
+    },
+    {
+      "eval_id": "ioc_file_hash",
+      "name": "IOC Analysis - File Hash",
+      "conversation": [
+        {
+          "role": "user",
+          "content": "Analyze this file hash: 44d88612fea8a8f36de82e1278abb02f"
+        }
+      ],
+      "reference": {
+        "expected_specialist": "cti_researcher",
+        "tool_trajectory": ["get_file_report"],
+        "success_criteria": {
+          "specialist_attribution": true,
+          "tool_name_mentioned": true,
+          "hash_type_identified": true
+        }
+      }
+    },
+    {
+      "eval_id": "malware_family_emotet",
+      "name": "Malware Family Research - Emotet",
+      "conversation": [
+        {
+          "role": "user",
+          "content": "Research the Emotet malware family. What are its TTPs and how does it spread?"
+        }
+      ],
+      "reference": {
+        "expected_specialist": "cti_researcher",
+        "tool_trajectory": ["search_malware_families", "get_collection_report"],
+        "final_response_must_contain": [
+          "Emotet",
+          "TTP",
+          "spread"
+        ],
+        "success_criteria": {
+          "specialist_attribution": true,
+          "includes_behavioral_analysis": true,
+          "maps_to_mitre_attack": true
+        }
+      }
+    },
+    {
+      "eval_id": "domain_reputation",
+      "name": "Domain Reputation Check",
+      "conversation": [
+        {
+          "role": "user",
+          "content": "Is the domain malicious.com safe or malicious?"
+        }
+      ],
+      "reference": {
+        "expected_specialist": "cti_researcher",
+        "tool_trajectory": ["get_domain_report"],
+        "success_criteria": {
+          "specialist_attribution": true,
+          "provides_verdict": true,
+          "definitive_answer": true
+        }
+      }
+    }
+  ]
+}
