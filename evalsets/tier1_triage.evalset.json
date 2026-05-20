@@ -1,0 +1,111 @@
+{
+  "evalset_id": "tier1_triage",
+  "name": "Tier 1 Alert Triage Workflows",
+  "description": "Tests alert triage, basic investigation, and escalation decision-making",
+  "eval_cases": [
+    {
+      "eval_id": "phishing_alert_triage",
+      "name": "Phishing Alert Triage",
+      "conversation": [
+        {
+          "role": "user",
+          "content": "Triage this phishing alert: user john.doe@company.com received email from suspicious-sender@evil.com with subject 'Urgent: Reset Your Password'"
+        }
+      ],
+      "reference": {
+        "expected_specialist": "tier1_analyst",
+        "tool_trajectory": ["get_domain_report", "lookup_entity", "list_cases"],
+        "final_response_must_contain": [
+          "triage",
+          "phishing",
+          "recommendation"
+        ],
+        "success_criteria": {
+          "specialist_attribution": true,
+          "mentions_tier1": true,
+          "includes_assessment": true,
+          "provides_recommendation": true,
+          "mentions_escalation_criteria": true
+        }
+      }
+    },
+    {
+      "eval_id": "basic_ioc_enrichment",
+      "name": "Basic IOC Enrichment",
+      "conversation": [
+        {
+          "role": "user",
+          "content": "Enrich this IP: 192.0.2.100"
+        }
+      ],
+      "reference": {
+        "expected_specialist": "tier1_analyst",
+        "tool_trajectory": ["lookup_entity", "get_ip_address_report"],
+        "success_criteria": {
+          "specialist_attribution": true,
+          "uses_multiple_sources": true,
+          "within_tier1_scope": true
+        }
+      }
+    },
+    {
+      "eval_id": "duplicate_case_check",
+      "name": "Duplicate Case Detection",
+      "conversation": [
+        {
+          "role": "user",
+          "content": "Check if there are any existing SOAR cases for IP 198.51.100.42"
+        }
+      ],
+      "reference": {
+        "expected_specialist": "tier1_analyst",
+        "tool_trajectory": ["list_cases"],
+        "success_criteria": {
+          "specialist_attribution": true,
+          "clear_result_statement": true
+        }
+      }
+    },
+    {
+      "eval_id": "escalation_recommendation",
+      "name": "Escalation Decision - Ransomware",
+      "conversation": [
+        {
+          "role": "user",
+          "content": "I found ransomware activity on host 10.0.5.23. What should I do?"
+        }
+      ],
+      "reference": {
+        "expected_specialist": "tier1_analyst",
+        "success_criteria": {
+          "specialist_attribution": true,
+          "recommends_escalation": true,
+          "final_response_must_contain": [
+            "escalat",
+            "Tier 2",
+            "Tier 3"
+          ]
+        }
+      }
+    },
+    {
+      "eval_id": "user_activity_lookup",
+      "name": "User Activity Investigation",
+      "conversation": [
+        {
+          "role": "user",
+          "content": "Check recent activity for user john.doe in SecOps SIEM"
+        }
+      ],
+      "reference": {
+        "expected_specialist": "tier1_analyst",
+        "tool_trajectory": ["lookup_entity"],
+        "success_criteria": {
+          "specialist_attribution": true,
+          "tool_name_mentioned": true,
+          "searches_siem": true
+        }
+      }
+    }
+  ]
+}
