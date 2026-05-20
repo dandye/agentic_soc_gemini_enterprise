@@ -5,6 +5,8 @@
 
 Deploy security-focused AI agents to Google Cloud with integrated access to Chronicle, SOAR, Threat Intelligence, and Security Command Center through the Model Context Protocol (MCP).
 
+[![Watch the video](https://img.youtube.com/vi/KB2dJQEpjsw/maxresdefault.jpg)](https://www.youtube.com/watch?v=KB2dJQEpjsw)
+
 ## Table of Contents
 
 - [Quick Start](#quick-start)
