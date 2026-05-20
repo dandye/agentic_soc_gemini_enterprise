@@ -1,5 +1,5 @@
 google-adk~=1.28.0
-google-cloud-aiplatform[agent-engines,evaluation]~=1.144.0
+google-cloud-aiplatform[agent-engines]~=1.144.0
 google-cloud-secret-manager
 pydantic
 python-dotenv

@@ -4,3 +4,5 @@ installation_scripts/__pycache__/manage_agentspace.cpython-312.pyc
 GEMINI.md
 .env.ltstrtn
 .venv
+__pycache__/
+.DS_Store
