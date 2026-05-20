@@ -1,0 +1,7 @@
+fastapi
+uvicorn
+httpx
+google-cloud-aiplatform
+python-dotenv
+pyjwt
+cryptography

@@ -1,0 +1,30 @@
+# Use a slim Python 3.10 base
+FROM python:3.10-slim
+
+# Set environment variables
+ENV HOST=0.0.0.0
+ENV PORT=8080
+ENV PYTHONUNBUFFERED=1
+
+# Set working directory
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy only the dedicated requirements for this component
+# This matches the new requirements.txt we just created
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy only the ChatOps Python files.
+# We skip the entire soc_agent/ folder to keep the container small.
+COPY webhook_handler.py security.py ./
+
+# Expose the standard Cloud Run port
+EXPOSE 8080
+
+# Run the app. Note: and our handler is inside webhook_handler.py as 'app'
+CMD ["uvicorn", "webhook_handler:app", "--host", "0.0.0.0", "--port", "8080"]
