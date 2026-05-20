@@ -31,19 +31,24 @@ clarity are paramount. For this project, we explicitly value clarity over DRY.
 See PR #25 discussion for additional context on this architectural decision.
 """
 
+import json
 import logging
+import mimetypes
 import os
 from pathlib import Path
 
 import vertexai
 from dotenv import load_dotenv
 from google.adk.agents import Agent
-from google.adk.tools import AgentTool, google_search
+from google.adk.agents.context import Context
+from google.adk.tools import google_search
 from google.adk.tools.mcp_tool.mcp_session_manager import StdioConnectionParams
 from google.adk.tools.mcp_tool.mcp_toolset import McpToolset
-from google.adk.tools.retrieval.vertex_ai_rag_retrieval import VertexAiRagRetrieval
-from mcp import StdioServerParameters
 from vertexai.preview import rag
+
+
+# Add text/markdown mimetype for .md files
+mimetypes.add_type("text/markdown", ".md")
 
 
 # Configure logging
@@ -80,7 +85,8 @@ The Tier 1 Security Operations Center (SOC) Analyst is the first line of defense
 - **secops-mcp (Chronicle SIEM):**
   - lookup_entity: For quick context on IPs, domains, users, hashes from SIEM data
   - get_security_alerts: To check for recent SIEM alerts
-  - get_ioc_matches: To check for known bad indicators in SIEM
+  - get_ioc_matches: To check for known bad indicators in SIEM (Explicitly ALLOWED for Tier 1)
+  - search_udm / search_security_events: To perform fleet-wide searches for multiple indicators over extended periods (e.g., up to 168 hours) to scope an alert's impact. This is considered acceptable Tier 1 triage, NOT advanced threat hunting.
   - get_threat_intel: For basic questions about CVEs or concepts
 
 - **secops-soar (SOAR Platform):**
@@ -140,6 +146,213 @@ TIER1_CONFIG = {
         "close_duplicate_or_similar_cases",
     ],
 }
+
+
+class DynamicMcpToolset(McpToolset):
+    mcp_module: str = ""
+    target_env: dict = {}
+    _is_dynamic_initialized: bool = False
+
+    def __init__(self, mcp_module: str, target_env: dict, **kwargs):
+        from mcp.client.stdio import StdioServerParameters
+
+        # Deploy a placeholder structure that the ADK will serialize natively
+        dummy_params = StdioConnectionParams(
+            server_params=StdioServerParameters(
+                command="python3", args=["-m", mcp_module], env={}
+            ),
+            timeout=60000,
+        )
+        # CRITICAL: Suppress errlog default injection (`sys.stderr` Stream) to permit serialization
+        super().__init__(connection_params=dummy_params, errlog=None, **kwargs)
+        self.mcp_module = mcp_module
+        self.target_env = target_env
+        self._is_dynamic_initialized = False
+
+    async def get_tools(self, readonly_context=None) -> list:
+        if not getattr(self, "_is_dynamic_initialized", False):
+            import os
+            import sys
+
+            from mcp.client.stdio import StdioServerParameters
+
+            # The exact container execution environment
+            container_env = dict(os.environ)
+            container_env["PYTHONPATH"] = (
+                ":".join(sys.path)
+                + ":mcp-security/server/secops:mcp-security/server/secops-soar:mcp-security/server/gti:mcp-security/server/scc"
+            )
+
+            for k, v in self.target_env.items():
+                if v is not None:
+                    container_env[k] = v
+
+            # Overwrite the payload natively substituting the explicit system binary path
+            self._connection_params.server_params = StdioServerParameters(
+                command=sys.executable, args=["-m", self.mcp_module], env=container_env
+            )
+            # CRITICAL: Overwrite the privately cached copy housed inside the Session Manager
+            self._mcp_session_manager._connection_params = self._connection_params
+
+            self._is_dynamic_initialized = True
+        return await super().get_tools(readonly_context)
+
+
+async def log_usage_metadata(ctx: Context):
+    """Logs the usage metadata from the most recent event to Cloud Logging."""
+    try:
+        if (
+            not ctx
+            or not hasattr(ctx, "session")
+            or getattr(ctx.session, "events", None) is None
+        ):
+            return
+
+        # Look for the last event with usage_metadata (usually the model's response)
+        for event in reversed(ctx.session.events):
+            if hasattr(event, "usage_metadata") and event.usage_metadata:
+                usage = event.usage_metadata
+                log_data = {
+                    "event_type": "agent_token_usage",
+                    "session_id": getattr(ctx.session, "id", "unknown"),
+                    "invocation_id": getattr(event, "invocation_id", "unknown"),
+                    "author": getattr(event, "author", "unknown"),
+                    "prompt_token_count": getattr(usage, "prompt_token_count", 0),
+                    "candidates_token_count": getattr(
+                        usage, "candidates_token_count", 0
+                    ),
+                    "total_token_count": getattr(usage, "total_token_count", 0),
+                }
+                # Emit a structured message for Cloud Logging
+                logger.info(f"USAGE_METADATA: {json.dumps(log_data)}")
+                break
+
+    except Exception as e:
+        logger.warning(f"Failed to log usage metadata: {e}")
+
+
+async def generate_memory(
+    ctx: Context = None, callback_context: Context = None, **kwargs
+):
+    """
+    Triggers memory generation for the current session.
+    This saves the conversation to memory at the end of each interaction.
+    """
+    ctx = ctx or callback_context
+    if not ctx:
+        logger.warning("No context provided to generate_memory")
+        return
+
+    # Log usage metadata to Cloud Logging
+    await log_usage_metadata(ctx)
+
+    try:
+        # SHARED MEMORY SCOPE OVERRIDE
+        # We explicitly call the memory service with a global user_id
+        # instead of mutating the session, which breaks ADK's SessionService.
+        if hasattr(ctx, "_invocation_context") and getattr(
+            ctx._invocation_context, "memory_service", None
+        ):
+            session_events = (
+                ctx._invocation_context.session.events
+                if getattr(ctx._invocation_context, "session", None)
+                else []
+            )
+
+            logger.info(
+                "MEMORY_GENERATION: Triggering Vertex AI Memory Bank generation."
+            )
+            logger.info(
+                f"MEMORY_GENERATION_TOPICS: Passing {len(memory_bank_config.get('customization_configs', [{}])[0].get('memory_topics', []))} custom memory topics."
+            )
+            logger.debug(f"MEMORY_GENERATION_CONFIG: {json.dumps(memory_bank_config)}")
+
+            await ctx._invocation_context.memory_service.add_events_to_memory(
+                app_name=ctx._invocation_context.app_name,
+                user_id="global_soc_team",
+                events=session_events,
+                custom_metadata=memory_bank_config,
+            )
+            logger.info(
+                "MEMORY_GENERATION: Successfully submitted events to Vertex AI memory service."
+            )
+        else:
+            if hasattr(ctx, "add_session_to_memory"):
+                logger.info(
+                    "MEMORY_GENERATION: Triggering session memory via ctx.add_session_to_memory (Default ADK)."
+                )
+                await ctx.add_session_to_memory()
+            else:
+                logger.warning(
+                    "MEMORY_GENERATION_SKIP: No memory service or add_session_to_memory method available on context."
+                )
+    except Exception as e:
+        logger.error(
+            f"MEMORY_GENERATION_ERROR: Failed to generate memory: {e}", exc_info=True
+        )
+
+
+async def before_tool_cache(tool, args, tool_context: Context, **kwargs):
+    """
+    Checks for a cached result before executing a tool.
+    This prevents redundant API calls and saves execution time/tokens.
+    """
+    try:
+        # SHARED MEMORY SCOPE OVERRIDE
+        # Override the search_memory method on this specific context instance
+        # to force LoadMemoryTool to retrieve from the global team scope.
+        if (
+            tool.name == "load_memory"
+            and hasattr(tool_context, "_invocation_context")
+            and getattr(tool_context._invocation_context, "memory_service", None)
+        ):
+
+            async def _shared_search_memory(self, query: str):
+                return await self._invocation_context.memory_service.search_memory(
+                    app_name=self._invocation_context.app_name,
+                    user_id="global_soc_team",
+                    query=query,
+                )
+
+            import types
+
+            tool_context.search_memory = types.MethodType(
+                _shared_search_memory, tool_context
+            )
+
+        # Create a stable cache key from tool name and sorted arguments
+        cache_key = f"{tool.name}:{json.dumps(args, sort_keys=True)}"
+
+        # Access cache from the unified Context state
+        cache = tool_context.state.get("tool_result_cache", {})
+        if cache_key in cache:
+            logger.info(f"CACHE_HIT: Returning cached result for tool '{tool.name}'")
+            return cache[cache_key]
+    except Exception as e:
+        logger.warning(f"CACHE_ERROR: Failed to check tool cache: {e}")
+
+    return None  # Proceed to actual tool execution
+
+
+async def after_tool_cache(tool, args, tool_context: Context, tool_response, **kwargs):
+    """
+    Caches the tool result for deduplication within the same session.
+    Memory generation is handled by after_agent_callback (generate_memory)
+    at the end of each agent turn — not per tool call.
+    """
+    try:
+        # Save to cache
+        cache_key = f"{tool.name}:{json.dumps(args, sort_keys=True)}"
+        if "tool_result_cache" not in tool_context.state:
+            tool_context.state["tool_result_cache"] = {}
+
+        tool_context.state["tool_result_cache"][cache_key] = tool_response
+        logger.info(f"CACHE_SAVE: Cached result for tool '{tool.name}'")
+
+    except Exception as e:
+        logger.warning(f"CACHE_ERROR: Failed to update tool cache: {e}")
+
+    return tool_response  # Return result to the model
 
 
 def create_agent():
@@ -204,7 +417,7 @@ def create_agent():
 
     # SOAR configuration
     SOAR_URL = os.environ.get("SOAR_URL")
-    SOAR_API_KEY = os.environ.get("SOAR_API_KEY")
+    SOAR_APP_KEY = os.environ.get("SOAR_APP_KEY")
 
     # Google Threat Intelligence configuration
     GTI_API_KEY = os.environ.get("GTI_API_KEY")
@@ -247,26 +460,14 @@ def create_agent():
     # Configure Chronicle/SIEM MCP Tool
     # ========================================================================
     logger.info("Configuring Chronicle/SIEM tools...")
-    secops_siem_tools = McpToolset(
-        connection_params=StdioConnectionParams(
-            server_params=StdioServerParameters(
-                command="uv",
-                args=[
-                    "--directory",
-                    "./mcp-security/server/secops/secops_mcp",
-                    "run",
-                    "server.py",
-                ],
-                env={
-                    "CHRONICLE_PROJECT_ID": CHRONICLE_PROJECT_ID,
-                    "CHRONICLE_CUSTOMER_ID": CHRONICLE_CUSTOMER_ID,
-                    "CHRONICLE_REGION": CHRONICLE_REGION,
-                    "SECOPS_SA_PATH": service_account_filename,
-                },
-            ),
-            timeout=60000,
-        ),
-        errlog=None,
+    secops_siem_tools = DynamicMcpToolset(
+        mcp_module="secops_mcp.server",
+        target_env={
+            "CHRONICLE_PROJECT_ID": CHRONICLE_PROJECT_ID,
+            "CHRONICLE_CUSTOMER_ID": CHRONICLE_CUSTOMER_ID,
+            "CHRONICLE_REGION": CHRONICLE_REGION,
+            "SECOPS_SA_PATH": service_account_filename,
+        },
     )
     tools.append(secops_siem_tools)
 
@@ -274,24 +475,12 @@ def create_agent():
     # Configure SOAR MCP Tool
     # ========================================================================
     logger.info("Configuring SOAR tools...")
-    secops_soar_tools = McpToolset(
-        connection_params=StdioConnectionParams(
-            server_params=StdioServerParameters(
-                command="uv",
-                args=[
-                    "--directory",
-                    "./mcp-security/server/secops-soar/secops_soar_mcp",
-                    "run",
-                    "server.py",
-                ],
-                env={
-                    "SOAR_URL": SOAR_URL,
-                    "SOAR_APP_KEY": SOAR_API_KEY,  # MCP server expects SOAR_APP_KEY
-                },
-            ),
-            timeout=60000,
-        ),
-        errlog=None,
+    secops_soar_tools = DynamicMcpToolset(
+        mcp_module="secops_soar_mcp.server",
+        target_env={
+            "SOAR_URL": SOAR_URL,
+            "SOAR_APP_KEY": SOAR_APP_KEY,
+        },
     )
     tools.append(secops_soar_tools)
 
@@ -299,21 +488,11 @@ def create_agent():
     # Configure Google Threat Intelligence (GTI) MCP Tool
     # ========================================================================
     logger.info("Configuring GTI tools...")
-    gti_tools = McpToolset(
-        connection_params=StdioConnectionParams(
-            server_params=StdioServerParameters(
-                command="uv",
-                args=[
-                    "--directory",
-                    "./mcp-security/server/gti/gti_mcp",
-                    "run",
-                    "server.py",
-                ],
-                env={"VT_APIKEY": GTI_API_KEY},  # MCP server expects VT_APIKEY
-            ),
-            timeout=60000,
-        ),
-        errlog=None,
+    gti_tools = DynamicMcpToolset(
+        mcp_module="gti_mcp.server",
+        target_env={
+            "VT_APIKEY": GTI_API_KEY,
+        },
     )
     tools.append(gti_tools)
 
@@ -321,17 +500,7 @@ def create_agent():
     # Configure Security Command Center (SCC) MCP Tool
     # ========================================================================
     logger.info("Configuring SCC tools...")
-    scc_tools = McpToolset(
-        connection_params=StdioConnectionParams(
-            server_params=StdioServerParameters(
-                command="uv",
-                args=["--directory", "./mcp-security/server/scc", "run", "scc_mcp.py"],
-                env={},
-            ),
-            timeout=60000,
-        ),
-        errlog=None,
-    )
+    scc_tools = DynamicMcpToolset(mcp_module="scc_mcp", target_env={})
     tools.append(scc_tools)
 
     # ========================================================================
@@ -339,26 +508,39 @@ def create_agent():
     # ========================================================================
     if RAG_CORPUS_ID:
         logger.info(f"Configuring RAG retrieval with corpus: {RAG_CORPUS_ID}")
-        ask_vertex_retrieval = VertexAiRagRetrieval(
-            name="retrieve_agentic_soc_runbooks",
-            description=(
-                "Use this tool to retrieve IRPs, Runbooks, Common Steps, and Personas for the Agentic SOC. "
-                "As a Tier 1 analyst, prioritize retrieving: triage_alerts, basic_ioc_enrichment, "
-                "close_duplicate_or_similar_cases, and other basic investigation procedures. "
-                "The corpus contains step-by-step procedures optimized for your Tier 1 responsibilities."
-            ),
-            rag_resources=[rag.RagResource(rag_corpus=RAG_CORPUS_ID)],
-            similarity_top_k=RAG_SIMILARITY_TOP_K,
-            vector_distance_threshold=RAG_DISTANCE_THRESHOLD,
-        )
-        tools.append(ask_vertex_retrieval)
+
+        def retrieve_agentic_soc_runbooks(query: str) -> str:
+            """Use this tool to retrieve IRPs, Runbooks, Common Steps, Procedure, guidelines, and Personas for the Agentic SOC.
+
+            Args:
+                query: The search query to find relevant documentation in the RAG corpus.
+            """
+            try:
+                response = rag.retrieval_query(
+                    rag_resources=[rag.RagResource(rag_corpus=RAG_CORPUS_ID)],
+                    text=query,
+                    similarity_top_k=RAG_SIMILARITY_TOP_K,
+                    vector_distance_threshold=RAG_DISTANCE_THRESHOLD,
+                )
+                if not response.contexts or not response.contexts.contexts:
+                    return "No relevant documentation found in RAG corpus."
+
+                # Format contexts into a single string
+                result_parts = []
+                for index, context in enumerate(response.contexts.contexts):
+                    result_parts.append(f"--- Document {index+1} ---\n{context.text}\n")
+                return "\n".join(result_parts)
+            except Exception as e:
+                return f"Error retrieving from RAG corpus: {str(e)}"
+
+        tools.append(retrieve_agentic_soc_runbooks)
     else:
         logger.warning("RAG_CORPUS_ID not configured, skipping RAG retrieval tool")
 
     # ========================================================================
-    # Add google_search as an AgentTool
+    # Add google_search as a standalone tool
     # ========================================================================
-    tools.append(AgentTool(agent=google_search))
+    tools.append(google_search)
 
     # ========================================================================
     # Create the Agent with all configured tools
@@ -391,23 +573,119 @@ When you encounter any of the following, inform the user that escalation to Tier
 - Complex investigations beyond basic triage
 
 TOOL USAGE GUIDELINES:
-- **Chronicle (secops-mcp):** Use for basic entity lookups and alert queries only
+- **Chronicle (secops-mcp):** Use for entity lookups, alert queries, get_ioc_matches, and broad fleet-wide searches (e.g., search_udm up to 168 hours) to scope the impact of an alert. This is acceptable Tier 1 triage.
 - **SOAR (secops-soar):** Create/update cases, add findings, manage status
 - **GTI (gti-mcp):** Basic reputation checks for suspicious indicators
 - **RAG Retrieval:** Access runbooks especially: triage_alerts, basic_ioc_enrichment, close_duplicate_or_similar_cases
 
 IMPORTANT LIMITATIONS:
-- Do NOT perform deep forensic analysis or advanced threat hunting
+- Do NOT perform deep forensic analysis or advanced threat hunting (NOTE: fleet-wide searches for multiple indicators up to 168 hours and get_ioc_matches are explicitly ALLOWED for Tier 1 triage and are NOT considered advanced threat hunting).
 - Do NOT make containment/remediation decisions - only recommend them
 - Do NOT create or modify detection rules
 - Stay within 2 levels of IOC pivoting/investigation depth
 
-When unsure about procedures, ALWAYS retrieve the relevant runbook first. Your RAG corpus contains detailed step-by-step procedures optimized for Tier 1 operations.""",
+When unsure about procedures, ALWAYS retrieve the relevant runbook first. Your RAG corpus contains detailed step-by-step procedures optimized for Tier 1 operations.
+
+CRITICAL INSTRUCTION - USER CONSENT FOR EXECUTION:
+When you retrieve a runbook or formulate a plan, you MUST summarize the standard operating procedure for the user, and then EXPLICITLY ask for their permission before executing the associated MCP tools. Do NOT execute the tools autonomously without asking first. End your response with a clear question like "Would you like for me to execute this playbook after your review?"
+
+CRITICAL INSTRUCTION - TOOL INTROSPECTION:
+If the user asks for a list of your tools, capabilities, or functions, you MUST introspect your own native function calling schema directly to answer. DO NOT query the RAG corpus for information about your own tools. You already have a native understanding of your `tools` array; rely strictly on that literal schema to describe what actions you can take.""",
         tools=tools,
+        before_tool_callback=before_tool_cache,
+        after_tool_callback=after_tool_cache,
+        after_agent_callback=generate_memory,
     )
 
     logger.info("SOC Agent created successfully!")
     return agent
+
+
+# ========================================================================
+# Memory Bank Configuration
+# ========================================================================
+# Defines custom memory topics to instruct the Vertex AI Memory Bank on
+# what specific information is meaningful to persist across conversations.
+memory_bank_config = {
+    "customization_configs": [
+        {
+            "memory_topics": [
+                {
+                    "custom_memory_topic": {
+                        "label": "analyst_notes",
+                        "description": "Important insights and tactical notes provided by human security analysts during incident investigations.",
+                    }
+                },
+                {
+                    "custom_memory_topic": {
+                        "label": "investigation_patterns",
+                        "description": "Recurring tactical patterns, known false positive indicators, or commonly encountered genuine threats in alerts.",
+                    }
+                },
+                {
+                    "custom_memory_topic": {
+                        "label": "approved_exceptions",
+                        "description": "Authorized administrative tools, routine scanner IP address ranges, VIP user context, and explicitly documented baseline configurations that should be ignored during triage.",
+                    }
+                },
+                {
+                    "custom_memory_topic": {
+                        "label": "active_campaign_intelligence",
+                        "description": "Ongoing context regarding active Advanced Persistent Threat (APT) campaigns, recurring indicators of compromise (IOCs), or malware families actively targeting the organization that span across multiple investigations.",
+                    }
+                },
+                {
+                    "custom_memory_topic": {
+                        "label": "asset_context",
+                        "description": "Structural information about the internal network topology, mappings of specific IP schemas to business units, and identification of business-critical servers or databases.",
+                    }
+                },
+                {
+                    "custom_memory_topic": {
+                        "label": "siem_query_snippets",
+                        "description": "Successful, highly-optimized Chronicle/UDM search query strings and syntactic workarounds developed by analysts or the agent during iterative log hunting.",
+                    }
+                },
+                {
+                    "custom_memory_topic": {
+                        "label": "containment_strategies",
+                        "description": "Historical records of specific remediation or containment actions (e.g., endpoint isolation, firewall blocking) that were successful against recurring infrastructure or malware.",
+                    }
+                },
+                {
+                    "custom_memory_topic": {
+                        "label": "escalation_preferences",
+                        "description": "Organizational context regarding the specific individuals, departments, or Tier 2/3 analysts that need to be engaged or escalated to for particular alert categories.",
+                    }
+                },
+                {
+                    "custom_memory_topic": {
+                        "label": "detection_rule_feedback",
+                        "description": "Feedback on overly noisy or poorly calibrated detection rules within the SIEM, including documented conditions that frequently trigger false positives.",
+                    }
+                },
+                {
+                    "custom_memory_topic": {
+                        "label": "incident_response_status",
+                        "description": "The ongoing lifecycle status, assigned owners, and recent developments of active Incident Response Plans (IRPs) that bridge multiple days or shifts.",
+                    }
+                },
+                {
+                    "custom_memory_topic": {
+                        "label": "threat_actor_profiles",
+                        "description": "Synthesized context about the specific Tactics, Techniques, and Procedures (TTPs) and behaviors of threat groups that have historically affected or are currently threatening the environment.",
+                    }
+                },
+                {
+                    "custom_memory_topic": {
+                        "label": "tool_execution_quirks",
+                        "description": "Known API limitations, syntax requirements, or workarounds for specific SOAR, SIEM, or GTI tools to prevent the agent from repeatedly making the same syntax errors across sessions.",
+                    }
+                },
+            ]
+        }
+    ]
+}
 
 
 # ========================================================================
@@ -427,4 +705,5 @@ except Exception as e:
 __all__ = [
     "create_agent",
     "root_agent",
+    "memory_bank_config",
 ]
