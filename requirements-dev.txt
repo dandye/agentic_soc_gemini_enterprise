@@ -1,10 +1,1 @@
-pyink
-pre-commit
-mypy
-types-requests
-pip-audit
-pytest
-pytest-cov
-ruff
-pip-tools
-pur
+google-adk[eval]
