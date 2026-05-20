@@ -41,7 +41,8 @@ python test_schema_validation.py  # Validate MCP schemas
 Deploy agent to Agent Engine (using Makefile):
 ```bash
 make agent-engine-deploy  # Initial deployment
-make agent-engine-redeploy  # Redeploy existing agent
+make agent-engine-update  # PREFERRED: In-place update of agent code (retains memory/sessions)
+make agent-engine-redeploy  # FULL DESTRUCTIVE REBUILD (Ask user before running this!)
 make agentspace-register  # Register with AgentSpace
 make full-deploy-with-oauth  # Complete deployment with OAuth
 ```

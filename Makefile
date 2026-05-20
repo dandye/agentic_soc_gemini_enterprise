@@ -4,18 +4,21 @@
 .DEFAULT_GOAL := help
 
 .PHONY: help install setup clean check-prereqs check-deploy check-integration \
-	agent-engine-deploy agent-engine-deploy-and-delete agent-engine-test \
+	agent-engine-deploy agent-engine-update agent-engine-deploy-and-delete agent-engine-test agent-engine-warmup \
 	agent-engine-list agent-engine-delete-by-index agent-engine-delete-by-resource agent-engine-redeploy \
 	agent-engine-logs \
 	agentspace-register agentspace-update agentspace-verify agentspace-delete \
 	agentspace-url agentspace-test agentspace-datastore agentspace-link-agent agentspace-unlink-agent \
 	agentspace-update-agent agentspace-list-agents agentspace-list-apps agentspace-create-app agentspace-redeploy \
 	datastore-create datastore-list datastore-info datastore-delete \
-	rag-list rag-info rag-create rag-delete rag-import \
+	rag-list rag-info rag-create rag-delete rag-import sync-runbooks sync-runbooks-validate sync-runbooks-gcs sync-runbooks-prune \
 	gcs-upload gcs-list gcs-delete gcs-validate gcs-uri gcs-bucket-create gcs-bucket-info \
 	vertex-ai-verify vertex-ai-enable-apis vertex-ai-quota \
 	oauth-setup oauth-create-auth oauth-verify oauth-delete \
-	redeploy-all oauth-workflow full-deploy-with-oauth status cleanup check-env lint format
+	secret-upload secret-upload-force secret-verify \
+	redeploy-all oauth-workflow full-deploy-with-oauth status cleanup check-env lint format \
+	eval eval-basic eval-cti eval-tier1 eval-multi \
+	profile-latency profile-latency-runs profile-latency-rag profile-latency-cti profile-latency-tier1
 
 # Default environment file
 ENV_FILE ?= .env
@@ -43,7 +46,7 @@ export
 endif
 
 # Python executable (use venv if available)
-PYTHON := $(shell if [ -d "venv" ]; then echo "venv/bin/python"; else echo "python3"; fi)
+PYTHON := PYTHONPATH=. $(shell if [ -d "venv" ]; then echo "venv/bin/python"; else echo "python3"; fi)
 
 # Management scripts with consistent naming
 MANAGE_AGENTSPACE := installation_scripts/manage_agentspace.py
@@ -90,13 +93,16 @@ help: ## Show this help message
 	@grep -h -E '^datastore-[^:]*:.*?## .*$$' Makefile | sed 's/:.*##/##/' | awk 'BEGIN {FS = "##"} {printf "  \033[36m%-24s\033[0m %s\n", $$1, $$2}'
 	@echo ""
 	@echo "\033[1;32mRAG Corpus Management\033[0m"
-	@grep -h -E '^rag-[^:]*:.*?## .*$$' Makefile | sed 's/:.*##/##/' | awk 'BEGIN {FS = "##"} {printf "  \033[36m%-24s\033[0m %s\n", $$1, $$2}'
+	@grep -h -E '^(rag|sync-runbooks)[^:]*:.*?## .*$$' Makefile | sed 's/:.*##/##/' | awk 'BEGIN {FS = "##"} {printf "  \033[36m%-24s\033[0m %s\n", $$1, $$2}'
 	@echo ""
 	@echo "\033[1;36mGCS Management\033[0m"
 	@grep -h -E '^gcs-[^:]*:.*?## .*$$' Makefile | sed 's/:.*##/##/' | awk 'BEGIN {FS = "##"} {printf "  \033[36m%-24s\033[0m %s\n", $$1, $$2}'
 	@echo ""
 	@echo "\033[1;34mOAuth Management\033[0m"
 	@grep -h -E '^oauth-[^:]*:.*?## .*$$' Makefile | sed 's/:.*##/##/' | awk 'BEGIN {FS = "##"} {printf "  \033[36m%-24s\033[0m %s\n", $$1, $$2}'
+	@echo ""
+	@echo "\033[1;32mSecret Manager\033[0m"
+	@grep -h -E '^secret-[^:]*:.*?## .*$$' Makefile | sed 's/:.*##/##/' | awk 'BEGIN {FS = "##"} {printf "  \033[36m%-24s\033[0m %s\n", $$1, $$2}'
 	@echo ""
 	@echo "\033[1;36mWorkflows & Utilities\033[0m"
 	@grep -h -E '^(status|cleanup|.*-redeploy|redeploy-all|full-deploy-with-oauth):.*?## .*$$' Makefile | sed 's/:.*##/##/' | awk 'BEGIN {FS = "##"} {printf "  \033[36m%-24s\033[0m %s\n", $$1, $$2}'
@@ -134,27 +140,31 @@ clean: ## Clean up temporary files and cache
 	find . -type d -name "*.egg-info" -exec rm -rf {} + 2>/dev/null || true
 
 agent-engine-deploy: check-prereqs ## Deploy agent engine (use AGENT_MODULE=soc_agent_flash for Flash)
-	$(Q)$(PYTHON) $(MANAGE_AGENT_ENGINE) create --agent-module $(AGENT_MODULE)
+	$(Q)$(PYTHON) $(MANAGE_AGENT_ENGINE) deploy --agent-module $(AGENT_MODULE) $(if $(DESCRIPTION),--description "$(DESCRIPTION)")
 	$(Q)echo "========================================"
 	$(Q)echo "Agent deployment complete - check output above for resource details"
 	$(Q)echo "========================================"
 
-agent-engine-deploy-pro: check-prereqs ## Deploy Pro agent (gemini-2.5-pro)
+agent-engine-update: check-deploy ## Update existing agent engine in-place (preserves memory bank)
+	$(Q)$(PYTHON) $(MANAGE_AGENT_ENGINE) update --agent-module $(AGENT_MODULE) $(if $(DESCRIPTION),--description "$(DESCRIPTION)")
+	$(Q)echo "========================================"
+	$(Q)echo "Agent update complete - check output above for resource details"
+	$(Q)echo "========================================"
+
+agent-engine-deploy-pro: check-prereqs ## Deploy Pro agent (gemini-3.1-pro-preview)
 	$(Q)$(MAKE) agent-engine-deploy AGENT_MODULE=soc_agent
 
-agent-engine-deploy-flash: check-prereqs ## Deploy Flash agent (gemini-2.5-flash)
+agent-engine-deploy-flash: check-prereqs ## Deploy Flash agent (gemini-3-flash-preview)
 	$(Q)$(MAKE) agent-engine-deploy AGENT_MODULE=soc_agent_flash
 
-agent-engine-deploy-and-delete: check-prereqs ## Deploy agent engine and delete after test (for development)
-	$(Q)$(PYTHON) $(MANAGE_AGENT_ENGINE) create
-	@echo "Waiting for deployment to complete..."
-	@sleep 5
-	@echo "Getting the most recent agent to delete..."
-	@$(PYTHON) $(MANAGE_AGENT_ENGINE) list | head -n 20
-	@echo "Use 'make agent-engine-delete-by-index INDEX=1' to delete the most recent agent"
+agent-engine-deploy-and-delete: check-prereqs ## Deploy agent engine and intelligently delete older versions
+	$(Q)$(PYTHON) $(MANAGE_AGENT_ENGINE) deploy --agent-module $(AGENT_MODULE) $(if $(DESCRIPTION),--description "$(DESCRIPTION)")
 
 agent-engine-test: check-deploy ## Test the deployed agent engine
 	$(PYTHON) $(MANAGE_AGENT_ENGINE) test
+
+agent-engine-warmup: check-deploy ## Pre-warm MCP server connections to reduce cold start latency
+	$(PYTHON) $(MANAGE_AGENT_ENGINE) warmup
 
 # AgentSpace management targets
 agentspace-register: check-integration ## Register agent with AgentSpace (use FORCE=1 to force re-register)
@@ -330,6 +340,19 @@ rag-import: ## Import files from GCS to RAG corpus (use: RAG_CORPUS_ID=<name> GC
 			--env-file $(ENV_FILE); \
 	fi
 
+# RAG Sync & Cleanup targets
+sync-runbooks: ## E2E Sync: Validate -> Rsync GCS -> Import RAG -> Prune Orphaned RAG Files
+	@$(PYTHON) $(MANAGE_RAG) sync-runbooks $(if $(RAG_CORPUS_ID),--corpus $(RAG_CORPUS_ID)) --env-file $(ENV_FILE)
+
+sync-runbooks-validate: ## Validate local markdown runbooks (size, encoding, markdown blocks)
+	@$(PYTHON) $(MANAGE_RAG) validate-md --env-file $(ENV_FILE)
+
+sync-runbooks-gcs: ## Sync only valid local runbooks to GCS, deleting orphaned GCS files
+	@$(PYTHON) $(MANAGE_RAG) sync-gcs --env-file $(ENV_FILE)
+
+sync-runbooks-prune: ## Prune files from RAG Corpus that no longer exist in GCS
+	@$(PYTHON) $(MANAGE_RAG) prune-corpus $(if $(RAG_CORPUS_ID),$(RAG_CORPUS_ID)) --env-file $(ENV_FILE)
+
 # GCS Management targets
 gcs-upload: ## Upload local files to GCS (use: FILES="file1 file2" BUCKET=bucket-name RECURSIVE=1)
 	@if [ -z "$(FILES)" ]; then \
@@ -441,6 +464,18 @@ oauth-delete: ## Remove OAuth authorization (use FORCE=1 to delete without confi
 		$(PYTHON) $(MANAGE_OAUTH) delete --env-file $(ENV_FILE); \
 	fi
 
+# Secret Manager targets
+MANAGE_SECRET := installation_scripts/upload_secret.py
+
+secret-upload: ## Upload Chronicle service account to Secret Manager (use CREDS=/path/to/sa.json for different account)
+	$(PYTHON) $(MANAGE_SECRET) upload --env-file $(ENV_FILE) $(if $(CREDS),--credentials $(CREDS))
+
+secret-upload-force: ## Upload Chronicle service account to Secret Manager (skip confirmation, use CREDS=/path/to/sa.json)
+	$(PYTHON) $(MANAGE_SECRET) upload --env-file $(ENV_FILE) --force $(if $(CREDS),--credentials $(CREDS))
+
+secret-verify: ## Verify Secret Manager access to Chronicle service account (use CREDS=/path/to/sa.json)
+	$(PYTHON) $(MANAGE_SECRET) verify --env-file $(ENV_FILE) $(if $(CREDS),--credentials $(CREDS))
+
 # Agent Engine management targets
 agent-engine-list: ## List all Agent Engine instances (use V=1 for detailed output)
 	$(PYTHON) $(MANAGE_AGENT_ENGINE) list $(VERBOSE)
@@ -468,13 +503,13 @@ agent-engine-delete-by-resource: ## Delete Agent Engine instance by resource nam
 	fi
 
 agent-engine-create: check-prereqs ## Create a new Agent Engine instance (same as deploy)
-	$(PYTHON) $(MANAGE_AGENT_ENGINE) create
+	$(PYTHON) $(MANAGE_AGENT_ENGINE) create $(if $(DESCRIPTION),--description "$(DESCRIPTION)")
 
 agent-engine-create-debug: check-prereqs ## Create Agent Engine with debug logging enabled
-	$(PYTHON) $(MANAGE_AGENT_ENGINE) create --debug
+	$(PYTHON) $(MANAGE_AGENT_ENGINE) create --debug $(if $(DESCRIPTION),--description "$(DESCRIPTION)")
 
 agent-engine-create-no-test: check-prereqs ## Create Agent Engine without running the test
-	$(PYTHON) $(MANAGE_AGENT_ENGINE) create --no-test
+	$(PYTHON) $(MANAGE_AGENT_ENGINE) create --no-test $(if $(DESCRIPTION),--description "$(DESCRIPTION)")
 
 # Workflow targets
 agent-engine-redeploy: agent-engine-deploy ## Redeploy the agent engine
@@ -489,7 +524,7 @@ endif
 		--project=$(GCP_PROJECT_ID) \
 		--format="table(timestamp,severity,textPayload)" \
 		--freshness=10m \
-		--order=desc
+		--order=asc
 
 agentspace-redeploy: agentspace-update ## Update AgentSpace configuration
 	@echo "AgentSpace configuration update completed successfully!"
@@ -538,3 +573,36 @@ format: ## Format code (if available)
 	else \
 		echo "No formatter available (install ruff or black)"; \
 	fi
+
+# Evaluation targets
+eval: ## Run all agent evaluations
+	$(Q)echo "Running all evalsets..."
+	$(Q)$(PYTHON) -m google.adk.cli eval $(AGENT_MODULE) evalsets/
+
+eval-basic: ## Run basic operations evalset
+	$(Q)$(PYTHON) -m google.adk.cli eval $(AGENT_MODULE) evalsets/soc_basic.evalset.json
+
+eval-cti: ## Run CTI research evalset
+	$(Q)$(PYTHON) -m google.adk.cli eval $(AGENT_MODULE) evalsets/cti_research.evalset.json
+
+eval-tier1: ## Run Tier 1 triage evalset
+	$(Q)$(PYTHON) -m google.adk.cli eval $(AGENT_MODULE) evalsets/tier1_triage.evalset.json
+
+eval-multi: ## Run multi-specialist evalset
+	$(Q)$(PYTHON) -m google.adk.cli eval $(AGENT_MODULE) evalsets/multi_specialist.evalset.json
+
+# Latency profiling targets
+profile-latency: ## Profile agent latency (single run per query)
+	$(Q)$(PYTHON) test_scripts/profile_latency.py
+
+profile-latency-runs: ## Profile latency with multiple runs (use RUNS=N)
+	$(Q)$(PYTHON) test_scripts/profile_latency.py --runs $(or $(RUNS),3)
+
+profile-latency-rag: ## Profile RAG query latency only
+	$(Q)$(PYTHON) test_scripts/profile_latency.py --query-type rag
+
+profile-latency-cti: ## Profile CTI query latency only
+	$(Q)$(PYTHON) test_scripts/profile_latency.py --query-type cti
+
+profile-latency-tier1: ## Profile Tier 1 query latency only
+	$(Q)$(PYTHON) test_scripts/profile_latency.py --query-type tier1

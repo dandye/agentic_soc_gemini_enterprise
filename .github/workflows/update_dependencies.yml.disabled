@@ -1,0 +1,96 @@
+name: Update Python Dependencies
+
+on:
+  schedule:
+    - cron: '0 0 * * *' # Runs daily at midnight
+  workflow_dispatch: # Allows manual triggering
+
+jobs:
+  update-dependencies:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pur pip-tools pip-audit
+
+      - name: Upgrade requirements.in
+        id: upgrade
+        run: |
+          pur -r requirements.in
+
+      - name: Compile requirements.txt
+        id: compile
+        run: |
+          pip-compile requirements.in
+
+      - name: Check for changes
+        id: check_changes
+        run: |
+          git diff --quiet requirements.in requirements.txt || echo "changes_detected=true" >> $GITHUB_OUTPUT
+
+      - name: Run security audit
+        if: steps.check_changes.outputs.changes_detected == 'true'
+        run: |
+          set -euo pipefail
+          echo "Running security audit on updated dependencies..."
+          pip-audit -r requirements.txt || {
+            echo "ERROR: Security vulnerabilities found in dependencies!"
+            exit 1
+          }
+
+      - name: Setup Git and Create Pull Request
+        if: steps.check_changes.outputs.changes_detected == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          BRANCH_NAME="chore/update-python-dependencies-$(date +%Y%m%d%H%M%S)"
+          BASE_BRANCH=$(gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name')
+
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b $BRANCH_NAME
+          git add requirements.in requirements.txt
+          git commit -m "chore(deps): update python dependencies"
+          git push -u origin $BRANCH_NAME
+
+          PR_BODY_FILE=$(mktemp)
+          trap "rm -f $PR_BODY_FILE" EXIT
+
+          echo 'This PR updates the Python dependencies based on the latest versions available.' > $PR_BODY_FILE
+          echo '' >> $PR_BODY_FILE
+          echo '## Changes' >> $PR_BODY_FILE
+          echo '' >> $PR_BODY_FILE
+          echo '### requirements.in' >> $PR_BODY_FILE
+          echo '```diff' >> $PR_BODY_FILE
+          git diff $BASE_BRANCH requirements.in | head -n 50 >> $PR_BODY_FILE
+          echo '```' >> $PR_BODY_FILE
+          echo '' >> $PR_BODY_FILE
+          echo '### requirements.txt' >> $PR_BODY_FILE
+          echo '```diff' >> $PR_BODY_FILE
+          git diff $BASE_BRANCH requirements.txt | head -n 100 >> $PR_BODY_FILE
+          echo '```' >> $PR_BODY_FILE
+          echo '' >> $PR_BODY_FILE
+          echo '## Security Audit' >> $PR_BODY_FILE
+          echo 'Dependencies have been scanned with pip-audit and no vulnerabilities were found.' >> $PR_BODY_FILE
+
+          gh pr create \
+            --title "chore(deps): update python dependencies" \
+            --body-file $PR_BODY_FILE \
+            --base $BASE_BRANCH \
+            --head $BRANCH_NAME \
+            --label dependencies,automated
