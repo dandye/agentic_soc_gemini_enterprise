@@ -43,7 +43,7 @@ from google.adk.agents import Agent
 from google.adk.agents.callback_context import CallbackContext
 from google.adk.agents.context import Context
 from google.adk.models import LlmRequest, LlmResponse
-from google.adk.tools import AgentTool, google_search
+from google.adk.tools import google_search
 from google.adk.tools.mcp_tool.mcp_session_manager import StdioConnectionParams
 from google.adk.tools.mcp_tool.mcp_toolset import McpToolset
 from vertexai.preview import rag
@@ -429,6 +429,9 @@ def create_agent():
     # Load environment variables from .env file
     load_dotenv(Path(".env"), override=True)
 
+    # Model Configuration
+    CTI_RESEARCHER_MODEL = os.environ.get("CTI_RESEARCHER_MODEL", "gemini-3.5-flash")
+
     # Get all required environment variables
     GCP_PROJECT_ID = os.environ.get("GCP_PROJECT_ID")
     GCP_LOCATION = os.environ.get("GCP_LOCATION", "us-central1")
@@ -606,7 +609,7 @@ def create_agent():
     logger.info(f"Creating CTI Agent with {len(tools)} tools...")
 
     agent = Agent(
-        model="gemini-2.5-flash",
+        model=CTI_RESEARCHER_MODEL,
         name="cti_researcher_flash",
         description=CTI_PERSONA,  # Use the embedded CTI persona
         instruction="""You are a Cyber Threat Intelligence (CTI) Researcher focused on proactive threat discovery, analysis, and intelligence production. Follow your defined responsibilities and analytical standards strictly.

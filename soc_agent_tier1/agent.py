@@ -43,7 +43,7 @@ from google.adk.agents import Agent
 from google.adk.agents.callback_context import CallbackContext
 from google.adk.agents.context import Context
 from google.adk.models import LlmRequest, LlmResponse
-from google.adk.tools import AgentTool, google_search
+from google.adk.tools import google_search
 from google.adk.tools.mcp_tool.mcp_session_manager import StdioConnectionParams
 from google.adk.tools.mcp_tool.mcp_toolset import McpToolset
 from vertexai.preview import rag
@@ -395,6 +395,9 @@ def create_agent():
     # Load environment variables from .env file
     load_dotenv(Path(".env"), override=True)
 
+    # Model Configuration
+    TIER1_ANALYST_MODEL = os.environ.get("TIER1_ANALYST_MODEL", "gemini-3.5-flash")
+
     # Get all required environment variables
     GCP_PROJECT_ID = os.environ.get("GCP_PROJECT_ID")
     GCP_LOCATION = os.environ.get("GCP_LOCATION", "us-central1")
@@ -572,7 +575,7 @@ def create_agent():
     logger.info(f"Creating SOC Agent with {len(tools)} tools...")
 
     agent = Agent(
-        model="gemini-2.5-flash",
+        model=TIER1_ANALYST_MODEL,
         name="soc_analyst_tier1_flash",
         description=TIER1_PERSONA,  # Use the embedded Tier 1 persona
         instruction="""You are a Tier 1 SOC Analyst - the first line of defense in security operations. Follow your defined responsibilities and scope limitations strictly.
