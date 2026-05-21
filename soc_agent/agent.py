@@ -789,7 +789,7 @@ def prevent_runaway_loop_callback(
     return None
 
 
-def delegate_to_tier2_responder(query: str, tool_context: Context) -> str:
+async def delegate_to_tier2_responder(query: str, tool_context: Context) -> str:
     """
     Delegates threat containment, host isolation, container teardown, or active mitigation
     to the standalone Tier 2 Incident Responder agent remotely via Agent-to-Agent (A2A) call.
@@ -824,21 +824,35 @@ def delegate_to_tier2_responder(query: str, tool_context: Context) -> str:
 
         logger.info(f"A2A_DELEGATION: Calling remote Tier 2 agent ({tier2_engine_name}) with Session: {session_id}, User: {user_id}")
         
-        # Invoke the remote engine client
-        response = remote_engine.query(
-            message=query,
+        # Invoke the remote engine client dynamically accumulating streaming events
+        response_parts = []
+        async for event in remote_engine.async_stream_query(
+            user_id=user_id,
             session_id=session_id,
-            user_id=user_id
-        )
-        
-        # Process response (extract text output)
-        if isinstance(response, dict) and "output" in response:
-            output_text = response["output"]
-        else:
-            output_text = str(response)
+            message=query
+        ):
+            logger.debug(f"A2A_DELEGATION_EVENT: {event}")
+            # Extract text content based on event payload structure
+            if isinstance(event, dict):
+                content = event.get("content")
+                if isinstance(content, dict):
+                    parts = content.get("parts")
+                    if parts and isinstance(parts, list):
+                        for part in parts:
+                            if isinstance(part, dict) and "text" in part:
+                                response_parts.append(part["text"])
+            elif hasattr(event, "content") and event.content:
+                if hasattr(event.content, "parts") and event.content.parts:
+                    for part in event.content.parts:
+                        if hasattr(part, "text") and part.text:
+                            response_parts.append(part.text)
 
-        logger.info("A2A_DELEGATION_SUCCESS: Received response from Tier 2 agent.")
-        return f"--- Response from Tier 2 Incident Responder Specialist ---\n{output_text}"
+        final_text = "".join(response_parts).strip()
+        if not final_text:
+            final_text = "The Tier 2 specialist completed the request without generating a text response."
+
+        logger.info("A2A_DELEGATION_SUCCESS: Successfully completed remote A2A call.")
+        return f"--- Response from Tier 2 Incident Responder Specialist ---\n{final_text}"
         
     except Exception as e:
         logger.error(f"A2A_DELEGATION_ERROR: Failed to delegate task to Tier 2 agent: {e}", exc_info=True)
