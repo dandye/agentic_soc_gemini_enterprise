@@ -832,20 +832,24 @@ async def delegate_to_tier2_responder(query: str, tool_context: Context) -> str:
             message=query
         ):
             logger.debug(f"A2A_DELEGATION_EVENT: {event}")
-            # Extract text content based on event payload structure
-            if isinstance(event, dict):
-                content = event.get("content")
-                if isinstance(content, dict):
-                    parts = content.get("parts")
-                    if parts and isinstance(parts, list):
-                        for part in parts:
-                            if isinstance(part, dict) and "text" in part:
-                                response_parts.append(part["text"])
-            elif hasattr(event, "content") and event.content:
-                if hasattr(event.content, "parts") and event.content.parts:
-                    for part in event.content.parts:
-                        if hasattr(part, "text") and part.text:
-                            response_parts.append(part.text)
+            
+            # Safe lookup helper supporting both dict and object structures interchangeably
+            def get_field(obj, field_name):
+                if obj is None:
+                    return None
+                if isinstance(obj, dict):
+                    return obj.get(field_name)
+                return getattr(obj, field_name, None)
+
+            # Extract text content safely
+            content = get_field(event, "content")
+            if content:
+                parts = get_field(content, "parts")
+                if parts and isinstance(parts, list):
+                    for part in parts:
+                        text = get_field(part, "text")
+                        if text:
+                            response_parts.append(text)
 
         final_text = "".join(response_parts).strip()
         if not final_text:
