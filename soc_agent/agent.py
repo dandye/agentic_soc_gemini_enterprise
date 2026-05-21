@@ -101,6 +101,25 @@ async def _patched_append_event(self, session, event):
 
 
 im_session.InMemorySessionService.append_event = _patched_append_event
+
+import re  # noqa: E402
+
+import google.adk.apps.app as adk_app  # noqa: E402
+
+
+# Monkey-patch validate_app_name to prevent ADK 2.0 serialization errors
+# The Vertex AI Agent Engine/Reasoning Engine uses the numeric engine resource ID as the App's name.
+# ADK 2.0 App model validation rejects names that do not start with a letter.
+original_validate_app_name = adk_app.validate_app_name
+
+
+def _patched_validate_app_name(name: str) -> None:
+    if re.match(r"^\d+$", name):
+        return
+    return original_validate_app_name(name)
+
+
+adk_app.validate_app_name = _patched_validate_app_name
 # -------------------------------------------------------------------------
 
 
