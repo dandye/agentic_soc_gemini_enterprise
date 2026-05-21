@@ -81,6 +81,10 @@ from mcp import StdioServerParameters  # noqa: E402
 # Silence the harmless but noisy InMemorySessionService warning inside sub-agents
 # The AgentTool spins up sub-agents with a brand new InMemorySessionService but passes
 # the parent's session object, causing a "not in sessions" warning on every single event.
+# TODO: This warning occurs because subagent runners do not share the main orchestrator's
+# InMemorySessionService instance. This issue remains unresolved in ADK 2.0.0 (see enforcing
+# checks on lines 329-337 of adk/sessions/in_memory_session_service.py).
+# Review and safe to remove when ADK implements native session registry sharing across subagent delegation contexts.
 original_append_event = im_session.InMemorySessionService.append_event
 
 
