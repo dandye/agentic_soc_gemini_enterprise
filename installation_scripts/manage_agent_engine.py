@@ -908,8 +908,8 @@ class AgentEngineManager:
                 "description": description,
                 "requirements": [
                     "cloudpickle",
-                    "google-adk~=1.28.0",
-                    "google-cloud-aiplatform[agent-engines,evaluation]~=1.144.0",
+                    "google-adk~=2.0.0",
+                    "google-cloud-aiplatform[agent-engines,evaluation]~=1.153.0",
                     "pydantic",
                     "python-dotenv",
                     "httpx>=0.28.1",
