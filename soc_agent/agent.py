@@ -789,6 +789,62 @@ def prevent_runaway_loop_callback(
     return None
 
 
+def delegate_to_tier2_responder(query: str, tool_context: Context) -> str:
+    """
+    Delegates threat containment, host isolation, container teardown, or active mitigation
+    to the standalone Tier 2 Incident Responder agent remotely via Agent-to-Agent (A2A) call.
+    Use this tool ONLY when a threat is confirmed and active containment/mitigation is required.
+
+    Args:
+        query: The specific containment task or mitigation request (e.g., 'Isolate host MALWARETEST-WIN' or 'Suspend compromised user credentials').
+    """
+    logger.info(f"A2A_DELEGATION: Attempting to delegate to Tier 2 Incident Responder for: {query}")
+    try:
+        # Retrieve Tier 2 Agent Engine resource name from environment variables
+        tier2_engine_name = os.environ.get("TIER2_AGENT_RESOURCE_NAME")
+        if not tier2_engine_name:
+            logger.error("A2A_DELEGATION_ERROR: TIER2_AGENT_RESOURCE_NAME not set in environment.")
+            return "Error: Tier 2 Incident Responder is not currently configured in the environment."
+
+        # Get the remote Reasoning Engine client
+        from vertexai import agent_engines
+        remote_engine = agent_engines.get(tier2_engine_name)
+        
+        # Retrieve session context parameters
+        session_id = "a2a_containment"
+        user_id = "secops_assistant"
+        
+        # Map parent context to child session if available
+        if hasattr(tool_context, "_invocation_context") and tool_context._invocation_context:
+            root_ctx = tool_context._invocation_context
+            if hasattr(root_ctx, "session") and hasattr(root_ctx.session, "id"):
+                session_id = root_ctx.session.id
+            if hasattr(root_ctx, "user_id"):
+                user_id = root_ctx.user_id
+
+        logger.info(f"A2A_DELEGATION: Calling remote Tier 2 agent ({tier2_engine_name}) with Session: {session_id}, User: {user_id}")
+        
+        # Invoke the remote engine client
+        response = remote_engine.query(
+            message=query,
+            session_id=session_id,
+            user_id=user_id
+        )
+        
+        # Process response (extract text output)
+        if isinstance(response, dict) and "output" in response:
+            output_text = response["output"]
+        else:
+            output_text = str(response)
+
+        logger.info("A2A_DELEGATION_SUCCESS: Received response from Tier 2 agent.")
+        return f"--- Response from Tier 2 Incident Responder Specialist ---\n{output_text}"
+        
+    except Exception as e:
+        logger.error(f"A2A_DELEGATION_ERROR: Failed to delegate task to Tier 2 agent: {e}", exc_info=True)
+        return f"Failed to communicate with the remote Tier 2 Incident Responder specialist agent: {e}"
+
+
 def create_agent():
     """
     Create the SOC Orchestrator Agent with specialized sub-agents.
@@ -1316,6 +1372,7 @@ CRITICAL: Summarize procedures and ask for user permission before executing stat
         trigger_shadow_it_discovery_card,
         trigger_temp_admin_request_card,
         trigger_vulnerability_patch_approval_card,
+        delegate_to_tier2_responder,
     ]
 
     # Add RAG tool DIRECTLY to orchestrator (not via sub-agent) to preserve grounding citations
@@ -1366,13 +1423,19 @@ You have direct access to several tools and can delegate to specialized sub-agen
    - **send_chatops_card**: Send a custom card with title, subtitle, and structured sections to ChatOps.
    - **CRITICAL:** Use these whenever human intervention or notification is required.
 
-### SPECIALIZED SUB-AGENTS (You delegate to these):
+### SPECIALIZED SUB-AGENTS & REMOTE SPECIALISTS:
 
+#### LOCAL SUB-AGENTS (You delegate to these in-process specialists):
 1. **cti_researcher** (Threat Intelligence specialist):
    - Deep threat research, actor analysis, malware investigation, IOC analysis.
 
 2. **tier1_analyst** (Alert Triage specialist):
    - Initial alert triage, basic investigation, false positive identification.
+
+#### REMOTE A2A SPECIALISTS (You delegate using tool calls):
+1. **delegate_to_tier2_responder**:
+   - High-privilege incident containment, host network isolation, unauthorized process/container termination, and active remediation (disabling compromised credentials).
+   - **CRITICAL:** Use ONLY when a threat is confirmed and active containment/mitigation is required.
 
 DELEGATION STRATEGY:
 1. Analyze the user's request to determine the type of work required.
@@ -1380,6 +1443,7 @@ DELEGATION STRATEGY:
 3. For threat intelligence: Delegate to `cti_researcher`.
 4. For alert triage/investigation: Delegate to `tier1_analyst`.
 5. For querying historical memory or recording analyst notes: Delegate to `tier1_analyst`.
+6. For active containment, network host isolation, process/container termination, or credential suspension: Call the `delegate_to_tier2_responder` tool.
 """
 
     orchestrator_instruction += """
@@ -1466,6 +1530,10 @@ Query: "Triage this phishing alert - is it a false positive?"
 Query: "Quick lookup of IP 1.2.3.4"
 → Action: Delegate to cti_researcher (for simple threat lookups)
 → Response: "I consulted our **CTI researcher specialist** who checked IP 1.2.3.4 using Google Threat Intelligence..."
+
+Query: "Isolate compromised host MALWARETEST-WIN immediately"
+→ Action: Call delegate_to_tier2_responder tool
+→ Response: "I delegated the emergency containment request to our remote **Tier 2 Incident Responder specialist** who will initiate network isolation..."
 
 Query: "Investigate suspicious activity from user john.doe - get the runbook first, then investigate"
 → Action: Use retrieve_agentic_soc_runbooks, then delegate to tier1_analyst

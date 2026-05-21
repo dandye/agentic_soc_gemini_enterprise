@@ -850,6 +850,9 @@ class AgentEngineManager:
                 "WEBHOOK_URL": os.environ.get("WEBHOOK_URL"),
                 "CHATOPS_BASE_URL": os.environ.get("CHATOPS_BASE_URL"),
                 "CHRONICLE_CHATOPS_SECRET": os.environ.get("CHRONICLE_CHATOPS_SECRET"),
+                # Remote Specialist A2A Coordinates
+                "TIER2_AGENT_RESOURCE_NAME": os.environ.get("TIER2_AGENT_RESOURCE_NAME"),
+                "TIER1_AGENT_RESOURCE_NAME": os.environ.get("TIER1_AGENT_RESOURCE_NAME"),
             }
 
             # Add service account configuration based on authentication method
@@ -870,8 +873,8 @@ class AgentEngineManager:
                 display_name = "SecOps Security Agent - Orchestrator"
             elif agent_module == "soc_agent_tier1":
                 display_name = "SecOps Security Agent - Tier 1"
-            elif agent_module == "soc_agent_cti":
-                display_name = "SecOps Security Agent - CTI"
+            elif agent_module == "soc_agent_tier2":
+                display_name = "SecOps Security Agent - Tier 2"
             else:
                 # For any future agent modules, use the module name as-is
                 display_name = f"SecOps Security Agent - {agent_module}"
@@ -894,7 +897,7 @@ class AgentEngineManager:
                 "soc_agent",
                 "soc_agent_flash",
                 "soc_agent_tier1",
-                "soc_agent_cti",
+                "soc_agent_tier2",
                 "mcp-security/server/secops",
                 "mcp-security/server/secops-soar",
                 "mcp-security/server/gti",
@@ -1019,7 +1022,7 @@ class AgentEngineManager:
             # Optionally run test
             if not no_test:
                 typer.echo("\nRunning test...")
-                self.test_agent_with_resource(remote_app.resource_name)
+                self.test_agent_with_resource(remote_app.resource_name, agent_module=agent_module)
 
             return remote_app.resource_name
 
@@ -1030,7 +1033,7 @@ class AgentEngineManager:
             typer.echo(traceback.format_exc())
             return None
 
-    def test_agent_with_resource(self, resource_name: str) -> bool:
+    def test_agent_with_resource(self, resource_name: str, agent_module: str = "soc_agent") -> bool:
         """
         Test a deployed agent engine with a sample query.
 
@@ -1049,14 +1052,14 @@ class AgentEngineManager:
             remote_app = agent_engines.get(resource_name)
 
             # Run async test
-            asyncio.run(self._async_test_agent(remote_app))
+            asyncio.run(self._async_test_agent(remote_app, agent_module=agent_module))
             return True
 
         except Exception as e:
             typer.secho(f" Error testing agent: {e}", fg=typer.colors.RED)
             return False
 
-    async def _async_test_agent(self, remote_app):
+    async def _async_test_agent(self, remote_app, agent_module: str = "soc_agent"):
         """Async test function for agent engine."""
         fd, log_path = tempfile.mkstemp(suffix=".log", prefix="agent_test_")
         typer.secho(
@@ -1070,8 +1073,17 @@ class AgentEngineManager:
             typer.echo(f"Created session: {session_id}")
             log_file.write(f"Created session: {session_id}\n")
 
-            test_messages = (
-                "Use the get_ioc_matches tool for domain superstarts.top",
+            if agent_module == "soc_agent":
+                test_messages = (
+                    "We have confirmed active ransomware encryption and beaconing from host MALWARETEST-WIN. Please isolate this endpoint from the network immediately to contain the threat.",
+                )
+            elif agent_module == "soc_agent_tier2":
+                test_messages = (
+                    "Isolate compromised host MALWARETEST-WIN from the network.",
+                )
+            else:
+                test_messages = (
+                    "Use the get_ioc_matches tool for domain superstarts.top",
                 # "Get the 2 documents on Malware and then fetch_full_document for both",
                 # "List rules with ursnif in the name.",  # Chronicle SIEM MCP
                 # "List the first page of soar cases.",  # SOAR MCP
@@ -1480,19 +1492,33 @@ def create(
         typer.secho("DEPLOYMENT COMPLETE", fg=typer.colors.GREEN, bold=True)
         typer.echo("=" * 80)
         typer.echo("\nSave these values to your .env file:")
-        typer.echo(f"AGENT_ENGINE_RESOURCE_NAME={resource_name}")
+        # Determine env var names based on agent module
+        if agent_module == "soc_agent_tier2":
+            resource_var = "TIER2_AGENT_RESOURCE_NAME"
+            id_var = "TIER2_AGENT_ID"
+        elif agent_module == "soc_agent_tier1":
+            resource_var = "TIER1_AGENT_RESOURCE_NAME"
+            id_var = "TIER1_AGENT_ID"
+        elif agent_module == "soc_agent_flash":
+            resource_var = "FLASH_AGENT_RESOURCE_NAME"
+            id_var = "FLASH_AGENT_ID"
+        else:
+            resource_var = "AGENT_ENGINE_RESOURCE_NAME"
+            id_var = "AGENT_ENGINE_ID"
+
+        typer.echo(f"{resource_var}={resource_name}")
         # Extract the numeric ID from the resource name
         engine_id = (
             resource_name.split("/")[-1] if "/" in resource_name else resource_name
         )
-        typer.echo(f"AGENT_ENGINE_ID={engine_id}")
+        typer.echo(f"{id_var}={engine_id}")
 
         # Write back to .env automatically
         try:
             target_env = manager.env_file
             if target_env.exists():
-                set_key(str(target_env), "AGENT_ENGINE_RESOURCE_NAME", resource_name)
-                set_key(str(target_env), "AGENT_ENGINE_ID", engine_id)
+                set_key(str(target_env), resource_var, resource_name)
+                set_key(str(target_env), id_var, engine_id)
                 typer.secho(
                     "\n Automatically updated .env with new agent coordinates!",
                     fg=typer.colors.GREEN,
@@ -1542,10 +1568,20 @@ def update(
     manager = AgentEngineManager(env_file)
 
     if not resource_name:
-        resource_name = os.environ.get("AGENT_ENGINE_RESOURCE_NAME")
+        # Determine env var name based on agent module
+        if agent_module == "soc_agent_tier2":
+            env_var = "TIER2_AGENT_RESOURCE_NAME"
+        elif agent_module == "soc_agent_tier1":
+            env_var = "TIER1_AGENT_RESOURCE_NAME"
+        elif agent_module == "soc_agent_flash":
+            env_var = "FLASH_AGENT_RESOURCE_NAME"
+        else:
+            env_var = "AGENT_ENGINE_RESOURCE_NAME"
+
+        resource_name = os.environ.get(env_var)
         if not resource_name:
             typer.secho(
-                "Error: No resource name provided and AGENT_ENGINE_RESOURCE_NAME not found in environment.",
+                f"Error: No resource name provided and {env_var} not found in environment.",
                 fg=typer.colors.RED,
             )
             raise typer.Exit(code=1)
@@ -1604,8 +1640,8 @@ def deploy(
         display_name = "SecOps Security Agent - Orchestrator"
     elif agent_module == "soc_agent_tier1":
         display_name = "SecOps Security Agent - Tier 1"
-    elif agent_module == "soc_agent_cti":
-        display_name = "SecOps Security Agent - CTI"
+    elif agent_module == "soc_agent_tier2":
+        display_name = "SecOps Security Agent - Tier 2"
     else:
         display_name = f"SecOps Security Agent - {agent_module}"
 
@@ -1637,10 +1673,24 @@ def deploy(
         )
 
         try:
+            # Determine env var names based on agent module
+            if agent_module == "soc_agent_tier2":
+                resource_var = "TIER2_AGENT_RESOURCE_NAME"
+                id_var = "TIER2_AGENT_ID"
+            elif agent_module == "soc_agent_tier1":
+                resource_var = "TIER1_AGENT_RESOURCE_NAME"
+                id_var = "TIER1_AGENT_ID"
+            elif agent_module == "soc_agent_flash":
+                resource_var = "FLASH_AGENT_RESOURCE_NAME"
+                id_var = "FLASH_AGENT_ID"
+            else:
+                resource_var = "AGENT_ENGINE_RESOURCE_NAME"
+                id_var = "AGENT_ENGINE_ID"
+
             target_env = manager.env_file
             if target_env.exists():
-                set_key(str(target_env), "AGENT_ENGINE_RESOURCE_NAME", resource_name)
-                set_key(str(target_env), "AGENT_ENGINE_ID", engine_id)
+                set_key(str(target_env), resource_var, resource_name)
+                set_key(str(target_env), id_var, engine_id)
                 typer.secho(
                     f"Successfully bound .env to -> {engine_id}", fg=typer.colors.GREEN
                 )
@@ -1720,18 +1770,35 @@ def test(
         int | None,
         typer.Option("--index", "-i", help="Index of the agent from the list to test"),
     ] = None,
+    agent_module: Annotated[
+        str,
+        typer.Option(
+            "--agent-module",
+            "-m",
+            help="Agent module to test (options: soc_agent, soc_agent_tier1, soc_agent_tier2, soc_agent_flash)",
+        ),
+    ] = "soc_agent",
     env_file: Annotated[
         Path, typer.Option(help="Path to the environment file.")
     ] = Path(".env"),
 ) -> None:
     """Test an Agent Engine instance with a sample query."""
     if not resource and not index:
-        # Try to get from environment
+        # Try to get from environment based on agent module
+        if agent_module == "soc_agent_tier2":
+            env_var = "TIER2_AGENT_RESOURCE_NAME"
+        elif agent_module == "soc_agent_tier1":
+            env_var = "TIER1_AGENT_RESOURCE_NAME"
+        elif agent_module == "soc_agent_flash":
+            env_var = "FLASH_AGENT_RESOURCE_NAME"
+        else:
+            env_var = "AGENT_ENGINE_RESOURCE_NAME"
+
         manager = AgentEngineManager(env_file)
-        resource = manager.env_vars.get("AGENT_ENGINE_RESOURCE_NAME")
+        resource = manager.env_vars.get(env_var)
         if not resource:
             typer.secho(
-                " Error: Either --resource, --index, or AGENT_ENGINE_RESOURCE_NAME in .env must be provided",
+                f" Error: Either --resource, --index, or {env_var} in .env must be provided",
                 fg=typer.colors.RED,
             )
             raise typer.Exit(code=1)
@@ -1758,7 +1825,7 @@ def test(
             raise typer.Exit(code=1)
         resource = agents[index - 1]["resource_name"]
 
-    success = manager.test_agent_with_resource(resource)
+    success = manager.test_agent_with_resource(resource, agent_module=agent_module)
     if not success:
         raise typer.Exit(code=1)
 

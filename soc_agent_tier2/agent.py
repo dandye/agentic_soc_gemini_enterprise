@@ -1,8 +1,8 @@
 """
-SOC Agent Module - CTI Researcher Configuration
+SOC Agent Module - Tier 2 Incident Responder Configuration
 
-This module configures a Cyber Threat Intelligence (CTI) Researcher Agent with specific persona,
-responsibilities, and MCP tools for threat intelligence operations.
+This module configures a Tier 2 Incident Responder Agent with specific persona,
+responsibilities, and MCP/ChatOps tools for threat containment and active mitigation.
 
 ARCHITECTURAL DECISION: Intentional Code Duplication
 ======================================================
@@ -27,14 +27,17 @@ architectural choice that prioritizes:
 This approach trades code duplication for reduced complexity and improved
 maintainability in a security-critical environment where reliability and
 clarity are paramount. For this project, we explicitly value clarity over DRY.
-
-See PR #25 discussion for additional context on this architectural decision.
 """
 
 import json
 import logging
 import mimetypes
 import os
+import re
+import shutil
+import importlib
+import asyncio
+import tempfile
 from pathlib import Path
 
 import vertexai
@@ -47,139 +50,103 @@ from google.adk.tools import google_search
 from google.adk.tools.mcp_tool.mcp_session_manager import StdioConnectionParams
 from google.adk.tools.mcp_tool.mcp_toolset import McpToolset
 from vertexai.preview import rag
-
+import google.adk.sessions.in_memory_session_service as im_session
+import google.adk.apps.app as adk_app
+from google.genai.types import Part
 
 # Add text/markdown mimetype for .md files
 mimetypes.add_type("text/markdown", ".md")
-
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
+# -------------------------------------------------------------------------
+# Framework Monkey-Patches (Prevent ADK 2.0 bugs and noisy warnings)
+# -------------------------------------------------------------------------
+
+# Silence the harmless but noisy InMemorySessionService warning inside sub-agents
+original_append_event = im_session.InMemorySessionService.append_event
+
+async def _patched_append_event(self, session, event):
+    app_name = session.app_name
+    user_id = session.user_id
+    session_id = session.id
+
+    # Auto-initialize the session in the in-memory dict to prevent the warning
+    if app_name not in self.sessions:
+        self.sessions[app_name] = {}
+    if user_id not in self.sessions[app_name]:
+        self.sessions[app_name][user_id] = {}
+    if session_id not in self.sessions[app_name][user_id]:
+        self.sessions[app_name][user_id][session_id] = session
+
+    return await original_append_event(self, session, event)
+
+im_session.InMemorySessionService.append_event = _patched_append_event
+
+
+# Monkey-patch validate_app_name to prevent ADK 2.0 serialization errors
+original_validate_app_name = adk_app.validate_app_name
+
+def _patched_validate_app_name(name: str) -> None:
+    if re.match(r"^\d+$", name):
+        return
+    return original_validate_app_name(name)
+
+adk_app.validate_app_name = _patched_validate_app_name
+# -------------------------------------------------------------------------
+
+
 # ========================================================================
-# CTI Researcher Persona Definition
-# Copied from ai-runbooks/rules_bank/personas/cti_researcher.md
+# Tier 2 Incident Responder Persona Definition
 # ========================================================================
-CTI_PERSONA = """
-## Cyber Threat Intelligence (CTI) Researcher
+TIER2_PERSONA = """
+## Tier 2 Incident Responder
 
 ### Overview
-The Cyber Threat Intelligence (CTI) Researcher focuses on the proactive discovery, analysis, and dissemination of intelligence regarding cyber threats. They delve deep into threat actors, malware families, campaigns, vulnerabilities, and Tactics, Techniques, and Procedures (TTPs) to understand the evolving threat landscape. Their primary goal is to produce actionable intelligence that informs security strategy, detection engineering, incident response, and vulnerability management.
+The Tier 2 Incident Responder is a senior security analyst responsible for active threat containment, technical mitigation, and deep incident response. When an alert is escalated, the Tier 2 Responder steps in to isolate infected systems, disable compromised accounts, revoke credentials, sinkhole malicious domains, and terminate unauthorized resources. Their primary objective is to minimize breach damage, neutralize active threats rapidly, and ensure safe recovery while maintaining strict compliance with human-in-the-loop approval checks.
 
 ### Primary Responsibilities
-- **Threat Research:** Conduct in-depth research on threat actors, malware families, campaigns, and vulnerabilities using internal data, external feeds (GTI), OSINT, and other sources
-- **IOC & TTP Analysis:** Identify, extract, analyze, and contextualize IOCs and TTPs associated with threats. Map findings to MITRE ATT&CK framework
-- **Threat Tracking:** Monitor and track the activities, infrastructure, and evolution of specific threat actors and campaigns over time
-- **Reporting & Dissemination:** Produce detailed and actionable threat intelligence reports tailored to different audiences (SOC analysts, IR teams, leadership)
-- **Collaboration:** Work closely with SOC analysts, incident responders, and security engineers to provide threat context and inform defensive measures
-- **Stay Current:** Continuously monitor the global threat landscape, new attack vectors, and emerging TTPs
+- **Threat Containment:** Rapidly isolate compromised hosts from the network to prevent lateral movement or data exfiltration.
+- **Active Remediation:** Terminate unauthorized/malicious processes, destroy compromised containers, and sinkhole malicious infrastructure.
+- **Credential Mitigation:** Revoke active sessions, reset user passwords, and temporarily disable compromised API credentials.
+- **Incident Documentation:** Log all mitigation actions, execution timestamps, and post-remediation verification details in SOAR cases.
+- **Safety Enforcer:** Always present containment strategies to human analysts and obtain explicit confirmation before executing state-changing commands.
+- **Collaboration:** Coordinate with Tier 1 Analysts for initial triage context and CTI Researchers for advanced actor profiling and IOC matching.
 
 ### Core Skills and Knowledge
-- Deep understanding of the cyber threat landscape, including common and emerging threats, actors, and motivations
-- Proficiency in using threat intelligence platforms and tools (Google Threat Intelligence/VirusTotal)
-- Strong knowledge of IOC types (hashes, IPs, domains, URLs) and TTPs
-- Familiarity with malware analysis concepts (static/dynamic) and network analysis
-- Experience with OSINT gathering and analysis techniques
-- Knowledge of threat intelligence frameworks (MITRE ATT&CK, Diamond Model, Cyber Kill Chain)
-- Excellent analytical and critical thinking skills
-- Strong report writing and communication skills
-- Ability to correlate data from multiple sources
+- Advanced host, container, and cloud network containment methodologies.
+- Hands-on experience with SOAR active playbook execution and automation.
+- Proficient in cloud resource management (terminating containers, revoking keys, manipulating security groups).
+- Deep expertise in incident response frameworks (NIST, SANS).
 
 ### Tool Usage Patterns
-**Primary MCP Tools:**
-- **gti-mcp (Google Threat Intelligence - PRIMARY):**
-  - get_collection_report: Essential for detailed reports on actors, malware, campaigns
-  - get_entities_related_to_a_collection: Crucial for exploring relationships and pivoting
-  - search_threats, search_campaigns, search_threat_actors, search_malware_families: Targeted research
-  - get_collection_timeline_events: Understand historical context and evolution
-  - get_collection_mitre_tree: Map threats to ATT&CK TTPs
-  - get_file_report, get_domain_report, get_ip_address_report, get_url_report: Detailed IOC analysis
-  - get_file_behavior_summary, get_file_behavior_report: Malware behavior from sandbox analysis
-  - search_iocs: Search specific IOC patterns or characteristics
-  - get_threat_profile_recommendations: Organization-specific threat relevance
-
-- **secops-mcp (Chronicle SIEM - For Correlation):**
-  - search_security_events: Search for evidence of specific IOCs or TTPs locally
-  - lookup_entity: Check prevalence and context of IOCs within local SIEM
-  - get_ioc_matches: See if known IOCs from TI feeds have matched local events
-  - get_threat_intel: Quick summaries or answers to general security questions
-
-- **secops-soar (SOAR Platform - For Dissemination):**
-  - post_case_comment: Add threat intelligence context to ongoing incidents
-  - list_cases: Identify potentially relevant ongoing investigations
-  - siemplify_add_general_insight: Formally add TI findings as insights to cases
-
-### Research Focus Areas
-**Priority Research Topics:**
-- Active threat actor campaigns targeting our industry/region
-- Emerging malware families and their TTPs
-- Zero-day vulnerabilities and exploitation trends
-- Supply chain attack methodologies
-- Ransomware groups and their evolving tactics
-- Nation-state APT activities
-- Critical vulnerability intelligence
-
-### Intelligence Production Standards
-**Report Requirements:**
-- Executive summary with key findings and recommendations
-- Technical details with IOCs and TTPs mapped to MITRE ATT&CK
-- Confidence levels for all intelligence assessments
-- Source attribution and reliability scoring
-- Actionable defensive recommendations
-- Timeline of threat activity when applicable
-
-### Scope and Limitations
-**CTI Researchers DO:**
-- Conduct deep-dive analysis of threats and campaigns
-- Produce strategic, operational, and tactical intelligence
-- Track threat actor infrastructure and evolution
-- Provide threat context for investigations
-- Create detection recommendations based on TTPs
-- Maintain threat intelligence platforms
-
-**CTI Researchers DO NOT:**
-- Perform incident response (leave to IR team)
-- Make unilateral blocking decisions without validation
-- Conduct offensive operations or hack-back activities
-- Share sensitive intelligence without proper authorization
-- Create detection rules directly (provide recommendations to Detection Engineers)
-
-### Relevant Runbooks
-Primary runbooks for CTI operations:
-- investigate_a_gti_collection_id.md
-- proactive_threat_hunting_based_on_gti_campain_or_actor.md
-- compare_gti_collection_to_iocs_and_events.md
-- ioc_threat_hunt.md
-- apt_threat_hunt.md
-- deep_dive_ioc_analysis.md
-- malware_triage.md
-- threat_intel_workflows.md (Core workflow document)
-- report_writing.md (Guidelines for producing TI reports)
+**Primary MCP & Custom Tools:**
+- **secops-soar (SOAR Platform):** Add case comments, tag artifacts, record containment insights, and execute mitigation playbooks.
+- **secops-mcp (Chronicle SIEM):** Run UDM searches to verify successful containment (e.g., confirming isolated endpoint has stopped outbound traffic).
+- **gti-mcp (Google Threat Intelligence):** Perform reputation checks to validate domains/IPs before initiating blocks.
+- **ChatOps / Verification Skills:**
+  - request_human_confirmation: MUST be called before executing any host isolation, process termination, or account block.
+  - notify_human_incident: Alert the team of high-priority containment actions.
+  - deliver_report: Share pre-signed links of mitigation reports in Workspace Chat.
 """
 
-# Optional: CTI specific configuration
-CTI_CONFIG = {
-    "max_pivoting_depth": 5,  # CTI can go deeper in investigations
-    "priority_threat_types": [
-        "apt_groups",
-        "ransomware",
-        "supply_chain",
-        "zero_days",
-        "emerging_malware",
-    ],
+# Tier 2 specific configuration
+TIER2_CONFIG = {
+    "max_containment_depth": 3,
     "primary_runbooks": [
-        "investigate_a_gti_collection_id",
-        "proactive_threat_hunting_based_on_gti_campain_or_actor",
-        "deep_dive_ioc_analysis",
-        "threat_intel_workflows",
+        "isolate_host",
+        "malicious_container_kill",
+        "remediate_credential_compromise",
+        "firewall_ip_blocking",
     ],
-    "report_types": [
-        "strategic_intelligence",
-        "operational_intelligence",
-        "tactical_intelligence",
-        "threat_actor_profile",
-        "campaign_analysis",
+    "actions_requiring_confirmation": [
+        "isolate_host",
+        "block_ip",
+        "disable_credential",
+        "kill_container",
     ],
 }
 
@@ -284,8 +251,6 @@ async def generate_memory(
 
     try:
         # SHARED MEMORY SCOPE OVERRIDE
-        # We explicitly call the memory service with a global user_id
-        # instead of mutating the session, which breaks ADK's SessionService.
         if hasattr(ctx, "_invocation_context") and getattr(
             ctx._invocation_context, "memory_service", None
         ):
@@ -298,11 +263,6 @@ async def generate_memory(
             logger.info(
                 "MEMORY_GENERATION: Triggering Vertex AI Memory Bank generation."
             )
-            logger.info(
-                f"MEMORY_GENERATION_TOPICS: Passing {len(memory_bank_config.get('customization_configs', [{}])[0].get('memory_topics', []))} custom memory topics."
-            )
-            logger.debug(f"MEMORY_GENERATION_CONFIG: {json.dumps(memory_bank_config)}")
-
             await ctx._invocation_context.memory_service.add_events_to_memory(
                 app_name=ctx._invocation_context.app_name,
                 user_id="global_soc_team",
@@ -314,14 +274,7 @@ async def generate_memory(
             )
         else:
             if hasattr(ctx, "add_session_to_memory"):
-                logger.info(
-                    "MEMORY_GENERATION: Triggering session memory via ctx.add_session_to_memory (Default ADK)."
-                )
                 await ctx.add_session_to_memory()
-            else:
-                logger.warning(
-                    "MEMORY_GENERATION_SKIP: No memory service or add_session_to_memory method available on context."
-                )
     except Exception as e:
         logger.error(
             f"MEMORY_GENERATION_ERROR: Failed to generate memory: {e}", exc_info=True
@@ -329,20 +282,13 @@ async def generate_memory(
 
 
 async def before_tool_cache(tool, args, tool_context: Context, **kwargs):
-    """
-    Checks for a cached result before executing a tool.
-    This prevents redundant API calls and saves execution time/tokens.
-    """
+    """Checks for a cached result before executing a tool."""
     try:
-        # SHARED MEMORY SCOPE OVERRIDE
-        # Override the search_memory method on this specific context instance
-        # to force LoadMemoryTool to retrieve from the global team scope.
         if (
             tool.name == "load_memory"
             and hasattr(tool_context, "_invocation_context")
             and getattr(tool_context._invocation_context, "memory_service", None)
         ):
-
             async def _shared_search_memory(self, query: str):
                 return await self._invocation_context.memory_service.search_memory(
                     app_name=self._invocation_context.app_name,
@@ -351,15 +297,11 @@ async def before_tool_cache(tool, args, tool_context: Context, **kwargs):
                 )
 
             import types
-
             tool_context.search_memory = types.MethodType(
                 _shared_search_memory, tool_context
             )
 
-        # Create a stable cache key from tool name and sorted arguments
         cache_key = f"{tool.name}:{json.dumps(args, sort_keys=True)}"
-
-        # Access cache from the unified Context state
         cache = tool_context.state.get("tool_result_cache", {})
         if cache_key in cache:
             logger.info(f"CACHE_HIT: Returning cached result for tool '{tool.name}'")
@@ -367,17 +309,12 @@ async def before_tool_cache(tool, args, tool_context: Context, **kwargs):
     except Exception as e:
         logger.warning(f"CACHE_ERROR: Failed to check tool cache: {e}")
 
-    return None  # Proceed to actual tool execution
+    return None
 
 
 async def after_tool_cache(tool, args, tool_context: Context, tool_response, **kwargs):
-    """
-    Caches the tool result for deduplication within the same session.
-    Memory generation is handled by after_agent_callback (generate_memory)
-    at the end of each agent turn — not per tool call.
-    """
+    """Caches the tool result for deduplication within the same session."""
     try:
-        # Save to cache
         cache_key = f"{tool.name}:{json.dumps(args, sort_keys=True)}"
         if "tool_result_cache" not in tool_context.state:
             tool_context.state["tool_result_cache"] = {}
@@ -388,16 +325,13 @@ async def after_tool_cache(tool, args, tool_context: Context, tool_response, **k
     except Exception as e:
         logger.warning(f"CACHE_ERROR: Failed to update tool cache: {e}")
 
-    return tool_response  # Return result to the model
+    return tool_response
 
 
 def prevent_runaway_loop_callback(
     callback_context: CallbackContext, llm_request: LlmRequest
 ) -> LlmResponse | None:
-    """
-    Prevents runaway sessions by incrementing a turn counter and injecting
-    instructions to exit when a threshold is reached.
-    """
+    """Prevents runaway sessions by incrementing a turn counter and injecting warnings."""
     current_state = callback_context.state.to_dict()
     turn_count = current_state.get("turn_count", 0) + 1
     callback_context.state.update({"turn_count": turn_count})
@@ -408,29 +342,99 @@ def prevent_runaway_loop_callback(
     remaining = max_turns - turn_count
 
     instruction = f"Current turn counter is {turn_count}. There are {remaining} turns before exit. You MUST conclude the session and exit if the turn reaches {max_turns}. Prevent runaway sessions or endless loops."
-
     llm_request.append_instructions([instruction])
     return None
 
 
+async def save_report_artifact(filename: str, report_content: str, ctx: Context) -> str:
+    """
+    Saves a generated containment, analysis, or mitigation report finding as an artifact.
+    MUST be called by the agent whenever you finalize a detailed containment report to formally save it.
+
+    Args:
+        filename: A logical filename for the report ending in .md (e.g. 'MALWARETEST-WIN_Containment_Report.md').
+        report_content: The complete markdown content of the report you generated.
+    """
+    logger.info(f"SAVE_REPORT_ARTIFACT: Attempting to save {filename}")
+    try:
+        report_bytes = report_content.encode("utf-8")
+        mime_type, _ = mimetypes.guess_type(filename)
+        report_artifact = Part.from_bytes(
+            data=report_bytes, mime_type=mime_type or "text/markdown"
+        )
+        version = await ctx.save_artifact(filename=filename, artifact=report_artifact)
+        link_to_provide = f"[{filename}](artifact://{filename})"
+
+        try:
+            if (
+                hasattr(ctx, "_invocation_context")
+                and ctx._invocation_context.artifact_service
+            ):
+                art_svc = ctx._invocation_context.artifact_service
+                while (
+                    hasattr(art_svc, "_invocation_context")
+                    and hasattr(art_svc._invocation_context, "artifact_service")
+                    and art_svc._invocation_context.artifact_service is not art_svc
+                ):
+                    art_svc = art_svc._invocation_context.artifact_service
+
+                if hasattr(art_svc, "bucket_name"):
+                    bucket = art_svc.bucket_name
+                    root_ctx = (
+                        art_svc._invocation_context
+                        if hasattr(art_svc, "_invocation_context")
+                        else ctx._invocation_context
+                    )
+
+                    app_name = getattr(root_ctx, "app_name", "unknown_app")
+                    user_id = getattr(root_ctx, "user_id", "unknown_user")
+                    session_id = "unknown_session"
+                    if hasattr(root_ctx, "session") and hasattr(root_ctx.session, "id"):
+                        session_id = root_ctx.session.id
+
+                    blob_name = (
+                        f"{app_name}/{user_id}/{session_id}/{filename}/{version}"
+                    )
+
+                    try:
+                        from datetime import timedelta
+                        from google.cloud import storage
+
+                        storage_client = storage.Client()
+                        bucket_obj = storage_client.bucket(bucket)
+                        blob_obj = bucket_obj.blob(blob_name)
+
+                        signed_url = blob_obj.generate_signed_url(
+                            version="v4", expiration=timedelta(hours=24), method="GET"
+                        )
+                        link_to_provide = f"[{filename}]({signed_url})"
+                    except Exception as sign_e:
+                        logger.warning(f"Could not generate signed url: {sign_e}")
+                        gcs_url = f"https://storage.cloud.google.com/{bucket}/{blob_name}"
+                        link_to_provide = f"[{filename}]({gcs_url})"
+        except Exception as link_e:
+            logger.warning(
+                f"Could not construct direct GCS link, falling back to artifact schema: {link_e}"
+            )
+
+        logger.info(
+            f"SAVE_REPORT_ARTIFACT_SUCCESS: Saved {filename} as version {version}"
+        )
+        return f"Successfully saved report '{filename}'. You MUST provide this exact link to the user in your final response: {link_to_provide}"
+    except Exception as e:
+        logger.error(f"SAVE_REPORT_ARTIFACT_ERROR: Failed to save report: {e}")
+        return f"Error saving report: {e}"
+
+
 def create_agent():
     """
-    Create the CTI Agent with all MCP tools and RAG retrieval configured.
-
-    This function explicitly shows how to:
-    1. Load environment variables
-    2. Configure each MCP tool
-    3. Set up RAG retrieval
-    4. Create the agent with all tools
-
-    Returns:
-        Configured Agent instance
+    Create the standalone Tier 2 Incident Responder Agent with MCP and containment tools.
     """
     # Load environment variables from .env file
     load_dotenv(Path(".env"), override=True)
 
     # Model Configuration
-    CTI_RESEARCHER_MODEL = os.environ.get("CTI_RESEARCHER_MODEL", "gemini-3.5-flash")
+    TIER2_RESPONDER_MODEL = os.environ.get("TIER2_RESPONDER_MODEL", "gemini-3.5-flash")
 
     # Get all required environment variables
     GCP_PROJECT_ID = os.environ.get("GCP_PROJECT_ID")
@@ -444,25 +448,16 @@ def create_agent():
     CHRONICLE_REGION = os.environ.get("CHRONICLE_REGION", "us")
     CHRONICLE_SERVICE_ACCOUNT_PATH = os.environ.get("CHRONICLE_SERVICE_ACCOUNT_PATH")
 
-    # Validate required Chronicle environment variables before Vertex AI initialization.
-    # Note: Comprehensive validation of all required variables happens in
-    # manage_agent_engine.py before deployment. This validates only Chronicle-specific
-    # variables to fail fast before expensive Vertex AI initialization.
     if not CHRONICLE_PROJECT_ID:
-        raise ValueError(
-            "CHRONICLE_PROJECT_ID is required. Please set it in your .env file."
-        )
+        raise ValueError("CHRONICLE_PROJECT_ID is required. Please set it in your .env file.")
     if not CHRONICLE_SERVICE_ACCOUNT_PATH:
-        raise ValueError(
-            "CHRONICLE_SERVICE_ACCOUNT_PATH is required. Please set it in your .env file."
-        )
+        raise ValueError("CHRONICLE_SERVICE_ACCOUNT_PATH is required. Please set it in your .env file.")
 
     # Verify service account file exists
     service_account_path = Path(CHRONICLE_SERVICE_ACCOUNT_PATH)
     if not service_account_path.exists():
         raise FileNotFoundError(
-            f"Chronicle service account file not found: {CHRONICLE_SERVICE_ACCOUNT_PATH}\n"
-            f"Please verify the path in your .env file points to a valid service account JSON file."
+            f"Chronicle service account file not found: {CHRONICLE_SERVICE_ACCOUNT_PATH}"
         )
 
     # Initialize Vertex AI for the agent to work with Gemini models and RAG
@@ -486,32 +481,17 @@ def create_agent():
     # RAG configuration
     RAG_CORPUS_ID = os.environ.get("RAG_CORPUS_ID")
 
-    # Parse RAG numeric configuration with error handling
     try:
         RAG_SIMILARITY_TOP_K = int(os.environ.get("RAG_SIMILARITY_TOP_K", "10"))
-    except ValueError as e:
-        raise ValueError(
-            f"Invalid RAG_SIMILARITY_TOP_K value. Must be an integer. Error: {e}"
-        )
+    except ValueError:
+        RAG_SIMILARITY_TOP_K = 10
 
     try:
         RAG_DISTANCE_THRESHOLD = float(os.environ.get("RAG_DISTANCE_THRESHOLD", "0.6"))
-    except ValueError as e:
-        raise ValueError(
-            f"Invalid RAG_DISTANCE_THRESHOLD value. Must be a float. Error: {e}"
-        )
+    except ValueError:
+        RAG_DISTANCE_THRESHOLD = 0.6
 
-    # Debug mode
-    DEBUG = os.environ.get("DEBUG", "False") == "True"
-    if DEBUG:
-        os.environ["GRPC_VERBOSITY"] = "DEBUG"
-        os.environ["GRPC_TRACE"] = "all"
-        logging.basicConfig(level=logging.DEBUG)
-        logging.getLogger("google").setLevel(logging.DEBUG)
-        logging.getLogger("google.auth").setLevel(logging.DEBUG)
-        logging.getLogger("google.api_core").setLevel(logging.DEBUG)
-
-    # Get service account filename for MCP servers (already validated above)
+    # Get service account filename for MCP servers
     service_account_filename = service_account_path.name
 
     # Initialize list to collect all tools
@@ -586,7 +566,6 @@ def create_agent():
                 if not response.contexts or not response.contexts.contexts:
                     return "No relevant documentation found in RAG corpus."
 
-                # Format contexts into a single string
                 result_parts = []
                 for index, context in enumerate(response.contexts.contexts):
                     result_parts.append(f"--- Document {index+1} ---\n{context.text}\n")
@@ -595,8 +574,6 @@ def create_agent():
                 return f"Error retrieving from RAG corpus: {str(e)}"
 
         tools.append(retrieve_agentic_soc_runbooks)
-    else:
-        logger.warning("RAG_CORPUS_ID not configured, skipping RAG retrieval tool")
 
     # ========================================================================
     # Add google_search as a standalone tool
@@ -604,73 +581,80 @@ def create_agent():
     tools.append(google_search)
 
     # ========================================================================
+    # Add save_report_artifact as a standalone tool
+    # ========================================================================
+    tools.append(save_report_artifact)
+
+    # ========================================================================
+    # Add ChatOps Mitigation Skills
+    # ========================================================================
+    logger.info("Importing ChatOps mitigation tools...")
+    try:
+        from soc_agent.tools.chatops_tools import (
+            deliver_report,
+            generic_notification,
+            list_chatops_capabilities,
+            notify_human_incident,
+            request_human_confirmation,
+            send_chatops_card,
+            trigger_vulnerability_patch_approval_card,
+            trigger_ai_malicious_container_kill_card,
+            trigger_ai_wipe_host_approval_card,
+            trigger_ai_data_exfiltration_block_card,
+            trigger_ai_brute_force_source_block_card,
+        )
+        tools.extend([
+            deliver_report,
+            generic_notification,
+            list_chatops_capabilities,
+            notify_human_incident,
+            request_human_confirmation,
+            send_chatops_card,
+            trigger_vulnerability_patch_approval_card,
+            trigger_ai_malicious_container_kill_card,
+            trigger_ai_wipe_host_approval_card,
+            trigger_ai_data_exfiltration_block_card,
+            trigger_ai_brute_force_source_block_card,
+        ])
+    except ImportError as import_e:
+        logger.warning(f"Could not import ChatOps tools directly: {import_e}. Proceeding with MCP tools only.")
+
+    # ========================================================================
     # Create the Agent with all configured tools
     # ========================================================================
-    logger.info(f"Creating CTI Agent with {len(tools)} tools...")
+    logger.info(f"Creating Tier 2 Incident Responder Agent with {len(tools)} tools...")
 
     agent = Agent(
-        model=CTI_RESEARCHER_MODEL,
-        name="cti_researcher_flash",
-        description=CTI_PERSONA,  # Use the embedded CTI persona
-        instruction="""You are a Cyber Threat Intelligence (CTI) Researcher focused on proactive threat discovery, analysis, and intelligence production. Follow your defined responsibilities and analytical standards strictly.
+        model=TIER2_RESPONDER_MODEL,
+        name="soc_analyst_tier2_responder",
+        description=TIER2_PERSONA,
+        instruction="""You are a Tier 2 Incident Responder - a senior security operations engineer responsible for active threat containment, containment validation, and host/network remediation.
+
+CRITICAL SAFETY RULE - HUMAN-IN-THE-LOOP MANDATORY:
+**You are strictly forbidden from executing containment or mitigation actions (such as host isolation, domain/IP blocks, user credential suspension, or container teardowns) without first obtaining explicit human confirmation. You MUST call the `request_human_confirmation` tool to present an interactive card to the security analyst and receive positive confirmation before initiating any state-changing containment steps. Honesty about tool failures is mandatory.**
 
 ROLE & FOCUS:
-- You are a CTI Researcher specializing in threat actor tracking, malware analysis, and campaign investigation
-- Your primary mission is to produce actionable intelligence that informs security strategy and operations
-- Apply structured analytical techniques and maintain high confidence standards in assessments
+- You are a Tier 2 Incident Responder focused on active threat neutralization and containment
+- Your mission is to minimize breach exposure and validate the success of containment actions
+- Follow established containment runbooks and procedures - do not perform wild, unapproved commands
 
-ANALYTICAL APPROACH:
-1. **Research Initiation:** Start with clear intelligence requirements and research objectives
-2. **Data Collection:** Use GTI as primary source, correlate with local SIEM data for validation
-3. **Analysis & Pivoting:** Follow relationships between entities, actors, and campaigns (up to 5 levels deep)
-4. **Intelligence Production:** Create reports with confidence levels, source attribution, and MITRE ATT&CK mapping
-5. **Dissemination:** Share findings through SOAR comments and formal intelligence reports
+WORKFLOW APPROACH:
+1. **Incident Escalation Intake:** Review the escalated case details and identify active threats (e.g., active malware beaconing, rogue container processes, credential abuse).
+2. **Runbook Retrieval:** Use `retrieve_agentic_soc_runbooks` to access the specific containment and remediation playbooks.
+3. **Formulate Containment Strategy:** Choose the appropriate containment action (e.g., isolating endpoint, block IP, suspended user).
+4. **Obtain Approval:** Call `request_human_confirmation` to get the analyst's approval. Summarize the strategy clearly to the user first.
+5. **Execute Containment:** Trigger the containment action via SOAR MCP playbooks or ChatOps cards.
+6. **Containment Verification:** Use Chronicle SIEM (`search_security_events`) to verify that the compromised asset has stopped emitting traffic or beaconing.
+7. **Documentation:** Document all findings and mitigation actions in the SOAR case using case comment tools.
+8. **Report Artifact & Delivery:** Save a final containment summary report using `save_report_artifact`, and share the pre-signed link with the team using the `deliver_report` tool.
 
-RESEARCH PRIORITIES:
-Focus your research on:
-- Active threat actor campaigns relevant to the organization
-- Emerging malware families and zero-day exploits
-- TTPs mapped to MITRE ATT&CK framework
-- IOC analysis with attribution and confidence scoring
-- Supply chain threats and ransomware groups
+TRANSPARENCY IN RESPONSES:
+When reporting results, ALWAYS include:
+1. Which tool(s) you used (e.g., "I called `request_human_confirmation` to get approval for isolating...")
+2. For SIEM verification searches: Extract and present the UDM query used to verify network isolation
+3. The exact containment confirmation details or "no results found"
 
-TOOL USAGE GUIDELINES:
-- **GTI (gti-mcp) - PRIMARY:** Use extensively for threat research, IOC analysis, actor tracking
-  - get_collection_report for detailed threat intelligence
-  - search functions for discovery (threats, campaigns, actors, malware)
-  - get_file/domain/ip/url_report for deep IOC analysis
-  - get_collection_mitre_tree for TTP mapping
-- **Chronicle (secops-mcp) - CORRELATION:** Validate threats in local environment
-  - search_security_events for IOC hunting
-  - lookup_entity for prevalence checking
-- **SOAR (secops-soar) - DISSEMINATION:** Share intelligence with teams
-  - post_case_comment for adding threat context
-  - siemplify_add_general_insight for formal findings
-- **RAG Retrieval:** Access runbooks especially: threat_intel_workflows, investigate_a_gti_collection_id, proactive_threat_hunting
-
-INTELLIGENCE STANDARDS:
-- Always include confidence levels (Low/Medium/High) in assessments
-- Provide source attribution and reliability scoring
-- Map TTPs to MITRE ATT&CK when possible
-- Include timeline of threat activity
-- Offer actionable defensive recommendations
-- Distinguish between assessed and confirmed intelligence
-
-IMPORTANT GUIDELINES:
-- Conduct thorough research before making intelligence assessments
-- Correlate multiple sources to validate findings
-- Track threat evolution and infrastructure changes over time
-- Produce both strategic and tactical intelligence as needed
-- Do NOT make blocking decisions without validation
-- Do NOT conduct offensive operations
-
-When researching threats, ALWAYS retrieve relevant runbooks first for structured methodologies. Your RAG corpus contains proven threat research workflows and analytical techniques.
-
-CRITICAL INSTRUCTION - USER CONSENT FOR EXECUTION:
-When you retrieve a runbook or formulate a plan, you MUST summarize the standard operating procedure for the user, and then EXPLICITLY ask for their permission before executing the associated MCP tools. Do NOT execute the tools autonomously without asking first. End your response with a clear question like "Would you like for me to execute this playbook after your review?"
-
-CRITICAL INSTRUCTION - TOOL INTROSPECTION:
-If the user asks for a list of your tools, capabilities, or functions, you MUST introspect your own native function calling schema directly to answer. DO NOT query the RAG corpus for information about your own tools. You already have a native understanding of your `tools` array; rely strictly on that literal schema to describe what actions you can take.""",
+Remember: High-stakes containment requires speed, precision, and strict safety checks. Never act unilaterally on containment without a human in the loop.""",
         tools=tools,
         before_model_callback=prevent_runaway_loop_callback,
         before_tool_callback=before_tool_cache,
@@ -678,15 +662,13 @@ If the user asks for a list of your tools, capabilities, or functions, you MUST 
         after_agent_callback=generate_memory,
     )
 
-    logger.info("CTI Agent created successfully!")
+    logger.info("Tier 2 Incident Responder Agent created successfully!")
     return agent
 
 
 # ========================================================================
 # Memory Bank Configuration
 # ========================================================================
-# Defines custom memory topics to instruct the Vertex AI Memory Bank on
-# what specific information is meaningful to persist across conversations.
 memory_bank_config = {
     "customization_configs": [
         {
@@ -769,10 +751,6 @@ memory_bank_config = {
 }
 
 
-# ========================================================================
-# Create root_agent for ADK compatibility
-# This is the standard ADK pattern - export a root_agent at module level
-# ========================================================================
 try:
     root_agent = create_agent()
     logger.info("Root agent created and exported as 'root_agent'")
@@ -782,7 +760,6 @@ except Exception as e:
     root_agent = None
 
 
-# Export key functions and the root agent
 __all__ = [
     "create_agent",
     "root_agent",

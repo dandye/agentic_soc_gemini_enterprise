@@ -158,11 +158,17 @@ agent-engine-deploy-pro: check-prereqs ## Deploy Pro agent (gemini-3.1-pro-previ
 agent-engine-deploy-flash: check-prereqs ## Deploy Flash agent (gemini-3-flash-preview)
 	$(Q)$(MAKE) agent-engine-deploy AGENT_MODULE=soc_agent_flash
 
+agent-engine-deploy-tier1: check-prereqs ## Deploy Tier 1 agent (triage specialist)
+	$(Q)$(MAKE) agent-engine-deploy AGENT_MODULE=soc_agent_tier1
+
+agent-engine-deploy-tier2: check-prereqs ## Deploy Tier 2 agent (incident responder specialist)
+	$(Q)$(MAKE) agent-engine-deploy AGENT_MODULE=soc_agent_tier2
+
 agent-engine-deploy-and-delete: check-prereqs ## Deploy agent engine and intelligently delete older versions
 	$(Q)$(PYTHON) $(MANAGE_AGENT_ENGINE) deploy --agent-module $(AGENT_MODULE) $(if $(DESCRIPTION),--description "$(DESCRIPTION)")
 
-agent-engine-test: check-deploy ## Test the deployed agent engine
-	$(PYTHON) $(MANAGE_AGENT_ENGINE) test
+agent-engine-test: ## Test the deployed agent engine (use AGENT_MODULE=soc_agent_tier2 for Tier 2)
+	$(PYTHON) $(MANAGE_AGENT_ENGINE) test --agent-module $(AGENT_MODULE)
 
 agent-engine-warmup: check-deploy ## Pre-warm MCP server connections to reduce cold start latency
 	$(PYTHON) $(MANAGE_AGENT_ENGINE) warmup

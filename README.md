@@ -227,6 +227,10 @@ make rag-delete RAG_CORPUS_ID=projects/.../ragCorpora/...
 > [!IMPORTANT]
 > When creating apps via API/CLI, include `--app-type APP_TYPE_INTRANET` and `--industry-vertical GENERIC` for visibility in the Gemini Enterprise UI.
 
+> [!TIP]
+> To view all of your deployed Reasoning Engine (Agent Engine) backend runtimes in the Google Cloud Console (including private, remote A2A specialist agents that are not directly registered in AgentSpace), you can navigate to the Google Cloud Agent Platform Runtimes page:
+> `https://console.cloud.google.com/agent-platform/runtimes?project=your-project-id`
+
 **Create via Console (Recommended):**
 1. Navigate to Vertex AI > Search & Conversation > Apps
 2. Click **Create App** > Select **Agent** type
