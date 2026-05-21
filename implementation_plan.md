@@ -1,60 +1,53 @@
-# Implementation Plan: Adding Memory Call-outs to ADK Runbooks
+# Implementation Plan: Configurable Gemini Model Versions
 
-This plan outlines the strategy to update all runbooks in the `adk_runbooks/` repository to dynamically utilize memory. The goal is to instruct the agent on *when to query* specific memory topics at the start of investigations and *when to save* new insights at the conclusion of tasks.
+This plan outlines the changes required to make all Gemini model versions fully configurable via the `.env` file, with sensible defaults documented in `.env.example`.
 
-There are currently **125 markdown files** in `adk_runbooks/rules-bank/`. A systematic approach combining an automated script (for broad injection) and manual curation (for specific complex playbooks like IRPs) will be most effective.
+## 1. Environment Variables Design
 
-## 1. Memory Topics Review
+We will introduce the following environment variables to configuration:
 
-The prompt mentioned "10 different topics", but I found exactly **12 topics** configured in `soc_agent/agent.py`:
+| Environment Variable | Default Value | Target Files / Roles |
+|----------------------|---------------|----------------------|
+| `ORCHESTRATOR_MODEL` | `gemini-2.5-pro` | Main orchestrator in `soc_agent/agent.py` and `soc_agent_flash/agent.py` |
+| `CTI_RESEARCHER_MODEL` | `gemini-2.5-flash` | CTI sub-agent/persona in `soc_agent/agent.py` and `soc_agent_cti/agent.py` |
+| `TIER1_ANALYST_MODEL` | `gemini-2.5-flash` | Tier 1 sub-agent/persona in `soc_agent/agent.py` and `soc_agent_tier1/agent.py` |
+| `A2UI_RENDERER_MODEL` | `gemini-2.5-flash` | GenAI client in `soc_agent/tools/a2ui_renderer.py` |
 
-1. `analyst_notes`
-2. `investigation_patterns`
-3. `approved_exceptions`
-4. `active_campaign_intelligence`
-5. `asset_context`
-6. `siem_query_snippets`
-7. `containment_strategies`
-8. `escalation_preferences`
-9. `detection_rule_feedback`
-10. `incident_response_status`
-11. `threat_actor_profiles`
-12. `tool_execution_quirks`
+## 2. Planned Changes
 
-> [!WARNING]
-> Please confirm if you want to keep all 12 topics, refactor them down to 10, or add any new ones before we proceed!
+### 2.1. `.env.example`
+- Add a new section `Model Version Configuration` documenting these variables, their purposes, and defaults.
 
-## 2. Standardized Call-out Templates
+### 2.2. `soc_agent/agent.py`
+- Load `ORCHESTRATOR_MODEL`, `CTI_RESEARCHER_MODEL`, and `TIER1_ANALYST_MODEL` from environment variables.
+- Fallback to their respective default values if not defined.
+- Replace inline model strings with the loaded variables:
+  - Line 1054 (cti subagent): `model=CTI_RESEARCHER_MODEL`
+  - Line 1181 (tier1 subagent): `model=TIER1_ANALYST_MODEL`
+  - Line 1505 (orchestrator): `model=ORCHESTRATOR_MODEL`
 
-We will introduce two standard steps into the `## Workflow Steps & Diagram` section of each runbook.
+### 2.3. `soc_agent_flash/agent.py`
+- Load `ORCHESTRATOR_MODEL` from environment variables.
+- Fallback to `gemini-3.0-flash` (retaining current default configuration).
+- Replace model assignment on line 299.
 
-**Query Memory (Early Step, Usually Step 1.5 or 2.5):**
-> **Query Memory Context:** Before deep analysis, use the `LoadMemoryTool` to retrieve historical context for the involved entities or alert types. Check appropriate topics such as `approved_exceptions`, `investigation_patterns`, or `asset_context` to avoid redundant effort and identify known benign behavior.
+### 2.4. `soc_agent_cti/agent.py`
+- Load `CTI_RESEARCHER_MODEL` from environment variables.
+- Fallback to `gemini-2.5-flash`.
+- Replace model assignment on line 609.
 
-**Save Memory (Final Step):**
-> **Save Findings to Memory:** If this workflow yielded novel insights (e.g., a new false positive rule, newly identified critical infrastructure, or a successful containment action), save these details to the memory bank under the appropriate topic (e.g., `analyst_notes`, `detection_rule_feedback`, or `containment_strategies`).
+### 2.5. `soc_agent_tier1/agent.py`
+- Load `TIER1_ANALYST_MODEL` from environment variables.
+- Fallback to `gemini-2.5-flash`.
+- Replace model assignment on line 576.
 
-## 3. Implementation Strategy
+### 2.6. `soc_agent/tools/a2ui_renderer.py`
+- Load `A2UI_RENDERER_MODEL` from environment variables.
+- Fallback to `gemini-3-flash-preview` (retaining current default configuration).
+- Replace model assignment on line 49.
 
-Given the volume of files (125 `.md` files), we will use a hybrid approach to save time:
+## 3. Verification Plan
 
-1. **Automated Baseline Update:**
-   - I will write a Python script to iterate through the `.md` files in `adk_runbooks/rules-bank/`.
-   - The script will automatically inject a "Query Memory" sub-step after the "Initial Context" part of the `## Workflow Steps` section.
-   - It will append a "Save Findings to Memory" step before the `## Completion Criteria` section.
-2. **Specialized Manual Updates (IRPs & Complex Runbooks):**
-   - Certain critical runbooks like `irps/malware_incident_response.md` or `ransomware_response.md` require nuanced, topic-specific call-outs (e.g., explicitly telling the agent to query `threat_actor_profiles` and `incident_response_status`). We will manually refine these.
-
-## User Review Required
-
-> [!IMPORTANT]
-> 1. Are you okay with the **12 identified topics**, or would you like me to consolidate/add any before we start?
-> 2. Do you approve of the **hybrid script + manual curation** approach to handle the 125 files efficiently?
-
-## Verification Plan
-
-### Automated Verification
-- Run a `grep` across `adk_runbooks/rules-bank/**/*.md` to ensure the strings "Query Memory" and "Save Memory" exist in the workflow sections.
-
-### Manual Verification
-- Review the diffs of a few critical Incident Response Playbooks (IRPs) to ensure the call-outs are logically placed within the complex workflows.
+To ensure no syntax errors or regressions are introduced, we will:
+1. Run a Python dry run script to import `create_agent` from each modified module.
+2. Programmatically assert that setting env vars (e.g., `ORCHESTRATOR_MODEL="gemini-2.5-flash"`) changes the instantiated Agent's model name correctly.

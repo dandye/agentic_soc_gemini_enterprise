@@ -806,6 +806,15 @@ def create_agent():
     # Load environment variables from .env file
     load_dotenv(Path(".env"), override=True)
 
+    # Model Configuration
+    ORCHESTRATOR_MODEL = os.environ.get("ORCHESTRATOR_MODEL", "gemini-3.1-pro-preview")
+    CTI_RESEARCHER_MODEL = os.environ.get("CTI_RESEARCHER_MODEL", "gemini-3.5-flash")
+    TIER1_ANALYST_MODEL = os.environ.get("TIER1_ANALYST_MODEL", "gemini-3.5-flash")
+    logger.warning("Model configuration loaded:")
+    logger.warning(f"  ORCHESTRATOR_MODEL: {ORCHESTRATOR_MODEL}")
+    logger.warning(f"  CTI_RESEARCHER_MODEL: {CTI_RESEARCHER_MODEL}")
+    logger.warning(f"  TIER1_ANALYST_MODEL: {TIER1_ANALYST_MODEL}")
+
     # Get all required environment variables
     logger.warning("AUTH_DEBUG [soc_agent]: Starting create_agent() execution")
     GCP_PROJECT_ID = os.environ.get("GCP_PROJECT_ID")
@@ -1051,7 +1060,7 @@ def create_agent():
 
     cti_subagent = Agent(
         name="cti_researcher",
-        model="gemini-2.5-flash",
+        model=CTI_RESEARCHER_MODEL,
         description=CTI_PERSONA,
         instruction="""You are a Cyber Threat Intelligence (CTI) Researcher focused on proactive threat discovery, analysis, and intelligence production.
 
@@ -1178,7 +1187,7 @@ CRITICAL: When formulating analysis plans, summarize your approach and ask for u
 
     tier1_subagent = Agent(
         name="tier1_analyst",
-        model="gemini-2.5-flash",
+        model=TIER1_ANALYST_MODEL,
         description=TIER1_PERSONA,
         instruction="""You are a Tier 1 SOC Analyst - the first line of defense in security operations.
 
@@ -1502,7 +1511,7 @@ Remember: Your role is to be an intelligent orchestrator that makes security ope
     # Create orchestrator with LLM delegation to specialists (as sub_agents or AgentTool wrappers)
     orchestrator = Agent(
         name="secops_assistant",
-        model="gemini-2.5-pro",
+        model=ORCHESTRATOR_MODEL,
         description="SecOps Security Agent - An intelligent SOC orchestrator for Google SecOps that delegates security operations to specialized persona-based agents.",
         instruction=orchestrator_instruction,
         tools=orchestrator_tools,

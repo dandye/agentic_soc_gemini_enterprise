@@ -13,7 +13,7 @@
 	datastore-create datastore-list datastore-info datastore-delete \
 	rag-list rag-info rag-create rag-delete rag-import sync-runbooks sync-runbooks-validate sync-runbooks-gcs sync-runbooks-prune \
 	gcs-upload gcs-list gcs-delete gcs-validate gcs-uri gcs-bucket-create gcs-bucket-info \
-	vertex-ai-verify vertex-ai-enable-apis vertex-ai-quota \
+	vertex-ai-verify vertex-ai-enable-apis vertex-ai-quota models-list \
 	oauth-setup oauth-create-auth oauth-verify oauth-delete \
 	secret-upload secret-upload-force secret-verify \
 	redeploy-all oauth-workflow full-deploy-with-oauth status cleanup check-env lint format \
@@ -56,6 +56,7 @@ MANAGE_DATASTORE := installation_scripts/manage_datastore.py
 MANAGE_RAG := installation_scripts/manage_rag.py
 MANAGE_GCS := installation_scripts/manage_gcs.py
 MANAGE_VERTEX_AI := installation_scripts/manage_vertex_ai.py
+MANAGE_MODELS := installation_scripts/manage_models.py
 
 # Validation targets
 .PHONY: check-prereqs check-deploy check-integration
@@ -436,6 +437,9 @@ vertex-ai-enable-apis: ## Enable all required Vertex AI APIs
 
 vertex-ai-quota: ## Display quota information for Vertex AI services
 	@$(PYTHON) $(MANAGE_VERTEX_AI) check-quota --env-file $(ENV_FILE)
+
+models-list: ## List and discover available Gemini models from Google GenAI
+	@$(PYTHON) $(MANAGE_MODELS) list --env-file $(ENV_FILE)
 
 # OAuth management targets
 oauth-setup: ## Interactive OAuth client setup from client_secret.json (use: make oauth-setup CLIENT_SECRET=path/to/client_secret.json)

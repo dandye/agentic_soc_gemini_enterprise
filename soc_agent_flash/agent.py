@@ -91,6 +91,9 @@ def create_agent():
     # Load environment variables from .env file
     load_dotenv(Path(".env"), override=True)
 
+    # Model Configuration
+    ORCHESTRATOR_MODEL = os.environ.get("ORCHESTRATOR_MODEL", "gemini-3.5-flash")
+
     # Get all required environment variables
     GCP_PROJECT_ID = os.environ.get("GCP_PROJECT_ID")
     GCP_LOCATION = os.environ.get("GCP_LOCATION", "us-central1")
@@ -296,7 +299,7 @@ def create_agent():
     logger.info(f"Creating SOC Agent with {len(tools)} tools...")
 
     agent = Agent(
-        model="gemini-3.0-flash",
+        model=ORCHESTRATOR_MODEL,
         name="soc_assistant_flash_3",
         description="Security Operations reasoning agent with access to Agentic SOC MCP tools and runbook search.",
         instruction="""You are a Security Operations assistant with comprehensive access to MCP security tools including RAG-based runbook and documentation retrieval.

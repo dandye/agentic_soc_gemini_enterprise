@@ -1,4 +1,5 @@
 import logging
+import os
 from pathlib import Path
 
 from google import genai
@@ -44,9 +45,12 @@ def render_dashboard(
         # Prepare the prompt
         prompt = f"Please render the following data into a beautiful and functional A2UI interface.\n\nLAYOUT REQUESTED: {requested_layout}\n\nDATA TO RENDER:\n{data_to_render}"
 
+        # Load the model version from environment
+        model_version = os.environ.get("A2UI_RENDERER_MODEL", "gemini-3.5-flash")
+
         # Use Gemini Flash for fast, efficient UI generation
         response = client.models.generate_content(
-            model="gemini-3-flash-preview",  # Using latest preview flash
+            model=model_version,
             contents=prompt,
             config=types.GenerateContentConfig(
                 system_instruction=system_instruction,
