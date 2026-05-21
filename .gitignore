@@ -6,3 +6,4 @@ GEMINI.md
 .venv
 __pycache__/
 .DS_Store
+implementation_plan.md
