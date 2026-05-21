@@ -137,7 +137,6 @@ from google.genai.types import (  # noqa: E402
     Part,
 )
 
-from soc_agent.tools.a2ui_renderer import render_dashboard  # noqa: E402
 from soc_agent.tools.chatops_tools import (  # noqa: E402
     deliver_report,
     generic_notification,
@@ -929,9 +928,6 @@ def create_agent():
     RAG_SIMILARITY_TOP_K = int(os.environ.get("RAG_SIMILARITY_TOP_K", "10"))
     RAG_DISTANCE_THRESHOLD = float(os.environ.get("RAG_DISTANCE_THRESHOLD", "0.6"))
 
-    # A2UI Configuration
-    A2UI_ENABLED = os.environ.get("A2UI_ENABLED", "False") == "True"
-
     # Debug mode
     DEBUG = os.environ.get("DEBUG", "False") == "True"
     if DEBUG:
@@ -1322,9 +1318,6 @@ CRITICAL: Summarize procedures and ask for user permission before executing stat
         trigger_vulnerability_patch_approval_card,
     ]
 
-    if A2UI_ENABLED:
-        orchestrator_tools.append(render_dashboard)
-
     # Add RAG tool DIRECTLY to orchestrator (not via sub-agent) to preserve grounding citations
     if RAG_CORPUS_ID:
         orchestrator_tools.append(
@@ -1360,19 +1353,11 @@ You have direct access to several tools and can delegate to specialized sub-agen
    - Use for reading the complete text of a document to avoid truncation.
 """
 
-    if A2UI_ENABLED:
-        orchestrator_instruction += """
-3. **render_dashboard** (Visual Interface tool):
-   - Converts raw data (JSON lists, alert summaries, etc.) into rich A2UI dashboards.
-   - Use for: "Show me a dashboard of...", "Provide a visual report for...", "Create a summary view of..."
-   - **IMPORTANT:** This tool returns a special block of text and JSON. You MUST output this EXACT result directly to the user as part of your final response to enable rendering.
-"""
-
     orchestrator_instruction += """
-4. **LoadMemoryTool** (Vertex AI Memory Bank):
+3. **LoadMemoryTool** (Vertex AI Memory Bank):
    - Retrieves historical context and tactical insights persisted from previous investigations.
 
-5. **ChatOps Tools** (Human Communication):
+4. **ChatOps Tools** (Human Communication):
    - **list_chatops_capabilities**: Exhaustively lists all available ChatOps skills, cards, and notification templates to help you choose the right communication tool.
    - **send_all_example_cards**: Sends one of each kind of predefined ChatOps card to the configured webhook. Useful for demos and testing.
    - **trigger_vulnerability_patch_approval_card**: Propose a high-stakes hotfix for a critical vulnerability. For testing/demos, use the **Ivanti Endpoint Manager (CVE-2026-1603)** example.
@@ -1395,11 +1380,6 @@ DELEGATION STRATEGY:
 3. For threat intelligence: Delegate to `cti_researcher`.
 4. For alert triage/investigation: Delegate to `tier1_analyst`.
 5. For querying historical memory or recording analyst notes: Delegate to `tier1_analyst`.
-"""
-
-    if A2UI_ENABLED:
-        orchestrator_instruction += """
-5. For visual requests: Gather data first (via sub-agents or tools), then call `render_dashboard` with that data.
 """
 
     orchestrator_instruction += """
@@ -1434,16 +1414,6 @@ metadata.event_type = 'USER_LOGIN' AND metadata.event_timestamp >= '2024-03-10T1
 Result: No failed login attempts were found in the last hour."
 """
 
-    if A2UI_ENABLED:
-        orchestrator_instruction += """
-EXAMPLE - Dashboard request:
-User: "Show me a visual dashboard of the latest high priority alerts."
-1. Delegate to Tier 1 analyst to search for alerts.
-2. Receive raw alerts data.
-3. Call `render_dashboard(data_to_render="[Raw alerts JSON]", requested_layout="A grid of high severity alert cards with summaries")`.
-4. Return the result of the tool to the user.
-"""
-
     orchestrator_instruction += """
 MULTI-AGENT WORKFLOWS:
 For complex requests, you may use multiple specialists sequentially:
@@ -1457,11 +1427,6 @@ IMPORTANT GUIDELINES:
 - **Preserve all grounding citations and source links** from RAG knowledge base results
 - **Artifact Linking:** Whenever a report or document is saved using the `save_report_artifact` tool, you MUST include the exact markdown link returned by the tool in your final response to the user.
 - **Report Delivery:** Whenever a report Artifact is generated and saved using `save_report_artifact`, you MUST ALSO call the `deliver_report` tool to send the "Triage Report Ready" ChatOps card to the team.
-"""
-
-    if A2UI_ENABLED:
-        orchestrator_instruction += """
-- **Visual Dashboards:** If you call `render_dashboard`, you MUST include its output in your response to the user. It is safe to append it to your natural language text.
 """
 
     orchestrator_instruction += """
@@ -1526,8 +1491,6 @@ Remember: Your role is to be an intelligent orchestrator that makes security ope
     tools_description = []
     if RAG_CORPUS_ID:
         tools_description.append("RAG knowledge base")
-    if A2UI_ENABLED:
-        tools_description.append("render_dashboard tool")
     tools_description.extend(
         [
             "fetch_full_document tool",
