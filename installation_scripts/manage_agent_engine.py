@@ -866,6 +866,9 @@ class AgentEngineManager:
                 sa_filename = Path(CHRONICLE_SERVICE_ACCOUNT_PATH).name
                 env_vars["SECOPS_SA_PATH"] = sa_filename
 
+            # Filter out None values to prevent Vertex AI SDK validation errors
+            env_vars = {k: v for k, v in env_vars.items() if v is not None}
+
             # Determine display name based on agent module
             if agent_module == "soc_agent_flash":
                 display_name = "SecOps Security Agent - Flash"
