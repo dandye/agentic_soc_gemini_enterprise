@@ -507,13 +507,13 @@ agent-engine-delete-by-resource: ## Delete Agent Engine instance by resource nam
 	fi
 
 agent-engine-create: check-prereqs ## Create a new Agent Engine instance (same as deploy)
-	$(PYTHON) $(MANAGE_AGENT_ENGINE) create $(if $(DESCRIPTION),--description "$(DESCRIPTION)")
+	$(PYTHON) $(MANAGE_AGENT_ENGINE) create --agent-module $(AGENT_MODULE) $(if $(DESCRIPTION),--description "$(DESCRIPTION)")
 
 agent-engine-create-debug: check-prereqs ## Create Agent Engine with debug logging enabled
-	$(PYTHON) $(MANAGE_AGENT_ENGINE) create --debug $(if $(DESCRIPTION),--description "$(DESCRIPTION)")
+	$(PYTHON) $(MANAGE_AGENT_ENGINE) create --agent-module $(AGENT_MODULE) --debug $(if $(DESCRIPTION),--description "$(DESCRIPTION)")
 
 agent-engine-create-no-test: check-prereqs ## Create Agent Engine without running the test
-	$(PYTHON) $(MANAGE_AGENT_ENGINE) create --no-test $(if $(DESCRIPTION),--description "$(DESCRIPTION)")
+	$(PYTHON) $(MANAGE_AGENT_ENGINE) create --agent-module $(AGENT_MODULE) --no-test $(if $(DESCRIPTION),--description "$(DESCRIPTION)")
 
 # Workflow targets
 agent-engine-redeploy: agent-engine-deploy ## Redeploy the agent engine

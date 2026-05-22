@@ -1461,9 +1461,9 @@ def create(
         typer.Option(
             "--agent-module",
             "-a",
-            help="Agent module to deploy (e.g., 'soc_agent', 'soc_agent_flash')",
+            help="Agent module to deploy (e.g., 'agent_soc_manager', 'agent_a2a_tier2')",
         ),
-    ] = "soc_agent",
+    ] = "agent_soc_manager",
     debug: Annotated[
         bool, typer.Option("--debug", help="Enable debug mode with verbose logging")
     ] = False,
@@ -1536,9 +1536,9 @@ def update(
         typer.Option(
             "--agent-module",
             "-a",
-            help="Agent module to deploy (e.g., 'soc_agent', 'soc_agent_flash')",
+            help="Agent module to deploy (e.g., 'agent_soc_manager', 'agent_a2a_tier2')",
         ),
-    ] = "soc_agent",
+    ] = "agent_soc_manager",
     debug: Annotated[
         bool, typer.Option("--debug", help="Enable debug mode with verbose logging")
     ] = False,
@@ -1592,9 +1592,9 @@ def deploy(
         typer.Option(
             "--agent-module",
             "-a",
-            help="Agent module to deploy (e.g., 'soc_agent', 'soc_agent_flash')",
+            help="Agent module to deploy (e.g., 'agent_soc_manager', 'agent_a2a_tier2')",
         ),
-    ] = "soc_agent",
+    ] = "agent_soc_manager",
     debug: Annotated[
         bool, typer.Option("--debug", help="Enable debug mode with verbose logging")
     ] = False,
