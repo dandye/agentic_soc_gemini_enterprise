@@ -811,18 +811,16 @@ async def delegate_to_tier2_responder(query: str, tool_context: Context) -> str:
         remote_engine = agent_engines.get(tier2_engine_name)
         
         # Retrieve session context parameters
-        session_id = "a2a_containment"
+        session_id = None  # Let remote specialist auto-create its own session to prevent SessionNotFoundError
         user_id = "secops_assistant"
         
         # Map parent context to child session if available
         if hasattr(tool_context, "_invocation_context") and tool_context._invocation_context:
             root_ctx = tool_context._invocation_context
-            if hasattr(root_ctx, "session") and hasattr(root_ctx.session, "id"):
-                session_id = root_ctx.session.id
             if hasattr(root_ctx, "user_id"):
                 user_id = root_ctx.user_id
 
-        logger.info(f"A2A_DELEGATION: Calling remote Tier 2 agent ({tier2_engine_name}) with Session: {session_id}, User: {user_id}")
+        logger.info(f"A2A_DELEGATION: Calling remote Tier 2 agent ({tier2_engine_name}) with User: {user_id}")
         
         # Invoke the remote engine client dynamically accumulating streaming events
         response_parts = []
