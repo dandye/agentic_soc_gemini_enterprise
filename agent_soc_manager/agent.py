@@ -137,7 +137,7 @@ from google.genai.types import (  # noqa: E402
     Part,
 )
 
-from soc_agent.tools.chatops_tools import (  # noqa: E402
+from agent_soc_manager.tools.chatops_tools import (  # noqa: E402
     deliver_report,
     generic_notification,
     list_chatops_capabilities,

@@ -23,8 +23,8 @@
 # Default environment file
 ENV_FILE ?= .env
 
-# Agent module selection (default: soc_agent for Pro model)
-AGENT_MODULE ?= soc_agent
+# Agent module selection (default: agent_soc_manager for Pro model)
+AGENT_MODULE ?= agent_soc_manager
 
 # Verbosity control
 V ?= 0
@@ -153,15 +153,15 @@ agent-engine-update: check-deploy ## Update existing agent engine in-place (pres
 	$(Q)echo "========================================"
 
 agent-engine-deploy-pro: check-prereqs ## Deploy Pro agent (gemini-3.1-pro-preview)
-	$(Q)$(MAKE) agent-engine-deploy AGENT_MODULE=soc_agent
+	$(Q)$(MAKE) agent-engine-deploy AGENT_MODULE=agent_soc_manager
 
 agent-engine-deploy-tier2: check-prereqs ## Deploy Tier 2 agent (incident responder specialist)
-	$(Q)$(MAKE) agent-engine-deploy AGENT_MODULE=soc_agent_tier2
+	$(Q)$(MAKE) agent-engine-deploy AGENT_MODULE=agent_a2a_tier2
 
 agent-engine-deploy-and-delete: check-prereqs ## Deploy agent engine and intelligently delete older versions
 	$(Q)$(PYTHON) $(MANAGE_AGENT_ENGINE) deploy --agent-module $(AGENT_MODULE) $(if $(DESCRIPTION),--description "$(DESCRIPTION)")
 
-agent-engine-test: ## Test the deployed agent engine (use AGENT_MODULE=soc_agent_tier2 for Tier 2)
+agent-engine-test: ## Test the deployed agent engine (use AGENT_MODULE=agent_a2a_tier2 for Tier 2)
 	$(PYTHON) $(MANAGE_AGENT_ENGINE) test --agent-module $(AGENT_MODULE)
 
 agent-engine-warmup: check-deploy ## Pre-warm MCP server connections to reduce cold start latency

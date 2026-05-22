@@ -183,7 +183,7 @@ class DynamicMcpToolset(McpToolset):
             container_env = dict(os.environ)
             container_env["PYTHONPATH"] = (
                 ":".join(sys.path)
-                + ":mcp-security/server/secops:mcp-security/server/secops-soar:mcp-security/server/gti:mcp-security/server/scc"
+                + ":external/mcp-security/server/secops:external/mcp-security/server/secops-soar:external/mcp-security/server/gti:external/mcp-security/server/scc"
             )
 
             for k, v in self.target_env.items():
@@ -590,7 +590,7 @@ def create_agent():
     # ========================================================================
     logger.info("Importing ChatOps mitigation tools...")
     try:
-        from soc_agent.tools.chatops_tools import (
+        from agent_soc_manager.tools.chatops_tools import (
             deliver_report,
             generic_notification,
             list_chatops_capabilities,

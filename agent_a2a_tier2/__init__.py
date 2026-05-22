@@ -13,11 +13,11 @@ The Tier 2 Responder focuses on:
 
 Usage:
     # Standard ADK import pattern
-    from a2a_tier2 import agent
+    from agent_a2a_tier2 import agent
     my_agent = agent.root_agent
 
     # Or create a fresh agent
-    from a2a_tier2 import create_agent
+    from agent_a2a_tier2 import create_agent
     my_agent = create_agent()
 """
 

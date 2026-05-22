@@ -529,7 +529,7 @@ class AgentEngineManager:
 
     def create_agent(
         self,
-        agent_module: str = "soc_agent",
+        agent_module: str = "agent_soc_manager",
         debug: bool = False,
         no_test: bool = False,
         description: str | None = None,
@@ -545,7 +545,7 @@ class AgentEngineManager:
     def update_agent(
         self,
         resource_name: str,
-        agent_module: str = "soc_agent",
+        agent_module: str = "agent_soc_manager",
         debug: bool = False,
         no_test: bool = False,
         description: str | None = None,
@@ -561,7 +561,7 @@ class AgentEngineManager:
 
     def _deploy_agent_internal(
         self,
-        agent_module: str = "soc_agent",
+        agent_module: str = "agent_soc_manager",
         debug: bool = False,
         no_test: bool = False,
         is_update: bool = False,
@@ -572,7 +572,7 @@ class AgentEngineManager:
         Create and deploy a new Agent Engine instance.
 
         Args:
-            agent_module: Name of the agent module to import (default: "soc_agent")
+            agent_module: Name of the agent module to import (default: "agent_soc_manager")
             debug: Enable debug mode with verbose logging
             no_test: Skip the automatic test after creation
 
@@ -870,9 +870,9 @@ class AgentEngineManager:
             env_vars = {k: v for k, v in env_vars.items() if v is not None}
 
             # Determine display name based on agent module
-            if agent_module == "a2a_tier2":
+            if agent_module == "agent_a2a_tier2":
                 display_name = "SecOps Security Agent - Tier 2"
-            elif agent_module == "soc_agent":
+            elif agent_module == "agent_soc_manager":
                 display_name = "SecOps Security Agent - Orchestrator"
             else:
                 # For any future agent modules, use the module name as-is
@@ -893,12 +893,12 @@ class AgentEngineManager:
 
             extra_packages = [
                 "installation_scripts/install.sh",  # installs MCP server packages
-                "soc_agent",
-                "a2a_tier2",
-                "mcp-security/server/secops",
-                "mcp-security/server/secops-soar",
-                "mcp-security/server/gti",
-                "mcp-security/server/scc",
+                "agent_soc_manager",
+                "agent_a2a_tier2",
+                "external/mcp-security/server/secops",
+                "external/mcp-security/server/secops-soar",
+                "external/mcp-security/server/gti",
+                "external/mcp-security/server/scc",
             ]
             if not use_secret_manager:
                 extra_packages.append(sa_filename)
@@ -1070,11 +1070,11 @@ class AgentEngineManager:
             typer.echo(f"Created session: {session_id}")
             log_file.write(f"Created session: {session_id}\n")
 
-            if agent_module == "soc_agent":
+            if agent_module == "agent_soc_manager":
                 test_messages = (
                     "We have confirmed active ransomware encryption and beaconing from host MALWARETEST-WIN. Please isolate this endpoint from the network immediately to contain the threat.",
                 )
-            elif agent_module == "a2a_tier2":
+            elif agent_module == "agent_a2a_tier2":
                 test_messages = (
                     "Isolate compromised host MALWARETEST-WIN from the network.",
                 )
@@ -1490,7 +1490,7 @@ def create(
         typer.echo("=" * 80)
         typer.echo("\nSave these values to your .env file:")
         # Determine env var names based on agent module
-        if agent_module == "a2a_tier2":
+        if agent_module == "agent_a2a_tier2":
             resource_var = "TIER2_AGENT_RESOURCE_NAME"
             id_var = "TIER2_AGENT_ID"
         else:
@@ -1560,7 +1560,7 @@ def update(
 
     if not resource_name:
         # Determine env var name based on agent module
-        if agent_module == "a2a_tier2":
+        if agent_module == "agent_a2a_tier2":
             env_var = "TIER2_AGENT_RESOURCE_NAME"
         else:
             env_var = "AGENT_ENGINE_RESOURCE_NAME"
@@ -1621,9 +1621,9 @@ def deploy(
     manager = AgentEngineManager(env_file)
 
     # Determine what the display name will be so we can find orphans later
-    if agent_module == "a2a_tier2":
+    if agent_module == "agent_a2a_tier2":
         display_name = "SecOps Security Agent - Tier 2"
-    elif agent_module == "soc_agent":
+    elif agent_module == "agent_soc_manager":
         display_name = "SecOps Security Agent - Orchestrator"
     else:
         display_name = f"SecOps Security Agent - {agent_module}"
@@ -1657,7 +1657,7 @@ def deploy(
 
         try:
             # Determine env var names based on agent module
-            if agent_module == "a2a_tier2":
+            if agent_module == "agent_a2a_tier2":
                 resource_var = "TIER2_AGENT_RESOURCE_NAME"
                 id_var = "TIER2_AGENT_ID"
             else:
@@ -1752,9 +1752,9 @@ def test(
         typer.Option(
             "--agent-module",
             "-m",
-            help="Agent module to test (options: soc_agent, a2a_tier2)",
+            help="Agent module to test (options: agent_soc_manager, agent_a2a_tier2)",
         ),
-    ] = "soc_agent",
+    ] = "agent_soc_manager",
     env_file: Annotated[
         Path, typer.Option(help="Path to the environment file.")
     ] = Path(".env"),
@@ -1762,7 +1762,7 @@ def test(
     """Test an Agent Engine instance with a sample query."""
     if not resource and not index:
         # Try to get from environment based on agent module
-        if agent_module == "a2a_tier2":
+        if agent_module == "agent_a2a_tier2":
             env_var = "TIER2_AGENT_RESOURCE_NAME"
         else:
             env_var = "AGENT_ENGINE_RESOURCE_NAME"

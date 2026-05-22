@@ -1,10 +1,10 @@
 [submodule "mcp-security"]
-	path = mcp-security
+	path = external/mcp-security
 	# url = git@github.com:google/mcp-security.git
 	url = https://github.com/google/mcp-security.git
 [submodule "ai-runbooks"]
-	path = ai-runbooks
+	path = external/ai-runbooks
 	url = https://github.com/dandye/ai-runbooks.git
 [submodule "adk_runbooks"]
-	path = adk_runbooks
+	path = external/adk_runbooks
 	url = https://github.com/dandye/adk_runbooks.git
