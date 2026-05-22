@@ -841,15 +841,27 @@ async def delegate_to_tier2_responder(query: str, tool_context: Context) -> str:
                     return obj.get(field_name)
                 return getattr(obj, field_name, None)
 
-            # Extract text content safely
+            # Extract text content and tool invocations safely
             content = get_field(event, "content")
             if content:
                 parts = get_field(content, "parts")
                 if parts and isinstance(parts, list):
                     for part in parts:
+                        # 1. Extract conversational text
                         text = get_field(part, "text")
                         if text:
                             response_parts.append(text)
+                        
+                        # 2. Extract tool/function calls for real-time status updates
+                        function_call = get_field(part, "function_call")
+                        if function_call:
+                            name = get_field(function_call, "name")
+                            if name in ["request_human_confirmation", "request_triage_approval"]:
+                                response_parts.append("[Specialist Action] Dispatched a high-priority ChatOps confirmation card to the security operations channel requesting human analyst approval before executing containment.")
+                            elif name == "deliver_report":
+                                response_parts.append("[Specialist Action] Saved and delivered the incident containment report to the security operations channel.")
+                            else:
+                                response_parts.append(f"[Specialist Action] Invoking containment tool: {name}")
 
         final_text = "".join(response_parts).strip()
         if not final_text:
