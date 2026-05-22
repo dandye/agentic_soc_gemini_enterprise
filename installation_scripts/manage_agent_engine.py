@@ -898,8 +898,6 @@ class AgentEngineManager:
             extra_packages = [
                 "installation_scripts/install.sh",  # installs MCP server packages
                 "soc_agent",
-                "soc_agent_flash",
-                "soc_agent_tier1",
                 "soc_agent_tier2",
                 "mcp-security/server/secops",
                 "mcp-security/server/secops-soar",

@@ -155,12 +155,6 @@ agent-engine-update: check-deploy ## Update existing agent engine in-place (pres
 agent-engine-deploy-pro: check-prereqs ## Deploy Pro agent (gemini-3.1-pro-preview)
 	$(Q)$(MAKE) agent-engine-deploy AGENT_MODULE=soc_agent
 
-agent-engine-deploy-flash: check-prereqs ## Deploy Flash agent (gemini-3-flash-preview)
-	$(Q)$(MAKE) agent-engine-deploy AGENT_MODULE=soc_agent_flash
-
-agent-engine-deploy-tier1: check-prereqs ## Deploy Tier 1 agent (triage specialist)
-	$(Q)$(MAKE) agent-engine-deploy AGENT_MODULE=soc_agent_tier1
-
 agent-engine-deploy-tier2: check-prereqs ## Deploy Tier 2 agent (incident responder specialist)
 	$(Q)$(MAKE) agent-engine-deploy AGENT_MODULE=soc_agent_tier2
 
