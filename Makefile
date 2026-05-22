@@ -23,8 +23,8 @@
 # Default environment file
 ENV_FILE ?= .env
 
-# Agent module selection (default: soc_agent for Pro model)
-AGENT_MODULE ?= soc_agent
+# Agent module selection (default: agent_soc_manager for Pro model)
+AGENT_MODULE ?= agent_soc_manager
 
 # Verbosity control
 V ?= 0
@@ -46,7 +46,7 @@ export
 endif
 
 # Python executable (use venv if available)
-PYTHON := PYTHONPATH=. $(shell if [ -d "venv" ]; then echo "venv/bin/python"; else echo "python3"; fi)
+PYTHON := PYTHONPATH=. $(shell if [ -d ".venv" ]; then echo ".venv/bin/python"; elif [ -d "venv" ]; then echo "venv/bin/python"; else echo "python3"; fi)
 
 # Management scripts with consistent naming
 MANAGE_AGENTSPACE := installation_scripts/manage_agentspace.py
@@ -153,16 +153,16 @@ agent-engine-update: check-deploy ## Update existing agent engine in-place (pres
 	$(Q)echo "========================================"
 
 agent-engine-deploy-pro: check-prereqs ## Deploy Pro agent (gemini-3.1-pro-preview)
-	$(Q)$(MAKE) agent-engine-deploy AGENT_MODULE=soc_agent
+	$(Q)$(MAKE) agent-engine-deploy AGENT_MODULE=agent_soc_manager
 
-agent-engine-deploy-flash: check-prereqs ## Deploy Flash agent (gemini-3-flash-preview)
-	$(Q)$(MAKE) agent-engine-deploy AGENT_MODULE=soc_agent_flash
+agent-engine-deploy-tier2: check-prereqs ## Deploy Tier 2 agent (incident responder specialist)
+	$(Q)$(MAKE) agent-engine-deploy AGENT_MODULE=agent_a2a_tier2
 
 agent-engine-deploy-and-delete: check-prereqs ## Deploy agent engine and intelligently delete older versions
 	$(Q)$(PYTHON) $(MANAGE_AGENT_ENGINE) deploy --agent-module $(AGENT_MODULE) $(if $(DESCRIPTION),--description "$(DESCRIPTION)")
 
-agent-engine-test: check-deploy ## Test the deployed agent engine
-	$(PYTHON) $(MANAGE_AGENT_ENGINE) test
+agent-engine-test: ## Test the deployed agent engine (use AGENT_MODULE=agent_a2a_tier2 for Tier 2)
+	$(PYTHON) $(MANAGE_AGENT_ENGINE) test --agent-module $(AGENT_MODULE)
 
 agent-engine-warmup: check-deploy ## Pre-warm MCP server connections to reduce cold start latency
 	$(PYTHON) $(MANAGE_AGENT_ENGINE) warmup
@@ -507,13 +507,13 @@ agent-engine-delete-by-resource: ## Delete Agent Engine instance by resource nam
 	fi
 
 agent-engine-create: check-prereqs ## Create a new Agent Engine instance (same as deploy)
-	$(PYTHON) $(MANAGE_AGENT_ENGINE) create $(if $(DESCRIPTION),--description "$(DESCRIPTION)")
+	$(PYTHON) $(MANAGE_AGENT_ENGINE) create --agent-module $(AGENT_MODULE) $(if $(DESCRIPTION),--description "$(DESCRIPTION)")
 
 agent-engine-create-debug: check-prereqs ## Create Agent Engine with debug logging enabled
-	$(PYTHON) $(MANAGE_AGENT_ENGINE) create --debug $(if $(DESCRIPTION),--description "$(DESCRIPTION)")
+	$(PYTHON) $(MANAGE_AGENT_ENGINE) create --agent-module $(AGENT_MODULE) --debug $(if $(DESCRIPTION),--description "$(DESCRIPTION)")
 
 agent-engine-create-no-test: check-prereqs ## Create Agent Engine without running the test
-	$(PYTHON) $(MANAGE_AGENT_ENGINE) create --no-test $(if $(DESCRIPTION),--description "$(DESCRIPTION)")
+	$(PYTHON) $(MANAGE_AGENT_ENGINE) create --agent-module $(AGENT_MODULE) --no-test $(if $(DESCRIPTION),--description "$(DESCRIPTION)")
 
 # Workflow targets
 agent-engine-redeploy: agent-engine-deploy ## Redeploy the agent engine

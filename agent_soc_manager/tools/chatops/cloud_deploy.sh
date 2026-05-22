@@ -32,4 +32,4 @@ gcloud functions deploy $FUNCTION_NAME \
     --entry-point=$ENTRY_POINT \
     --set-env-vars "CHRONICLE_CHATOPS_SECRET=$CHRONICLE_CHATOPS_SECRET,AGENT_ENGINE_RESOURCE_NAME=$AGENT_ENGINE_RESOURCE_NAME,GCP_PROJECT_ID=$GCP_PROJECT_ID,GCP_LOCATION=$GCP_LOCATION" \
     --service-account=$SA_EMAIL \
-    --source=soc_agent/tools/chatops/
+    --source=agent_soc_manager/tools/chatops/

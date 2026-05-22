@@ -18,4 +18,4 @@ echo "Starting Webhook Handler locally on http://localhost:8080 ..."
 echo "Press Ctrl+C to stop."
 
 # 3. Run the handler
-venv/bin/python soc_agent/tools/chatops/webhook_handler.py
+venv/bin/python agent_soc_manager/tools/chatops/webhook_handler.py

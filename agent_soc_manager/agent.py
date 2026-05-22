@@ -32,7 +32,7 @@ ARCHITECTURE:
 
 ARCHITECTURAL DECISION: Intentional Code Duplication
 ======================================================
-This module intentionally duplicates code from other soc_agent_* modules
+This module intentionally duplicates code from other agent_soc_manager_* modules
 rather than using shared utilities or inheritance. This is a deliberate
 architectural choice that prioritizes:
 
@@ -137,7 +137,7 @@ from google.genai.types import (  # noqa: E402
     Part,
 )
 
-from soc_agent.tools.chatops_tools import (  # noqa: E402
+from agent_soc_manager.tools.chatops_tools import (  # noqa: E402
     deliver_report,
     generic_notification,
     list_chatops_capabilities,
@@ -789,6 +789,90 @@ def prevent_runaway_loop_callback(
     return None
 
 
+async def delegate_to_tier2_responder(query: str, tool_context: Context) -> str:
+    """
+    Delegates threat containment, host isolation, container teardown, or active mitigation
+    to the standalone Tier 2 Incident Responder agent remotely via Agent-to-Agent (A2A) call.
+    Use this tool ONLY when a threat is confirmed and active containment/mitigation is required.
+
+    Args:
+        query: The specific containment task or mitigation request (e.g., 'Isolate host MALWARETEST-WIN' or 'Suspend compromised user credentials').
+    """
+    logger.info(f"A2A_DELEGATION: Attempting to delegate to Tier 2 Incident Responder for: {query}")
+    try:
+        # Retrieve Tier 2 Agent Engine resource name from environment variables
+        tier2_engine_name = os.environ.get("TIER2_AGENT_RESOURCE_NAME")
+        if not tier2_engine_name:
+            logger.error("A2A_DELEGATION_ERROR: TIER2_AGENT_RESOURCE_NAME not set in environment.")
+            return "Error: Tier 2 Incident Responder is not currently configured in the environment."
+
+        # Get the remote Reasoning Engine client
+        from vertexai import agent_engines
+        remote_engine = agent_engines.get(tier2_engine_name)
+        
+        # Retrieve session context parameters
+        session_id = None  # Let remote specialist auto-create its own session to prevent SessionNotFoundError
+        user_id = "secops_assistant"
+        
+        # Map parent context to child session if available
+        if hasattr(tool_context, "_invocation_context") and tool_context._invocation_context:
+            root_ctx = tool_context._invocation_context
+            if hasattr(root_ctx, "user_id"):
+                user_id = root_ctx.user_id
+
+        logger.info(f"A2A_DELEGATION: Calling remote Tier 2 agent ({tier2_engine_name}) with User: {user_id}")
+        
+        # Invoke the remote engine client dynamically accumulating streaming events
+        response_parts = []
+        async for event in remote_engine.async_stream_query(
+            user_id=user_id,
+            session_id=session_id,
+            message=query
+        ):
+            logger.debug(f"A2A_DELEGATION_EVENT: {event}")
+            
+            # Safe lookup helper supporting both dict and object structures interchangeably
+            def get_field(obj, field_name):
+                if obj is None:
+                    return None
+                if isinstance(obj, dict):
+                    return obj.get(field_name)
+                return getattr(obj, field_name, None)
+
+            # Extract text content and tool invocations safely
+            content = get_field(event, "content")
+            if content:
+                parts = get_field(content, "parts")
+                if parts and isinstance(parts, list):
+                    for part in parts:
+                        # 1. Extract conversational text
+                        text = get_field(part, "text")
+                        if text:
+                            response_parts.append(text)
+                        
+                        # 2. Extract tool/function calls for real-time status updates
+                        function_call = get_field(part, "function_call")
+                        if function_call:
+                            name = get_field(function_call, "name")
+                            if name in ["request_human_confirmation", "request_triage_approval"]:
+                                response_parts.append("[Specialist Action] Dispatched a high-priority ChatOps confirmation card to the security operations channel requesting human analyst approval before executing containment.")
+                            elif name == "deliver_report":
+                                response_parts.append("[Specialist Action] Saved and delivered the incident containment report to the security operations channel.")
+                            else:
+                                response_parts.append(f"[Specialist Action] Invoking containment tool: {name}")
+
+        final_text = "".join(response_parts).strip()
+        if not final_text:
+            final_text = "The Tier 2 specialist completed the request without generating a text response."
+
+        logger.info("A2A_DELEGATION_SUCCESS: Successfully completed remote A2A call.")
+        return f"--- Response from Tier 2 Incident Responder Specialist ---\n{final_text}"
+        
+    except Exception as e:
+        logger.error(f"A2A_DELEGATION_ERROR: Failed to delegate task to Tier 2 agent: {e}", exc_info=True)
+        return f"Failed to communicate with the remote Tier 2 Incident Responder specialist agent: {e}"
+
+
 def create_agent():
     """
     Create the SOC Orchestrator Agent with specialized sub-agents.
@@ -815,9 +899,9 @@ def create_agent():
     logger.warning(f"  TIER1_ANALYST_MODEL: {TIER1_ANALYST_MODEL}")
 
     # Get all required environment variables
-    logger.warning("AUTH_DEBUG [soc_agent]: Starting create_agent() execution")
+    logger.warning("AUTH_DEBUG [agent_soc_manager]: Starting create_agent() execution")
     GCP_PROJECT_ID = os.environ.get("GCP_PROJECT_ID")
-    logger.warning(f"AUTH_DEBUG [soc_agent]: GCP_PROJECT_ID={GCP_PROJECT_ID}")
+    logger.warning(f"AUTH_DEBUG [agent_soc_manager]: GCP_PROJECT_ID={GCP_PROJECT_ID}")
     GCP_LOCATION = os.environ.get("GCP_LOCATION", "us-central1")
     GCP_STAGING_BUCKET = os.environ.get("GCP_STAGING_BUCKET")
     GCP_VERTEXAI_ENABLED = os.environ.get("GCP_VERTEXAI_ENABLED", "True")
@@ -831,17 +915,17 @@ def create_agent():
         "CHRONICLE_SERVICE_ACCOUNT_SECRET"
     )
     logger.warning(
-        f"AUTH_DEBUG [soc_agent]: CHRONICLE_CUSTOMER_ID={CHRONICLE_CUSTOMER_ID}"
+        f"AUTH_DEBUG [agent_soc_manager]: CHRONICLE_CUSTOMER_ID={CHRONICLE_CUSTOMER_ID}"
     )
     logger.warning(
-        f"AUTH_DEBUG [soc_agent]: CHRONICLE_PROJECT_ID={CHRONICLE_PROJECT_ID}"
+        f"AUTH_DEBUG [agent_soc_manager]: CHRONICLE_PROJECT_ID={CHRONICLE_PROJECT_ID}"
     )
-    logger.warning(f"AUTH_DEBUG [soc_agent]: CHRONICLE_REGION={CHRONICLE_REGION}")
+    logger.warning(f"AUTH_DEBUG [agent_soc_manager]: CHRONICLE_REGION={CHRONICLE_REGION}")
     logger.warning(
-        f"AUTH_DEBUG [soc_agent]: CHRONICLE_SERVICE_ACCOUNT_PATH={CHRONICLE_SERVICE_ACCOUNT_PATH}"
+        f"AUTH_DEBUG [agent_soc_manager]: CHRONICLE_SERVICE_ACCOUNT_PATH={CHRONICLE_SERVICE_ACCOUNT_PATH}"
     )
     logger.warning(
-        f"AUTH_DEBUG [soc_agent]: CHRONICLE_SERVICE_ACCOUNT_SECRET={CHRONICLE_SERVICE_ACCOUNT_SECRET[:50] if CHRONICLE_SERVICE_ACCOUNT_SECRET else None}"
+        f"AUTH_DEBUG [agent_soc_manager]: CHRONICLE_SERVICE_ACCOUNT_SECRET={CHRONICLE_SERVICE_ACCOUNT_SECRET[:50] if CHRONICLE_SERVICE_ACCOUNT_SECRET else None}"
     )
 
     # Validate required Chronicle environment variables
@@ -907,11 +991,11 @@ def create_agent():
     # Add Chronicle service account if available
     if CHRONICLE_SERVICE_ACCOUNT_SECRET:
         logger.warning(
-            "AUTH_DEBUG [soc_agent]: Adding CHRONICLE_SERVICE_ACCOUNT_SECRET to mcp_env"
+            "AUTH_DEBUG [agent_soc_manager]: Adding CHRONICLE_SERVICE_ACCOUNT_SECRET to mcp_env"
         )
         mcp_env["CHRONICLE_SERVICE_ACCOUNT_SECRET"] = CHRONICLE_SERVICE_ACCOUNT_SECRET
     elif service_account_filename:
-        logger.warning("AUTH_DEBUG [soc_agent]: Adding SECOPS_SA_PATH to mcp_env")
+        logger.warning("AUTH_DEBUG [agent_soc_manager]: Adding SECOPS_SA_PATH to mcp_env")
         # Ensure we use the filename (not absolute path) so it works in the container where the file is copied.
         # For local execution, use the absolute path since the file isn't copied to the runner CWD.
         if os.environ.get("REASONING_ENGINE_DEPLOYMENT") == "True":
@@ -920,7 +1004,7 @@ def create_agent():
             mcp_env["SECOPS_SA_PATH"] = CHRONICLE_SERVICE_ACCOUNT_PATH
     else:
         logger.warning(
-            "AUTH_DEBUG [soc_agent]: NEITHER SECRET NOR PATH WAS ADDED TO mcp_env!"
+            "AUTH_DEBUG [agent_soc_manager]: NEITHER SECRET NOR PATH WAS ADDED TO mcp_env!"
         )
 
     # RAG configuration
@@ -1316,6 +1400,7 @@ CRITICAL: Summarize procedures and ask for user permission before executing stat
         trigger_shadow_it_discovery_card,
         trigger_temp_admin_request_card,
         trigger_vulnerability_patch_approval_card,
+        delegate_to_tier2_responder,
     ]
 
     # Add RAG tool DIRECTLY to orchestrator (not via sub-agent) to preserve grounding citations
@@ -1366,13 +1451,19 @@ You have direct access to several tools and can delegate to specialized sub-agen
    - **send_chatops_card**: Send a custom card with title, subtitle, and structured sections to ChatOps.
    - **CRITICAL:** Use these whenever human intervention or notification is required.
 
-### SPECIALIZED SUB-AGENTS (You delegate to these):
+### SPECIALIZED SUB-AGENTS & REMOTE SPECIALISTS:
 
+#### LOCAL SUB-AGENTS (You delegate to these in-process specialists):
 1. **cti_researcher** (Threat Intelligence specialist):
    - Deep threat research, actor analysis, malware investigation, IOC analysis.
 
 2. **tier1_analyst** (Alert Triage specialist):
    - Initial alert triage, basic investigation, false positive identification.
+
+#### REMOTE A2A SPECIALISTS (You delegate using tool calls):
+1. **delegate_to_tier2_responder**:
+   - High-privilege incident containment, host network isolation, unauthorized process/container termination, and active remediation (disabling compromised credentials).
+   - **CRITICAL:** Use ONLY when a threat is confirmed and active containment/mitigation is required.
 
 DELEGATION STRATEGY:
 1. Analyze the user's request to determine the type of work required.
@@ -1380,6 +1471,7 @@ DELEGATION STRATEGY:
 3. For threat intelligence: Delegate to `cti_researcher`.
 4. For alert triage/investigation: Delegate to `tier1_analyst`.
 5. For querying historical memory or recording analyst notes: Delegate to `tier1_analyst`.
+6. For active containment, network host isolation, process/container termination, or credential suspension: Call the `delegate_to_tier2_responder` tool.
 """
 
     orchestrator_instruction += """
@@ -1466,6 +1558,10 @@ Query: "Triage this phishing alert - is it a false positive?"
 Query: "Quick lookup of IP 1.2.3.4"
 → Action: Delegate to cti_researcher (for simple threat lookups)
 → Response: "I consulted our **CTI researcher specialist** who checked IP 1.2.3.4 using Google Threat Intelligence..."
+
+Query: "Isolate compromised host MALWARETEST-WIN immediately"
+→ Action: Call delegate_to_tier2_responder tool
+→ Response: "I delegated the emergency containment request to our remote **Tier 2 Incident Responder specialist** who will initiate network isolation..."
 
 Query: "Investigate suspicious activity from user john.doe - get the runbook first, then investigate"
 → Action: Use retrieve_agentic_soc_runbooks, then delegate to tier1_analyst

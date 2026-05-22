@@ -3,7 +3,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from soc_agent.tools.chatops.card_client import generate_action_url, send_card
+from agent_soc_manager.tools.chatops.card_client import generate_action_url, send_card
 
 
 def get_card(

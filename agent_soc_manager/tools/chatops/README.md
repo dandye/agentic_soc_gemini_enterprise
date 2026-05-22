@@ -29,14 +29,14 @@ GCP_LOCATION="us-east4"
 
 ### 1. Run the Webhook Locally
 ```bash
-./soc_agent/tools/chatops/run_local.sh
+./agent_soc_manager/tools/chatops/run_local.sh
 ```
 This starts the server on `http://localhost:8080`.
 
 ### 2. Generate a Test URL
 ```bash
 export PYTHONPATH=$(pwd)
-venv/bin/python soc_agent/tools/chatops/generate_test_url.py
+venv/bin/python agent_soc_manager/tools/chatops/generate_test_url.py
 ```
 This generates a live test link using your `.env` configuration.
 
@@ -45,7 +45,7 @@ This generates a live test link using your `.env` configuration.
 ### Google Cloud Run (Recommended)
 Deployment is fully automated via the provided script:
 ```bash
-./soc_agent/tools/chatops/cloud_run_deploy.sh
+./agent_soc_manager/tools/chatops/cloud_run_deploy.sh
 ```
 This script builds a lean container using a dedicated `requirements.txt` and only relevant Python files.
 

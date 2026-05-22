@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 from google.cloud import storage
 from google.oauth2 import service_account
 
-from soc_agent.tools.chatops.card_client import generate_action_url, send_card
+from agent_soc_manager.tools.chatops.card_client import generate_action_url, send_card
 
 
 def get_presigned_url(case_id: str) -> str:

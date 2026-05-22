@@ -4,7 +4,7 @@ from pathlib import Path
 import requests
 from dotenv import load_dotenv
 
-from soc_agent.tools.chatops.security import generate_signed_payload
+from agent_soc_manager.tools.chatops.security import generate_signed_payload
 
 
 def send_card(card_json: dict, webhook_url: str = None):

@@ -6,11 +6,11 @@ following ADK standards with clear, explicit configuration.
 
 Usage:
     # Standard ADK import pattern
-    from soc_agent import agent
+    from agent_soc_manager import agent
     my_agent = agent.root_agent
 
     # Or create a fresh agent
-    from soc_agent import create_agent
+    from agent_soc_manager import create_agent
     my_agent = create_agent()
 """
 
