@@ -15,19 +15,19 @@ import typer
 from rich.console import Console
 
 
-# Import management apps from installation_scripts
-sys.path.insert(0, str(Path(__file__).parent / "installation_scripts"))
+# Import management apps from management_scripts
+sys.path.insert(0, str(Path(__file__).parent / "management_scripts"))
 
-from installation_scripts.manage_agent_engine import app as agent_engine_app
-from installation_scripts.manage_agentspace import app as agentspace_app
-from installation_scripts.manage_chat_ops import app as chatops_app
-from installation_scripts.manage_datastore import app as datastore_app
-from installation_scripts.manage_iam import app as iam_app
-from installation_scripts.manage_memories import app as memories_app
-from installation_scripts.manage_models import app as models_app
-from installation_scripts.manage_oauth import app as oauth_app
-from installation_scripts.manage_rag import app as rag_app
-from installation_scripts.manage_vertex_ai import app as vertex_app
+from management_scripts.manage_agent_engine import app as agent_engine_app
+from management_scripts.manage_agentspace import app as agentspace_app
+from management_scripts.manage_chat_ops import app as chatops_app
+from management_scripts.manage_datastore import app as datastore_app
+from management_scripts.manage_iam import app as iam_app
+from management_scripts.manage_memories import app as memories_app
+from management_scripts.manage_models import app as models_app
+from management_scripts.manage_oauth import app as oauth_app
+from management_scripts.manage_rag import app as rag_app
+from management_scripts.manage_vertex_ai import app as vertex_app
 
 
 console = Console()
@@ -99,7 +99,7 @@ def full_deploy(
 
     # Step 2: Create OAuth authorization
     console.print("\n[yellow]Step 2: Create OAuth Authorization[/yellow]")
-    from installation_scripts.manage_oauth import OAuthManager
+    from management_scripts.manage_oauth import OAuthManager
 
     oauth_manager = OAuthManager(env_file)
 
@@ -134,7 +134,7 @@ def full_deploy(
 
     # Step 3: Link agent to AgentSpace
     console.print("\n[yellow]Step 3: Link Agent to AgentSpace[/yellow]")
-    from installation_scripts.manage_agentspace import AgentSpaceManager
+    from management_scripts.manage_agentspace import AgentSpaceManager
 
     as_manager = AgentSpaceManager(env_file)
     if as_manager.link_agent_to_agentspace():
@@ -174,7 +174,7 @@ def redeploy_all(
 
     # Step 2: Update AgentSpace
     console.print("\n[yellow]Step 2: Update AgentSpace Configuration[/yellow]")
-    from installation_scripts.manage_agentspace import AgentSpaceManager
+    from management_scripts.manage_agentspace import AgentSpaceManager
 
     manager = AgentSpaceManager(env_file)
     if manager.update_agent():
@@ -206,7 +206,7 @@ def status(
     """
     console.print("\n[bold blue]System Status Check[/bold blue]\n")
 
-    from installation_scripts.manage_agentspace import AgentSpaceManager
+    from management_scripts.manage_agentspace import AgentSpaceManager
 
     manager = AgentSpaceManager(env_file)
 

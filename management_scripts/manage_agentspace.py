@@ -17,7 +17,7 @@ from dotenv import load_dotenv
 from google.auth.transport import requests as google_requests
 
 # Import validation utilities
-from installation_scripts.env_validation import (
+from management_scripts.env_validation import (
     format_validation_errors,
     validate_env_vars,
 )

@@ -49,14 +49,14 @@ endif
 PYTHON := PYTHONPATH=. $(shell if [ -d "venv" ]; then echo "venv/bin/python"; else echo "python3"; fi)
 
 # Management scripts with consistent naming
-MANAGE_AGENTSPACE := installation_scripts/manage_agentspace.py
-MANAGE_AGENT_ENGINE := installation_scripts/manage_agent_engine.py
-MANAGE_OAUTH := installation_scripts/manage_oauth.py
-MANAGE_DATASTORE := installation_scripts/manage_datastore.py
-MANAGE_RAG := installation_scripts/manage_rag.py
-MANAGE_GCS := installation_scripts/manage_gcs.py
-MANAGE_VERTEX_AI := installation_scripts/manage_vertex_ai.py
-MANAGE_MODELS := installation_scripts/manage_models.py
+MANAGE_AGENTSPACE := management_scripts/manage_agentspace.py
+MANAGE_AGENT_ENGINE := management_scripts/manage_agent_engine.py
+MANAGE_OAUTH := management_scripts/manage_oauth.py
+MANAGE_DATASTORE := management_scripts/manage_datastore.py
+MANAGE_RAG := management_scripts/manage_rag.py
+MANAGE_GCS := management_scripts/manage_gcs.py
+MANAGE_VERTEX_AI := management_scripts/manage_vertex_ai.py
+MANAGE_MODELS := management_scripts/manage_models.py
 
 # Validation targets
 .PHONY: check-prereqs check-deploy check-integration
@@ -469,7 +469,7 @@ oauth-delete: ## Remove OAuth authorization (use FORCE=1 to delete without confi
 	fi
 
 # Secret Manager targets
-MANAGE_SECRET := installation_scripts/upload_secret.py
+MANAGE_SECRET := management_scripts/upload_secret.py
 
 secret-upload: ## Upload Chronicle service account to Secret Manager (use CREDS=/path/to/sa.json for different account)
 	$(PYTHON) $(MANAGE_SECRET) upload --env-file $(ENV_FILE) $(if $(CREDS),--credentials $(CREDS))
