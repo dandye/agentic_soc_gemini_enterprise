@@ -1,6 +1,6 @@
 import time
 
-from soc_agent.tools.chatops.security import (
+from agent_soc_manager.tools.chatops.security import (
     generate_signed_payload,
     verify_signed_payload,
 )

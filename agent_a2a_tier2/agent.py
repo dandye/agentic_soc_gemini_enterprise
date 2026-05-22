@@ -6,7 +6,7 @@ responsibilities, and MCP/ChatOps tools for threat containment and active mitiga
 
 ARCHITECTURAL DECISION: Intentional Code Duplication
 ======================================================
-This module intentionally duplicates code from other soc_agent_* modules
+This module intentionally duplicates code from other agent_soc_manager_* modules
 rather than using shared utilities or inheritance. This is a deliberate
 architectural choice that prioritizes:
 

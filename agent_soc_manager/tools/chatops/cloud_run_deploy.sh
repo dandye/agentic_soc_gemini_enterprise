@@ -24,6 +24,6 @@ echo "Deploying $SERVICE_NAME to $REGION in project $PROJECT_ID..."
 gcloud run deploy $SERVICE_NAME \
     --project=$PROJECT_ID \
     --region=$REGION \
-    --source=soc_agent/tools/chatops/ \
+    --source=agent_soc_manager/tools/chatops/ \
     --allow-unauthenticated \
     --set-env-vars "CHRONICLE_CHATOPS_SECRET=$CHRONICLE_CHATOPS_SECRET,AGENT_ENGINE_RESOURCE_NAME=$AGENT_ENGINE_RESOURCE_NAME,GCP_PROJECT_ID=$GCP_PROJECT_ID,GCP_LOCATION=$GCP_LOCATION"

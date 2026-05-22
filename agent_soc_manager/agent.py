@@ -32,7 +32,7 @@ ARCHITECTURE:
 
 ARCHITECTURAL DECISION: Intentional Code Duplication
 ======================================================
-This module intentionally duplicates code from other soc_agent_* modules
+This module intentionally duplicates code from other agent_soc_manager_* modules
 rather than using shared utilities or inheritance. This is a deliberate
 architectural choice that prioritizes:
 
@@ -889,9 +889,9 @@ def create_agent():
     logger.warning(f"  TIER1_ANALYST_MODEL: {TIER1_ANALYST_MODEL}")
 
     # Get all required environment variables
-    logger.warning("AUTH_DEBUG [soc_agent]: Starting create_agent() execution")
+    logger.warning("AUTH_DEBUG [agent_soc_manager]: Starting create_agent() execution")
     GCP_PROJECT_ID = os.environ.get("GCP_PROJECT_ID")
-    logger.warning(f"AUTH_DEBUG [soc_agent]: GCP_PROJECT_ID={GCP_PROJECT_ID}")
+    logger.warning(f"AUTH_DEBUG [agent_soc_manager]: GCP_PROJECT_ID={GCP_PROJECT_ID}")
     GCP_LOCATION = os.environ.get("GCP_LOCATION", "us-central1")
     GCP_STAGING_BUCKET = os.environ.get("GCP_STAGING_BUCKET")
     GCP_VERTEXAI_ENABLED = os.environ.get("GCP_VERTEXAI_ENABLED", "True")
@@ -905,17 +905,17 @@ def create_agent():
         "CHRONICLE_SERVICE_ACCOUNT_SECRET"
     )
     logger.warning(
-        f"AUTH_DEBUG [soc_agent]: CHRONICLE_CUSTOMER_ID={CHRONICLE_CUSTOMER_ID}"
+        f"AUTH_DEBUG [agent_soc_manager]: CHRONICLE_CUSTOMER_ID={CHRONICLE_CUSTOMER_ID}"
     )
     logger.warning(
-        f"AUTH_DEBUG [soc_agent]: CHRONICLE_PROJECT_ID={CHRONICLE_PROJECT_ID}"
+        f"AUTH_DEBUG [agent_soc_manager]: CHRONICLE_PROJECT_ID={CHRONICLE_PROJECT_ID}"
     )
-    logger.warning(f"AUTH_DEBUG [soc_agent]: CHRONICLE_REGION={CHRONICLE_REGION}")
+    logger.warning(f"AUTH_DEBUG [agent_soc_manager]: CHRONICLE_REGION={CHRONICLE_REGION}")
     logger.warning(
-        f"AUTH_DEBUG [soc_agent]: CHRONICLE_SERVICE_ACCOUNT_PATH={CHRONICLE_SERVICE_ACCOUNT_PATH}"
+        f"AUTH_DEBUG [agent_soc_manager]: CHRONICLE_SERVICE_ACCOUNT_PATH={CHRONICLE_SERVICE_ACCOUNT_PATH}"
     )
     logger.warning(
-        f"AUTH_DEBUG [soc_agent]: CHRONICLE_SERVICE_ACCOUNT_SECRET={CHRONICLE_SERVICE_ACCOUNT_SECRET[:50] if CHRONICLE_SERVICE_ACCOUNT_SECRET else None}"
+        f"AUTH_DEBUG [agent_soc_manager]: CHRONICLE_SERVICE_ACCOUNT_SECRET={CHRONICLE_SERVICE_ACCOUNT_SECRET[:50] if CHRONICLE_SERVICE_ACCOUNT_SECRET else None}"
     )
 
     # Validate required Chronicle environment variables
@@ -981,11 +981,11 @@ def create_agent():
     # Add Chronicle service account if available
     if CHRONICLE_SERVICE_ACCOUNT_SECRET:
         logger.warning(
-            "AUTH_DEBUG [soc_agent]: Adding CHRONICLE_SERVICE_ACCOUNT_SECRET to mcp_env"
+            "AUTH_DEBUG [agent_soc_manager]: Adding CHRONICLE_SERVICE_ACCOUNT_SECRET to mcp_env"
         )
         mcp_env["CHRONICLE_SERVICE_ACCOUNT_SECRET"] = CHRONICLE_SERVICE_ACCOUNT_SECRET
     elif service_account_filename:
-        logger.warning("AUTH_DEBUG [soc_agent]: Adding SECOPS_SA_PATH to mcp_env")
+        logger.warning("AUTH_DEBUG [agent_soc_manager]: Adding SECOPS_SA_PATH to mcp_env")
         # Ensure we use the filename (not absolute path) so it works in the container where the file is copied.
         # For local execution, use the absolute path since the file isn't copied to the runner CWD.
         if os.environ.get("REASONING_ENGINE_DEPLOYMENT") == "True":
@@ -994,7 +994,7 @@ def create_agent():
             mcp_env["SECOPS_SA_PATH"] = CHRONICLE_SERVICE_ACCOUNT_PATH
     else:
         logger.warning(
-            "AUTH_DEBUG [soc_agent]: NEITHER SECRET NOR PATH WAS ADDED TO mcp_env!"
+            "AUTH_DEBUG [agent_soc_manager]: NEITHER SECRET NOR PATH WAS ADDED TO mcp_env!"
         )
 
     # RAG configuration

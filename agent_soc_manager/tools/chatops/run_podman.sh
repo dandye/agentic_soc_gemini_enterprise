@@ -4,7 +4,7 @@
 # 1. Build the image
 PODMAN="/opt/podman/bin/podman"
 echo "Building ChatOps Handler Image..."
-$PODMAN build -t chatops-handler -f soc_agent/tools/chatops/Dockerfile .
+$PODMAN build -t chatops-handler -f agent_soc_manager/tools/chatops/Dockerfile .
 
 # 2. Run the container with environment variables
 # Note: Use your actual GCP credentials if you want to test the Agent Engine query

@@ -50,7 +50,7 @@ python_functions = "test_*"
 addopts = [
   "--verbose",
   "--cov=agent_soc_manager",
-  "--cov=management_scripts",
+  "--cov=installation_scripts",
   "--cov-report=term-missing",
   "--cov-report=html",
   "--cov-report=xml",
@@ -98,7 +98,7 @@ ignore = [
 "agent_soc_manager/tools/chatops/test_*.py" = ["S101"]
 "agent_soc_manager/tools/chatops/generate_test_url.py" = ["S105", "E402"]
 "agent_soc_manager/tools/chatops/webhook_handler.py" = ["S104"]
-"management_scripts/*.py" = [
+"installation_scripts/*.py" = [
   "S603",  # subprocess calls are trusted (gcloud CLI)
   "S607",  # partial executable paths are acceptable (gcloud in PATH)
 ]

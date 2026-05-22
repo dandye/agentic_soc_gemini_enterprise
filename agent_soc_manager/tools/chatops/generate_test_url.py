@@ -10,7 +10,7 @@ sys.path.append(str(project_root))
 
 from dotenv import load_dotenv
 
-from soc_agent.tools.chatops.security import generate_signed_payload
+from agent_soc_manager.tools.chatops.security import generate_signed_payload
 
 
 def generate_live_test_url():

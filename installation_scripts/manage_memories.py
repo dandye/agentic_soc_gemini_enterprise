@@ -23,7 +23,7 @@ import typer
 import vertexai
 from dotenv import load_dotenv
 
-from management_scripts.manage_agent_engine import AgentEngineManager
+from installation_scripts.manage_agent_engine import AgentEngineManager
 
 
 app = typer.Typer(

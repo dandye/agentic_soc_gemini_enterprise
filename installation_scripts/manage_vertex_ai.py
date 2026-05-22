@@ -17,7 +17,7 @@ from google.auth import default
 from google.auth.exceptions import DefaultCredentialsError
 
 # Import validation utilities
-from management_scripts.env_validation import is_placeholder_value
+from installation_scripts.env_validation import is_placeholder_value
 
 
 app = typer.Typer(

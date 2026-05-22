@@ -94,7 +94,7 @@ legacy_cards = [
 ]
 
 chatops_dir = Path(
-    "/Users/dandye/Projects/agentic_soc_agentspace__worktrees/google_sandy__main/soc_agent/tools/chatops"
+    "/Users/dandye/Projects/agentic_agent_soc_managerspace__worktrees/google_sandy__main/agent_soc_manager/tools/chatops"
 )
 
 for card in legacy_cards:

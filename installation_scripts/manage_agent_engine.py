@@ -31,7 +31,7 @@ from vertexai import agent_engines
 from vertexai.preview.reasoning_engines import AdkApp
 
 # Added AgentSpaceManager for synchronized UI purges
-from management_scripts.manage_agentspace import AgentSpaceManager
+from installation_scripts.manage_agentspace import AgentSpaceManager
 
 
 # Import Discovery Engine client for Agent Builder assistants
@@ -51,7 +51,7 @@ import importlib
 import shutil
 
 # Import validation utilities
-from management_scripts.env_validation import (
+from installation_scripts.env_validation import (
     format_validation_errors,
     validate_env_vars,
     validate_file_path_exists,
@@ -638,7 +638,7 @@ class AgentEngineManager:
                 typer.echo()
                 typer.echo("Option 1 (Recommended): Use Secret Manager")
                 typer.echo(
-                    "  1. Upload SA file: python management_scripts/upload_secret.py upload"
+                    "  1. Upload SA file: python installation_scripts/upload_secret.py upload"
                 )
                 typer.echo(
                     "  2. Add to .env: CHRONICLE_SERVICE_ACCOUNT_SECRET=projects/PROJECT/secrets/SECRET/versions/latest"
@@ -892,7 +892,7 @@ class AgentEngineManager:
             )
 
             extra_packages = [
-                "management_scripts/install.sh",  # installs MCP server packages
+                "installation_scripts/install.sh",  # installs MCP server packages
                 "agent_soc_manager",
                 "agent_a2a_tier2",
                 "external/mcp-security/server/secops",
@@ -930,7 +930,7 @@ class AgentEngineManager:
                     "opentelemetry-instrumentation-google-genai>=0.0.1",
                 ],
                 "build_options": {
-                    "installation_scripts": ["management_scripts/install.sh"]
+                    "installation_scripts": ["installation_scripts/install.sh"]
                 },
                 "extra_packages": extra_packages,
                 "env_vars": env_vars,
