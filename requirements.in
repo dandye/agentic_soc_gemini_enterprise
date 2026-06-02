@@ -1,4 +1,4 @@
-google-adk~=2.0.0
+google-adk~=2.1.0
 google-cloud-aiplatform[agent-engines]~=1.153.0
 google-cloud-secret-manager
 pydantic

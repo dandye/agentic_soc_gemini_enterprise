@@ -75,7 +75,7 @@ fsspec==2026.4.0
     # via huggingface-hub
 gepa==0.1.1
     # via google-adk
-google-adk==2.0.0
+google-adk==2.1.0
     # via
     #   -r requirements-dev.txt
     #   -r requirements.in
@@ -357,6 +357,8 @@ python-dotenv==1.2.2
     #   -r requirements.in
     #   google-adk
     #   litellm
+python-multipart==0.0.30
+    # via google-adk
 pyyaml==6.0.3
     # via
     #   google-adk
