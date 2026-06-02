@@ -15,7 +15,11 @@ mimetypes.add_type("text/markdown", ".md")
 # This workaround routes model API calls to global while keeping Reasoning Engine regional
 # See: https://github.com/google/adk-python/issues/3628#issuecomment-3595215761
 os.environ["GOOGLE_CLOUD_LOCATION"] = "global"
-os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "TRUE"
+if "GOOGLE_GENAI_USE_VERTEXAI" not in os.environ:
+    if os.environ.get("REASONING_ENGINE_DEPLOYMENT") == "True":
+        os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "TRUE"
+    else:
+        os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "FALSE"
 
 """
 SOC Agent Module - Orchestrator with Sub-Agent Delegation
@@ -297,8 +301,11 @@ PYTHON_EXECUTABLE = (
 
 
 try:
-    logging_client = google.cloud.logging.Client()
-    logging_client.setup_logging()
+    if os.environ.get("REASONING_ENGINE_DEPLOYMENT") == "True":
+        logging_client = google.cloud.logging.Client()
+        logging_client.setup_logging()
+    else:
+        logging.basicConfig(level=logging.INFO)
 except Exception as e:
     print(f"Warning: Cloud logging initialization failed: {e}")
 
@@ -1195,7 +1202,6 @@ CRITICAL: When formulating analysis plans, summarize your approach and ask for u
         after_tool_callback=after_tool_cache,
         after_agent_callback=generate_memory,
         generate_content_config=strict_config,
-        mode="task",
         disallow_transfer_to_peers=True,
     )
 
@@ -1334,7 +1340,6 @@ CRITICAL: Summarize procedures and ask for user permission before executing stat
         after_tool_callback=after_tool_cache,
         after_agent_callback=generate_memory,
         generate_content_config=strict_config,
-        mode="task",
         disallow_transfer_to_peers=True,
     )
 
@@ -1581,7 +1586,6 @@ Remember: Your role is to be an intelligent orchestrator that makes security ope
         after_tool_callback=after_tool_cache,
         after_agent_callback=generate_memory,
         generate_content_config=strict_config,
-        mode="chat",
     )
 
     tools_description = []
