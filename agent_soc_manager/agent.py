@@ -128,6 +128,31 @@ def _patched_validate_app_name(name: str) -> None:
 
 
 adk_app.validate_app_name = _patched_validate_app_name
+
+# Monkey-patch remove_client_function_call_id to preserve function call/response IDs on Vertex Reasoning Engine.
+# Stripping these IDs causes 400 INVALID_ARGUMENT on multi-turn/tool-response queries.
+import google.adk.flows.llm_flows.contents as adk_contents  # noqa: E402
+import google.adk.flows.llm_flows.functions as adk_funcs  # noqa: E402
+
+
+def _patched_remove_client_function_call_id(content) -> None:
+    pass
+
+
+adk_funcs.remove_client_function_call_id = _patched_remove_client_function_call_id
+adk_contents.remove_client_function_call_id = _patched_remove_client_function_call_id
+
+# Redirect LLM model request debug logs to warning level to guarantee they are logged line-by-line
+llm_logger = logging.getLogger("google_adk.google.adk.models.google_llm")
+
+
+def _patched_debug(msg, *args, **kwargs):
+    for line in str(msg).splitlines():
+        if line.strip():
+            llm_logger.warning(f"[DEBUG OVERRIDE] {line}", *args, **kwargs)
+
+
+llm_logger.debug = _patched_debug
 # -------------------------------------------------------------------------
 
 
@@ -805,39 +830,47 @@ async def delegate_to_tier2_responder(query: str, tool_context: Context) -> str:
     Args:
         query: The specific containment task or mitigation request (e.g., 'Isolate host MALWARETEST-WIN' or 'Suspend compromised user credentials').
     """
-    logger.info(f"A2A_DELEGATION: Attempting to delegate to Tier 2 Incident Responder for: {query}")
+    logger.info(
+        f"A2A_DELEGATION: Attempting to delegate to Tier 2 Incident Responder for: {query}"
+    )
     try:
         # Retrieve Tier 2 Agent Engine resource name from environment variables
         tier2_engine_name = os.environ.get("TIER2_AGENT_RESOURCE_NAME")
         if not tier2_engine_name:
-            logger.error("A2A_DELEGATION_ERROR: TIER2_AGENT_RESOURCE_NAME not set in environment.")
+            logger.error(
+                "A2A_DELEGATION_ERROR: TIER2_AGENT_RESOURCE_NAME not set in environment."
+            )
             return "Error: Tier 2 Incident Responder is not currently configured in the environment."
 
         # Get the remote Reasoning Engine client
         from vertexai import agent_engines
+
         remote_engine = agent_engines.get(tier2_engine_name)
-        
+
         # Retrieve session context parameters
         session_id = None  # Let remote specialist auto-create its own session to prevent SessionNotFoundError
         user_id = "secops_assistant"
-        
+
         # Map parent context to child session if available
-        if hasattr(tool_context, "_invocation_context") and tool_context._invocation_context:
+        if (
+            hasattr(tool_context, "_invocation_context")
+            and tool_context._invocation_context
+        ):
             root_ctx = tool_context._invocation_context
             if hasattr(root_ctx, "user_id"):
                 user_id = root_ctx.user_id
 
-        logger.info(f"A2A_DELEGATION: Calling remote Tier 2 agent ({tier2_engine_name}) with User: {user_id}")
-        
+        logger.info(
+            f"A2A_DELEGATION: Calling remote Tier 2 agent ({tier2_engine_name}) with User: {user_id}"
+        )
+
         # Invoke the remote engine client dynamically accumulating streaming events
         response_parts = []
         async for event in remote_engine.async_stream_query(
-            user_id=user_id,
-            session_id=session_id,
-            message=query
+            user_id=user_id, session_id=session_id, message=query
         ):
             logger.debug(f"A2A_DELEGATION_EVENT: {event}")
-            
+
             # Safe lookup helper supporting both dict and object structures interchangeably
             def get_field(obj, field_name):
                 if obj is None:
@@ -856,27 +889,41 @@ async def delegate_to_tier2_responder(query: str, tool_context: Context) -> str:
                         text = get_field(part, "text")
                         if text:
                             response_parts.append(text)
-                        
+
                         # 2. Extract tool/function calls for real-time status updates
                         function_call = get_field(part, "function_call")
                         if function_call:
                             name = get_field(function_call, "name")
-                            if name in ["request_human_confirmation", "request_triage_approval"]:
-                                response_parts.append("[Specialist Action] Dispatched a high-priority ChatOps confirmation card to the security operations channel requesting human analyst approval before executing containment.")
+                            if name in [
+                                "request_human_confirmation",
+                                "request_triage_approval",
+                            ]:
+                                response_parts.append(
+                                    "[Specialist Action] Dispatched a high-priority ChatOps confirmation card to the security operations channel requesting human analyst approval before executing containment."
+                                )
                             elif name == "deliver_report":
-                                response_parts.append("[Specialist Action] Saved and delivered the incident containment report to the security operations channel.")
+                                response_parts.append(
+                                    "[Specialist Action] Saved and delivered the incident containment report to the security operations channel."
+                                )
                             else:
-                                response_parts.append(f"[Specialist Action] Invoking containment tool: {name}")
+                                response_parts.append(
+                                    f"[Specialist Action] Invoking containment tool: {name}"
+                                )
 
         final_text = "".join(response_parts).strip()
         if not final_text:
             final_text = "The Tier 2 specialist completed the request without generating a text response."
 
         logger.info("A2A_DELEGATION_SUCCESS: Successfully completed remote A2A call.")
-        return f"--- Response from Tier 2 Incident Responder Specialist ---\n{final_text}"
-        
+        return (
+            f"--- Response from Tier 2 Incident Responder Specialist ---\n{final_text}"
+        )
+
     except Exception as e:
-        logger.error(f"A2A_DELEGATION_ERROR: Failed to delegate task to Tier 2 agent: {e}", exc_info=True)
+        logger.error(
+            f"A2A_DELEGATION_ERROR: Failed to delegate task to Tier 2 agent: {e}",
+            exc_info=True,
+        )
         return f"Failed to communicate with the remote Tier 2 Incident Responder specialist agent: {e}"
 
 
@@ -927,7 +974,9 @@ def create_agent():
     logger.warning(
         f"AUTH_DEBUG [agent_soc_manager]: CHRONICLE_PROJECT_ID={CHRONICLE_PROJECT_ID}"
     )
-    logger.warning(f"AUTH_DEBUG [agent_soc_manager]: CHRONICLE_REGION={CHRONICLE_REGION}")
+    logger.warning(
+        f"AUTH_DEBUG [agent_soc_manager]: CHRONICLE_REGION={CHRONICLE_REGION}"
+    )
     logger.warning(
         f"AUTH_DEBUG [agent_soc_manager]: CHRONICLE_SERVICE_ACCOUNT_PATH={CHRONICLE_SERVICE_ACCOUNT_PATH}"
     )
@@ -1002,7 +1051,9 @@ def create_agent():
         )
         mcp_env["CHRONICLE_SERVICE_ACCOUNT_SECRET"] = CHRONICLE_SERVICE_ACCOUNT_SECRET
     elif service_account_filename:
-        logger.warning("AUTH_DEBUG [agent_soc_manager]: Adding SECOPS_SA_PATH to mcp_env")
+        logger.warning(
+            "AUTH_DEBUG [agent_soc_manager]: Adding SECOPS_SA_PATH to mcp_env"
+        )
         # Ensure we use the filename (not absolute path) so it works in the container where the file is copied.
         # For local execution, use the absolute path since the file isn't copied to the runner CWD.
         if os.environ.get("REASONING_ENGINE_DEPLOYMENT") == "True":

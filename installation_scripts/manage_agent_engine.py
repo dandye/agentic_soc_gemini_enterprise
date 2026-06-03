@@ -851,8 +851,12 @@ class AgentEngineManager:
                 "CHATOPS_BASE_URL": os.environ.get("CHATOPS_BASE_URL"),
                 "CHRONICLE_CHATOPS_SECRET": os.environ.get("CHRONICLE_CHATOPS_SECRET"),
                 # Remote Specialist A2A Coordinates
-                "TIER2_AGENT_RESOURCE_NAME": os.environ.get("TIER2_AGENT_RESOURCE_NAME"),
-                "TIER1_AGENT_RESOURCE_NAME": os.environ.get("TIER1_AGENT_RESOURCE_NAME"),
+                "TIER2_AGENT_RESOURCE_NAME": os.environ.get(
+                    "TIER2_AGENT_RESOURCE_NAME"
+                ),
+                "TIER1_AGENT_RESOURCE_NAME": os.environ.get(
+                    "TIER1_AGENT_RESOURCE_NAME"
+                ),
             }
 
             # Add service account configuration based on authentication method
@@ -908,7 +912,8 @@ class AgentEngineManager:
                 "description": description,
                 "requirements": [
                     "cloudpickle",
-                    "google-adk~=2.0.0",
+                    "google-adk~=2.1.0",
+                    # ToDo: do we REALLY need evaluation?
                     "google-cloud-aiplatform[agent-engines,evaluation]~=1.153.0",
                     "pydantic",
                     "python-dotenv",
@@ -1019,7 +1024,9 @@ class AgentEngineManager:
             # Optionally run test
             if not no_test:
                 typer.echo("\nRunning test...")
-                self.test_agent_with_resource(remote_app.resource_name, agent_module=agent_module)
+                self.test_agent_with_resource(
+                    remote_app.resource_name, agent_module=agent_module
+                )
 
             return remote_app.resource_name
 
@@ -1030,7 +1037,9 @@ class AgentEngineManager:
             typer.echo(traceback.format_exc())
             return None
 
-    def test_agent_with_resource(self, resource_name: str, agent_module: str = "soc_agent") -> bool:
+    def test_agent_with_resource(
+        self, resource_name: str, agent_module: str = "soc_agent"
+    ) -> bool:
         """
         Test a deployed agent engine with a sample query.
 
@@ -1044,6 +1053,19 @@ class AgentEngineManager:
             typer.echo("\n" + "=" * 80)
             typer.secho("Testing Agent Engine", fg=typer.colors.CYAN, bold=True)
             typer.echo("=" * 80 + "\n")
+
+            # Check location in resource name
+            m = re.search(r"locations/([^/]+)/", resource_name)
+            if m:
+                resource_location = m.group(1)
+                if resource_location != self.location:
+                    typer.secho(
+                        f"Resource location '{resource_location}' differs from default location '{self.location}'. Re-initializing Vertex AI...",
+                        fg=typer.colors.YELLOW,
+                    )
+                    self.location = resource_location
+                    vertexai.init(project=self.project, location=self.location)
+                    aiplatform.init(project=self.project, location=self.location)
 
             # Get the agent
             remote_app = agent_engines.get(resource_name)
@@ -1081,14 +1103,14 @@ class AgentEngineManager:
             else:
                 test_messages = (
                     "Use the get_ioc_matches tool for domain superstarts.top",
-                # "Get the 2 documents on Malware and then fetch_full_document for both",
-                # "List rules with ursnif in the name.",  # Chronicle SIEM MCP
-                # "List the first page of soar cases.",  # SOAR MCP
-                # memory save test
-                # "For our future investigations, please note that we have a critical asset: MALWARETEST-WIN at IP 50.90.32.142. Please acknowledge this so we have it for future reference.",
-                # soar case search test
-                # "Can you check our SOAR case management system to see if we have any currently open security cases that might relate to APT29?",
-            )
+                    # "Get the 2 documents on Malware and then fetch_full_document for both",
+                    # "List rules with ursnif in the name.",  # Chronicle SIEM MCP
+                    # "List the first page of soar cases.",  # SOAR MCP
+                    # memory save test
+                    # "For our future investigations, please note that we have a critical asset: MALWARETEST-WIN at IP 50.90.32.142. Please acknowledge this so we have it for future reference.",
+                    # soar case search test
+                    # "Can you check our SOAR case management system to see if we have any currently open security cases that might relate to APT29?",
+                )
 
             for test_message in test_messages:
                 typer.echo(f"\nSending test query: {test_message}")
