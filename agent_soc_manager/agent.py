@@ -314,10 +314,10 @@ strict_config = GenerateContentConfig(
 )
 
 # Determine Python executable based on environment
-# In deployed Vertex AI environment, use container's Python
+# In deployed Vertex AI environment, use container's virtual env Python
 # In local development, use sys.executable (respects venv)
 PYTHON_EXECUTABLE = (
-    "python3"
+    "/code/.venv/bin/python"
     if os.environ.get("REASONING_ENGINE_DEPLOYMENT") == "True"
     else sys.executable
 )
@@ -927,6 +927,29 @@ async def delegate_to_tier2_responder(query: str, tool_context: Context) -> str:
         return f"Failed to communicate with the remote Tier 2 Incident Responder specialist agent: {e}"
 
 
+def _find_mcp_paths() -> list[str]:
+    root_dir = Path(__file__).parent.parent.absolute()
+
+    paths = []
+    target_names = {"secops", "secops-soar", "gti", "scc"}
+
+    # Check directly under root_dir (container flat packaging)
+    for name in target_names:
+        dir_path = root_dir / name
+        if dir_path.exists() and dir_path.is_dir():
+            paths.append(str(dir_path))
+
+    # Check under root_dir / "external/mcp-security/server" (local directory layout)
+    local_mcp_dir = root_dir / "external/mcp-security/server"
+    if local_mcp_dir.exists() and local_mcp_dir.is_dir():
+        for name in target_names:
+            dir_path = local_mcp_dir / name
+            if dir_path.exists() and dir_path.is_dir():
+                paths.append(str(dir_path))
+
+    return list(set(paths))
+
+
 def create_agent():
     """
     Create the SOC Orchestrator Agent with specialized sub-agents.
@@ -1018,8 +1041,20 @@ def create_agent():
     # Google Threat Intelligence configuration
     GTI_API_KEY = os.environ.get("GTI_API_KEY")
 
-    # Build environment dict for MCP servers
-    # These credentials are passed to each MCP server process
+    # Build container paths statically to ensure container compatibility when pickled
+    container_paths = [
+        "/code/external/mcp-security/server/secops",
+        "/code/external/mcp-security/server/secops-soar",
+        "/code/external/mcp-security/server/gti",
+        "/code/external/mcp-security/server/scc",
+    ]
+    mcp_paths = _find_mcp_paths()
+    all_paths = list(set(container_paths + mcp_paths))
+    current_pythonpath = os.environ.get("PYTHONPATH", "")
+    new_pythonpath = os.pathsep.join(
+        all_paths + [current_pythonpath] if current_pythonpath else all_paths
+    )
+
     mcp_env = os.environ.copy()
     mcp_env.update(
         {
@@ -1030,6 +1065,7 @@ def create_agent():
             "SOAR_APP_KEY": SOAR_APP_KEY or "",
             "VT_APIKEY": GTI_API_KEY or "",  # GTI uses VT_APIKEY
             "GCP_PROJECT_ID": GCP_PROJECT_ID or "",
+            "PYTHONPATH": new_pythonpath,
             # GTI caching configuration (latency optimization)
             "GTI_CACHE_ENABLED": os.environ.get("GTI_CACHE_ENABLED", "True"),
             "GTI_CACHE_FILE_TTL": os.environ.get("GTI_CACHE_FILE_TTL", "86400"),
