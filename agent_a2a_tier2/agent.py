@@ -34,25 +34,21 @@ import logging
 import mimetypes
 import os
 import re
-import shutil
-import importlib
-import asyncio
-import tempfile
 from pathlib import Path
 
+import google.adk.apps.app as adk_app
+import google.adk.sessions.in_memory_session_service as im_session
 import vertexai
 from dotenv import load_dotenv
 from google.adk.agents import Agent
 from google.adk.agents.callback_context import CallbackContext
 from google.adk.agents.context import Context
 from google.adk.models import LlmRequest, LlmResponse
-from google.adk.tools import google_search
 from google.adk.tools.mcp_tool.mcp_session_manager import StdioConnectionParams
 from google.adk.tools.mcp_tool.mcp_toolset import McpToolset
-from vertexai.preview import rag
-import google.adk.sessions.in_memory_session_service as im_session
-import google.adk.apps.app as adk_app
 from google.genai.types import Part
+from vertexai.preview import rag
+
 
 # Add text/markdown mimetype for .md files
 mimetypes.add_type("text/markdown", ".md")
@@ -69,6 +65,7 @@ logger = logging.getLogger(__name__)
 # Silence the harmless but noisy InMemorySessionService warning inside sub-agents
 original_append_event = im_session.InMemorySessionService.append_event
 
+
 async def _patched_append_event(self, session, event):
     app_name = session.app_name
     user_id = session.user_id
@@ -84,16 +81,19 @@ async def _patched_append_event(self, session, event):
 
     return await original_append_event(self, session, event)
 
+
 im_session.InMemorySessionService.append_event = _patched_append_event
 
 
 # Monkey-patch validate_app_name to prevent ADK 2.0 serialization errors
 original_validate_app_name = adk_app.validate_app_name
 
+
 def _patched_validate_app_name(name: str) -> None:
     if re.match(r"^\d+$", name):
         return
     return original_validate_app_name(name)
+
 
 adk_app.validate_app_name = _patched_validate_app_name
 # -------------------------------------------------------------------------
@@ -183,7 +183,7 @@ class DynamicMcpToolset(McpToolset):
             container_env = dict(os.environ)
             container_env["PYTHONPATH"] = (
                 ":".join(sys.path)
-                + ":external/mcp-security/server/secops:external/mcp-security/server/secops-soar:external/mcp-security/server/gti:external/mcp-security/server/scc"
+                + ":/code/external/mcp-security/server/secops:/code/external/mcp-security/server/secops-soar:/code/external/mcp-security/server/gti:/code/external/mcp-security/server/scc"
             )
 
             for k, v in self.target_env.items():
@@ -289,6 +289,7 @@ async def before_tool_cache(tool, args, tool_context: Context, **kwargs):
             and hasattr(tool_context, "_invocation_context")
             and getattr(tool_context._invocation_context, "memory_service", None)
         ):
+
             async def _shared_search_memory(self, query: str):
                 return await self._invocation_context.memory_service.search_memory(
                     app_name=self._invocation_context.app_name,
@@ -297,6 +298,7 @@ async def before_tool_cache(tool, args, tool_context: Context, **kwargs):
                 )
 
             import types
+
             tool_context.search_memory = types.MethodType(
                 _shared_search_memory, tool_context
             )
@@ -398,6 +400,7 @@ async def save_report_artifact(filename: str, report_content: str, ctx: Context)
 
                     try:
                         from datetime import timedelta
+
                         from google.cloud import storage
 
                         storage_client = storage.Client()
@@ -410,7 +413,9 @@ async def save_report_artifact(filename: str, report_content: str, ctx: Context)
                         link_to_provide = f"[{filename}]({signed_url})"
                     except Exception as sign_e:
                         logger.warning(f"Could not generate signed url: {sign_e}")
-                        gcs_url = f"https://storage.cloud.google.com/{bucket}/{blob_name}"
+                        gcs_url = (
+                            f"https://storage.cloud.google.com/{bucket}/{blob_name}"
+                        )
                         link_to_provide = f"[{filename}]({gcs_url})"
         except Exception as link_e:
             logger.warning(
@@ -434,7 +439,7 @@ def create_agent():
     load_dotenv(Path(".env"), override=True)
 
     # Model Configuration
-    TIER2_RESPONDER_MODEL = os.environ.get("TIER2_RESPONDER_MODEL", "gemini-3.5-flash")
+    TIER2_RESPONDER_MODEL = os.environ.get("TIER2_RESPONDER_MODEL", "gemini-2.5-pro")
 
     # Get all required environment variables
     GCP_PROJECT_ID = os.environ.get("GCP_PROJECT_ID")
@@ -449,9 +454,13 @@ def create_agent():
     CHRONICLE_SERVICE_ACCOUNT_PATH = os.environ.get("CHRONICLE_SERVICE_ACCOUNT_PATH")
 
     if not CHRONICLE_PROJECT_ID:
-        raise ValueError("CHRONICLE_PROJECT_ID is required. Please set it in your .env file.")
+        raise ValueError(
+            "CHRONICLE_PROJECT_ID is required. Please set it in your .env file."
+        )
     if not CHRONICLE_SERVICE_ACCOUNT_PATH:
-        raise ValueError("CHRONICLE_SERVICE_ACCOUNT_PATH is required. Please set it in your .env file.")
+        raise ValueError(
+            "CHRONICLE_SERVICE_ACCOUNT_PATH is required. Please set it in your .env file."
+        )
 
     # Verify service account file exists
     service_account_path = Path(CHRONICLE_SERVICE_ACCOUNT_PATH)
@@ -460,14 +469,59 @@ def create_agent():
             f"Chronicle service account file not found: {CHRONICLE_SERVICE_ACCOUNT_PATH}"
         )
 
+    # RAG configuration
+    RAG_CORPUS_ID = os.environ.get("RAG_CORPUS_ID")
+    RAG_LOCATION = os.environ.get("RAG_LOCATION") or os.environ.get("RAG_GCP_LOCATION")
+
+    # Determine location: use RAG location if configured/parseable, otherwise deployment location
+    init_location = GCP_LOCATION
+    if RAG_CORPUS_ID:
+        # Parse project and location from corpus resource name
+        # Format: projects/PROJECT_ID/locations/LOCATION/ragCorpora/CORPUS_ID
+        if "/" in RAG_CORPUS_ID:
+            parts = RAG_CORPUS_ID.split("/")
+            if len(parts) >= 4:
+                rag_project_id = parts[1]
+                rag_location = parts[3]
+
+                # Fail fast and noisy on project mismatch
+                if rag_project_id != GCP_PROJECT_ID:
+                    raise ValueError(
+                        f"PROJECT MISMATCH: The GCP_PROJECT_ID in your environment ({GCP_PROJECT_ID}) "
+                        f"does not match the project ID embedded in your RAG_CORPUS_ID ({rag_project_id}). "
+                        f"Please align them in your .env file."
+                    )
+
+                # Fail fast and noisy on location mismatch if explicitly configured
+                if RAG_LOCATION and RAG_LOCATION != rag_location:
+                    raise ValueError(
+                        f"LOCATION MISMATCH: The RAG_LOCATION/RAG_GCP_LOCATION in your environment ({RAG_LOCATION}) "
+                        f"does not match the location embedded in your RAG_CORPUS_ID ({rag_location}). "
+                        f"Please align them in your .env file."
+                    )
+            else:
+                rag_location = "us-east4"
+        else:
+            rag_location = "us-east4"
+
+        init_location = rag_location
+        logger.info("Initializing Vertex AI for RAG corpus access")
+        logger.info(f"  Project: {GCP_PROJECT_ID}")
+        logger.info(f"  RAG location: {rag_location}")
+    else:
+        logger.info("Initializing Vertex AI for model access")
+        logger.info(f"  Project: {GCP_PROJECT_ID}")
+        logger.info(f"  Location: {init_location}")
+
     # Initialize Vertex AI for the agent to work with Gemini models and RAG
-    if GCP_PROJECT_ID and GCP_VERTEXAI_ENABLED == "True":
-        logger.info(
-            f"Initializing Vertex AI with project: {GCP_PROJECT_ID}, location: {GCP_LOCATION}"
-        )
+    if (
+        GCP_PROJECT_ID
+        and GCP_VERTEXAI_ENABLED
+        and GCP_VERTEXAI_ENABLED.upper() == "TRUE"
+    ):
         vertexai.init(
             project=GCP_PROJECT_ID,
-            location=GCP_LOCATION,
+            location=init_location,
             staging_bucket=GCP_STAGING_BUCKET,
         )
 
@@ -477,9 +531,6 @@ def create_agent():
 
     # Google Threat Intelligence configuration
     GTI_API_KEY = os.environ.get("GTI_API_KEY")
-
-    # RAG configuration
-    RAG_CORPUS_ID = os.environ.get("RAG_CORPUS_ID")
 
     try:
         RAG_SIMILARITY_TOP_K = int(os.environ.get("RAG_SIMILARITY_TOP_K", "10"))
@@ -577,8 +628,6 @@ def create_agent():
 
     # ========================================================================
     # Add google_search as a standalone tool
-    # ========================================================================
-    tools.append(google_search)
 
     # ========================================================================
     # Add save_report_artifact as a standalone tool
@@ -597,27 +646,32 @@ def create_agent():
             notify_human_incident,
             request_human_confirmation,
             send_chatops_card,
-            trigger_vulnerability_patch_approval_card,
+            trigger_ai_brute_force_source_block_card,
+            trigger_ai_data_exfiltration_block_card,
             trigger_ai_malicious_container_kill_card,
             trigger_ai_wipe_host_approval_card,
-            trigger_ai_data_exfiltration_block_card,
-            trigger_ai_brute_force_source_block_card,
+            trigger_vulnerability_patch_approval_card,
         )
-        tools.extend([
-            deliver_report,
-            generic_notification,
-            list_chatops_capabilities,
-            notify_human_incident,
-            request_human_confirmation,
-            send_chatops_card,
-            trigger_vulnerability_patch_approval_card,
-            trigger_ai_malicious_container_kill_card,
-            trigger_ai_wipe_host_approval_card,
-            trigger_ai_data_exfiltration_block_card,
-            trigger_ai_brute_force_source_block_card,
-        ])
+
+        tools.extend(
+            [
+                deliver_report,
+                generic_notification,
+                list_chatops_capabilities,
+                notify_human_incident,
+                request_human_confirmation,
+                send_chatops_card,
+                trigger_vulnerability_patch_approval_card,
+                trigger_ai_malicious_container_kill_card,
+                trigger_ai_wipe_host_approval_card,
+                trigger_ai_data_exfiltration_block_card,
+                trigger_ai_brute_force_source_block_card,
+            ]
+        )
     except ImportError as import_e:
-        logger.warning(f"Could not import ChatOps tools directly: {import_e}. Proceeding with MCP tools only.")
+        logger.warning(
+            f"Could not import ChatOps tools directly: {import_e}. Proceeding with MCP tools only."
+        )
 
     # ========================================================================
     # Create the Agent with all configured tools

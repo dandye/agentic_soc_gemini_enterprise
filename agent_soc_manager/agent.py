@@ -65,7 +65,6 @@ See PR #25 discussion for additional context on this architectural decision.
 # Framework Monkey-Patches
 # -------------------------------------------------------------------------
 import google.adk.sessions.in_memory_session_service as im_session  # noqa: E402
-import google.cloud.logging  # noqa: E402
 import vertexai  # noqa: E402
 from dotenv import load_dotenv  # noqa: E402
 from google.adk.agents import Agent  # noqa: E402
@@ -322,17 +321,14 @@ PYTHON_EXECUTABLE = (
     else sys.executable
 )
 
-# Configure logging
-
-
-try:
-    if os.environ.get("REASONING_ENGINE_DEPLOYMENT") == "True":
-        logging_client = google.cloud.logging.Client()
-        logging_client.setup_logging()
-    else:
-        logging.basicConfig(level=logging.INFO)
-except Exception as e:
-    print(f"Warning: Cloud logging initialization failed: {e}")
+# Configure logging to write to stdout/stderr so that Vertex AI automatically
+# captures and associates them with the ReasoningEngine resource.
+# Avoids direct Cloud Logging API handler setup to prevent resource tag mismatches.
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    stream=sys.stdout,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -841,11 +837,23 @@ async def delegate_to_tier2_responder(query: str, tool_context: Context) -> str:
                 "A2A_DELEGATION_ERROR: TIER2_AGENT_RESOURCE_NAME not set in environment."
             )
             return "Error: Tier 2 Incident Responder is not currently configured in the environment."
+        # Parse the location from the resource name dynamically
+        import re
 
-        # Get the remote Reasoning Engine client
-        from vertexai import agent_engines
+        m = re.search(r"locations/([^/]+)/", tier2_engine_name)
+        target_location = m.group(1) if m else "us-east4"
 
-        remote_engine = agent_engines.get(tier2_engine_name)
+        # Clean Regional Routing:
+        # Instead of using the global 'vertexai.agent_engines.get' shortcut (which
+        # is bound to the global client pool and impacted by the GOOGLE_CLOUD_LOCATION="global"
+        # LLM workaround), we explicitly construct a regional 'vertexai.Client' instance.
+        # This guarantees an isolated, correct regional gRPC pathway for A2A.
+        import vertexai
+
+        client = vertexai.Client(
+            project=os.environ.get("GCP_PROJECT_ID"), location=target_location
+        )
+        remote_engine = client.agent_engines.get(name=tier2_engine_name)
 
         # Retrieve session context parameters
         session_id = None  # Let remote specialist auto-create its own session to prevent SessionNotFoundError
@@ -1105,6 +1113,7 @@ def create_agent():
     RAG_CORPUS_ID = os.environ.get("RAG_CORPUS_ID")
     RAG_SIMILARITY_TOP_K = int(os.environ.get("RAG_SIMILARITY_TOP_K", "10"))
     RAG_DISTANCE_THRESHOLD = float(os.environ.get("RAG_DISTANCE_THRESHOLD", "0.6"))
+    RAG_GCP_LOCATION = os.environ.get("RAG_GCP_LOCATION")
 
     # Debug mode
     DEBUG = os.environ.get("DEBUG", "False") == "True"
@@ -1120,14 +1129,42 @@ def create_agent():
     skip_vertexai_init = os.environ.get("SKIP_VERTEXAI_INIT", "False") == "True"
 
     # Always initialize Vertex AI when enabled, using appropriate location
-    if not skip_vertexai_init and GCP_PROJECT_ID and GCP_VERTEXAI_ENABLED == "True":
+    if (
+        not skip_vertexai_init
+        and GCP_PROJECT_ID
+        and GCP_VERTEXAI_ENABLED
+        and GCP_VERTEXAI_ENABLED.upper() == "TRUE"
+    ):
         # Determine location: use RAG location if RAG is configured, otherwise deployment location
         if RAG_CORPUS_ID:
-            # Parse RAG location from corpus resource name
+            # Parse project and location from corpus resource name
             # Format: projects/PROJECT_ID/locations/LOCATION/ragCorpora/CORPUS_ID
-            rag_location = (
-                RAG_CORPUS_ID.split("/")[3] if "/" in RAG_CORPUS_ID else "us-east4"
-            )
+            if "/" in RAG_CORPUS_ID:
+                parts = RAG_CORPUS_ID.split("/")
+                if len(parts) >= 4:
+                    rag_project_id = parts[1]
+                    rag_location = parts[3]
+
+                    # Fail fast and noisy on project mismatch
+                    if rag_project_id != GCP_PROJECT_ID:
+                        raise ValueError(
+                            f"PROJECT MISMATCH: The GCP_PROJECT_ID in your environment ({GCP_PROJECT_ID}) "
+                            f"does not match the project ID embedded in your RAG_CORPUS_ID ({rag_project_id}). "
+                            f"Please align them in your .env file."
+                        )
+
+                    # Fail fast and noisy on location mismatch if explicitly configured
+                    if RAG_GCP_LOCATION and RAG_GCP_LOCATION != rag_location:
+                        raise ValueError(
+                            f"LOCATION MISMATCH: The RAG_GCP_LOCATION in your environment ({RAG_GCP_LOCATION}) "
+                            f"does not match the location embedded in your RAG_CORPUS_ID ({rag_location}). "
+                            f"Please align them in your .env file."
+                        )
+                else:
+                    rag_location = "us-east4"
+            else:
+                rag_location = "us-east4"
+
             init_location = rag_location
             logger.info("Initializing Vertex AI for RAG corpus access")
             logger.info(f"  Project: {GCP_PROJECT_ID}")
