@@ -797,6 +797,7 @@ class AgentEngineManager:
                 "GCP_PROJECT_ID": os.environ.get("GCP_PROJECT_ID"),
                 "GCP_LOCATION": os.environ.get("GCP_LOCATION", "us-central1"),
                 "GCP_STAGING_BUCKET": os.environ.get("GCP_STAGING_BUCKET"),
+                "GEMINI_AUTHORIZATION_ID": os.environ.get("OAUTH_AUTH_ID"),
                 "GCP_ARTIFACT_BUCKET": os.environ.get("GCP_ARTIFACT_BUCKET"),
                 "RAG_CORPUS_ID": os.environ.get("RAG_CORPUS_ID"),
                 "SOAR_URL": os.environ.get("SOAR_URL"),
@@ -912,7 +913,7 @@ class AgentEngineManager:
                 "description": description,
                 "requirements": [
                     "cloudpickle",
-                    "google-adk~=2.1.0",
+                    "google-adk~=2.2.0",
                     # ToDo: do we REALLY need evaluation?
                     "google-cloud-aiplatform[agent-engines,evaluation]~=1.153.0",
                     "pydantic",

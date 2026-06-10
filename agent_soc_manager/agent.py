@@ -76,6 +76,7 @@ from google.adk.tools import skill_toolset  # noqa: E402
 from google.adk.tools.agent_tool import AgentTool  # noqa: E402
 from google.adk.tools.mcp_tool.mcp_session_manager import (  # noqa: E402
     StdioConnectionParams,  # noqa: E402
+    StreamableHTTPConnectionParams,  # noqa: E402
 )
 from google.adk.tools.mcp_tool.mcp_toolset import McpToolset  # noqa: E402
 from mcp import StdioServerParameters  # noqa: E402
@@ -108,6 +109,60 @@ async def _patched_append_event(self, session, event):
 
 
 im_session.InMemorySessionService.append_event = _patched_append_event
+
+
+import google.adk.sessions.vertex_ai_session_service as vertex_session  # noqa: E402
+
+
+def _clean_session_id(session_id: str | None) -> str | None:
+    if isinstance(session_id, str) and "/" in session_id:
+        return session_id.split("/")[-1]
+    return session_id
+
+
+original_get_session = vertex_session.VertexAiSessionService.get_session
+
+
+async def patched_get_session(self, *, app_name, user_id, session_id, config=None):
+    session_id = _clean_session_id(session_id)
+    return await original_get_session(
+        self, app_name=app_name, user_id=user_id, session_id=session_id, config=config
+    )
+
+
+vertex_session.VertexAiSessionService.get_session = patched_get_session
+
+original_create_session = vertex_session.VertexAiSessionService.create_session
+
+
+async def patched_create_session(
+    self, *, app_name, user_id, state=None, session_id=None, **kwargs
+):
+    session_id = _clean_session_id(session_id)
+    return await original_create_session(
+        self,
+        app_name=app_name,
+        user_id=user_id,
+        state=state,
+        session_id=session_id,
+        **kwargs,
+    )
+
+
+vertex_session.VertexAiSessionService.create_session = patched_create_session
+
+original_delete_session = vertex_session.VertexAiSessionService.delete_session
+
+
+async def patched_delete_session(self, *, app_name, user_id, session_id):
+    session_id = _clean_session_id(session_id)
+    return await original_delete_session(
+        self, app_name=app_name, user_id=user_id, session_id=session_id
+    )
+
+
+vertex_session.VertexAiSessionService.delete_session = patched_delete_session
+
 
 import re  # noqa: E402
 
@@ -958,6 +1013,48 @@ def _find_mcp_paths() -> list[str]:
     return list(set(paths))
 
 
+def get_secops_headers(context) -> dict[str, str]:
+    # Read from environment AT RUNTIME
+    chronicle_project_id = os.environ.get("CHRONICLE_PROJECT_ID")
+    gemini_auth_id = os.environ.get("GEMINI_AUTHORIZATION_ID") or os.environ.get(
+        "OAUTH_AUTH_ID"
+    )
+
+    headers = {"Accept": "text/event-stream", "Content-Type": "application/json"}
+
+    # Only add the project header if we actually have a value
+    if chronicle_project_id:
+        headers["x-goog-user-project"] = chronicle_project_id
+    else:
+        # Critical for tool execution, though list_tools might still work
+        logger.critical(
+            "CHRONICLE_PROJECT_ID is missing from environment! OneMCP tool calls *will* fail without a routing context."
+        )
+
+    if context and context.state and gemini_auth_id:
+        user_token = context.state.get(gemini_auth_id)
+        if user_token:
+            headers["Authorization"] = f"Bearer {user_token}"
+            # Log first few chars for debugging without leaking full sensitive token in recap
+            logger.info(
+                f"DEBUG: Tool Call Auth Header present (starts with: {user_token[:10]}...)"
+            )
+
+    return headers
+
+
+def create_remote_secops_toolset(region, tool_filter=None) -> McpToolset:
+    # Remote OneMCP pattern: https://chronicle.{region}.rep.googleapis.com/mcp
+    secops_mcp_url = f"https://chronicle.{region}.rep.googleapis.com/mcp"
+    logger.info(f"Initializing Remote MCP Toolset with URL: {secops_mcp_url}")
+    return McpToolset(
+        connection_params=StreamableHTTPConnectionParams(url=secops_mcp_url),
+        header_provider=get_secops_headers,
+        tool_filter=tool_filter,
+        errlog=None,  # explicitly None to prevent sys.stderr capturing (which cannot be pickled)
+    )
+
+
 def create_agent():
     """
     Create the SOC Orchestrator Agent with specialized sub-agents.
@@ -1222,37 +1319,40 @@ def create_agent():
                 ),
                 timeout=90000,  # 90 seconds (balanced timeout)
             ),
+            tool_filter=[
+                "get_ip_address_report",
+                "get_domain_report",
+                "get_file_report",
+                "get_url_report",
+                "search_iocs",
+                "get_threat_profile",
+                "list_threat_profiles",
+                "get_threat_profile_recommendations",
+                "search_threats",
+                "search_campaigns",
+                "search_threat_actors",
+                "search_malware_families",
+                "get_collection_report",
+            ],
             errlog=None,  # Suppress errlog to permit serialization
         )
     )
 
-    # Chronicle for correlation
+    # Remote OneMCP for correlation and dissemination (SIEM & SOAR unified)
     cti_tools.append(
-        McpToolset(
-            connection_params=StdioConnectionParams(
-                server_params=StdioServerParameters(
-                    command=PYTHON_EXECUTABLE,
-                    args=["-m", "secops_mcp.server"],
-                    env=mcp_env,
-                ),
-                timeout=90000,  # 90 seconds (balanced timeout)
-            ),
-            errlog=None,  # Suppress errlog to permit serialization
-        )
-    )
-
-    # SOAR for dissemination
-    cti_tools.append(
-        McpToolset(
-            connection_params=StdioConnectionParams(
-                server_params=StdioServerParameters(
-                    command=PYTHON_EXECUTABLE,
-                    args=["-m", "secops_soar_mcp.server"],
-                    env=mcp_env,
-                ),
-                timeout=90000,  # 90 seconds (balanced timeout)
-            ),
-            errlog=None,  # Suppress errlog to permit serialization
+        create_remote_secops_toolset(
+            CHRONICLE_REGION,
+            tool_filter=[
+                "list_rules",
+                "get_rule",
+                "validate_rule",
+                "evaluate_rule_coverage",
+                "generate_rules",
+                "search_entity",
+                "summarize_entity",
+                "udm_search",
+                "get_ioc_match",
+            ],
         )
     )
 
@@ -1350,33 +1450,26 @@ CRITICAL: When formulating analysis plans, summarize your approach and ask for u
         send_all_example_cards,
     ]
 
-    # Chronicle for basic entity lookups
     tier1_tools.append(
-        McpToolset(
-            connection_params=StdioConnectionParams(
-                server_params=StdioServerParameters(
-                    command=PYTHON_EXECUTABLE,
-                    args=["-m", "secops_mcp.server"],
-                    env=mcp_env,
-                ),
-                timeout=90000,  # 90 seconds (balanced timeout)
-            ),
-            errlog=None,  # Suppress errlog to permit serialization
-        )
-    )
-
-    # SOAR for case management
-    tier1_tools.append(
-        McpToolset(
-            connection_params=StdioConnectionParams(
-                server_params=StdioServerParameters(
-                    command=PYTHON_EXECUTABLE,
-                    args=["-m", "secops_soar_mcp.server"],
-                    env=mcp_env,
-                ),
-                timeout=90000,  # 90 seconds (balanced timeout)
-            ),
-            errlog=None,  # Suppress errlog to permit serialization
+        create_remote_secops_toolset(
+            CHRONICLE_REGION,
+            tool_filter=[
+                "list_rules",
+                "get_rule",
+                "list_rule_detections",
+                "list_rule_errors",
+                "search_entity",
+                "summarize_entity",
+                "get_involved_entity",
+                "list_involved_entities",
+                "udm_search",
+                "list_cases",
+                "get_case",
+                "update_case",
+                "create_case_comment",
+                "list_case_alerts",
+                "get_case_alert",
+            ],
         )
     )
 
@@ -1391,6 +1484,12 @@ CRITICAL: When formulating analysis plans, summarize your approach and ask for u
                 ),
                 timeout=90000,  # 90 seconds (balanced timeout)
             ),
+            tool_filter=[
+                "get_ip_address_report",
+                "get_domain_report",
+                "get_file_report",
+                "get_url_report",
+            ],
             errlog=None,  # Suppress errlog to permit serialization
         )
     )
