@@ -1,32 +1,15 @@
 """
-SOC Agent Module - Tier 2 Incident Responder Configuration
+SOC Agent Module - Detection Engineer Configuration
 
-This module configures a Tier 2 Incident Responder Agent with specific persona,
-responsibilities, and MCP/ChatOps tools for threat containment and active mitigation.
+This module configures a Detection Engineer Agent with specific persona,
+responsibilities, and remote OneMCP connection for detection lifecycle management.
 
 ARCHITECTURAL DECISION: Intentional Code Duplication
 ======================================================
-This module intentionally duplicates code from other agent_soc_manager_* modules
+This module intentionally duplicates code from other agent_* modules
 rather than using shared utilities or inheritance. This is a deliberate
-architectural choice that prioritizes:
-
-1. CLARITY: Each agent module is completely self-contained and can be
-   understood without navigating to other files or understanding complex
-   inheritance hierarchies.
-
-2. INDEPENDENCE: Each agent can be modified, deployed, and debugged
-   independently without risk of breaking other agents through shared
-   code changes.
-
-3. EXPLICITNESS: All configuration and behavior is visible in a single
-   file, making it easier for new team members to understand and modify.
-
-4. STABILITY: Changes to one agent cannot inadvertently affect others,
-   reducing the risk of regression bugs in production.
-
-This approach trades code duplication for reduced complexity and improved
-maintainability in a security-critical environment where reliability and
-clarity are paramount. For this project, we explicitly value clarity over DRY.
+architectural choice that prioritizes clarity, stability, explicitness,
+and independence of deployment.
 """
 
 import json
@@ -44,8 +27,10 @@ from google.adk.agents import Agent
 from google.adk.agents.callback_context import CallbackContext
 from google.adk.agents.context import Context
 from google.adk.models import LlmRequest, LlmResponse
-from google.adk.tools import google_search
-from google.adk.tools.mcp_tool.mcp_session_manager import StdioConnectionParams
+from google.adk.tools.mcp_tool.mcp_session_manager import (
+    StdioConnectionParams,
+    StreamableHTTPConnectionParams,
+)
 from google.adk.tools.mcp_tool.mcp_toolset import McpToolset
 from google.genai.types import Part
 from vertexai.preview import rag
@@ -101,53 +86,45 @@ adk_app.validate_app_name = _patched_validate_app_name
 
 
 # ========================================================================
-# Tier 2 Incident Responder Persona Definition
+# Detection Engineer Persona Definition
 # ========================================================================
-TIER2_PERSONA = """
-## Tier 2 Incident Responder
+DETECTION_ENGINEER_PERSONA = """
+## Detection Engineer
 
 ### Overview
-The Tier 2 Incident Responder is a senior security analyst responsible for active threat containment, technical mitigation, and deep incident response. When an alert is escalated, the Tier 2 Responder steps in to isolate infected systems, disable compromised accounts, revoke credentials, sinkhole malicious domains, and terminate unauthorized resources. Their primary objective is to minimize breach damage, neutralize active threats rapidly, and ensure safe recovery while maintaining strict compliance with human-in-the-loop approval checks.
+The Detection Engineer is responsible for the lifecycle of security detections within the organization's monitoring tools (primarily SIEM and EDR). They translate threat intelligence, incident findings, hunting results, and security requirements into effective detection logic. Their goal is to continuously improve the organization's ability to detect threats accurately and efficiently, balancing detection coverage with alert fidelity.
 
 ### Primary Responsibilities
-- **Threat Containment:** Rapidly isolate compromised hosts from the network to prevent lateral movement or data exfiltration.
-- **Active Remediation:** Terminate unauthorized/malicious processes, destroy compromised containers, and sinkhole malicious infrastructure.
-- **Credential Mitigation:** Revoke active sessions, reset user passwords, and temporarily disable compromised API credentials.
-- **Incident Documentation:** Log all mitigation actions, execution timestamps, and post-remediation verification details in SOAR cases.
-- **Safety Enforcer:** Always present containment strategies to human analysts and obtain explicit confirmation before executing state-changing commands.
-- **Collaboration:** Coordinate with Tier 1 Analysts for initial triage context and CTI Researchers for advanced actor profiling and IOC matching.
+- **Detection Development:** Design, draft, and implement detection logic (e.g., SIEM rules, EDR queries) based on security use cases, threat models (MITRE ATT&CK), available logs/telemetry, and input from CTI, Threat Hunting, and SOC Analysts.
+- **Testing & Validation:** Develop and execute test plans for new detections using historical data, simulated attacks, or controlled environment testing. Validate rule logic and ensure it triggers as expected.
+- **Tuning & Optimization:** Analyze the performance of existing detections, identify false positives/negatives, and tune rule logic, thresholds, or exceptions to improve accuracy and reduce alert fatigue. Respond to tuning requests from SOC Analysts.
+- **Deployment & Lifecycle Management:** Deploy tested and approved detections into production environments following established processes (potentially including Detection-as-Code workflows). Maintain a detection catalog and track the evolution and performance of detections.
+- **Collaboration:** Work closely with SOC Analysts (feedback on alerts), Threat Hunters (new detection ideas), CTI Researchers (intelligence requirements), Incident Responders (post-incident detection gaps), and Security Platform Engineers (tool capabilities/limitations).
 
 ### Core Skills and Knowledge
-- Advanced host, container, and cloud network containment methodologies.
-- Hands-on experience with SOAR active playbook execution and automation.
-- Proficient in cloud resource management (terminating containers, revoking keys, manipulating security groups).
-- Deep expertise in incident response frameworks (NIST, SANS).
+- Strong understanding of security principles, common attack vectors, TTPs (MITRE ATT&CK), and threat actor methodologies.
+- Proficiency in SIEM query languages (e.g., YARA-L for Chronicle) and potentially EDR query languages.
+- Experience with log analysis across various platforms (OS, network, cloud, applications).
+- Experience with detection rule testing, validation, and tuning methodologies.
+- Understanding of security tool capabilities and limitations (SIEM, EDR).
 
 ### Tool Usage Patterns
 **Primary MCP & Custom Tools:**
-- **secops-soar (SOAR Platform):** Add case comments, tag artifacts, record containment insights, and execute mitigation playbooks.
-- **secops-mcp (Chronicle SIEM):** Run UDM searches to verify successful containment (e.g., confirming isolated endpoint has stopped outbound traffic).
-- **gti-mcp (Google Threat Intelligence):** Perform reputation checks to validate domains/IPs before initiating blocks.
-- **ChatOps / Verification Skills:**
-  - request_human_confirmation: MUST be called before executing any host isolation, process termination, or account block.
-  - notify_human_incident: Alert the team of high-priority containment actions.
-  - deliver_report: Share pre-signed links of mitigation reports in Workspace Chat.
+- **Remote OneMCP (Google SecOps hosted server):**
+  - Essential for rule creation, listing, updating, validation, and execution.
+  - Used for querying SIEM logs (search_security_events), listing security rules (list_rules), and analyzing alert context.
+- **gti-mcp (Google Threat Intelligence):**
+  - search_threats, get_collection_report, get_collection_mitre_tree, get_threat_intel: To research threats and TTPs requiring coverage.
+- **scc-mcp (SCC):**
+  - Used to understand cloud configurations and vulnerability findings.
 """
 
-# Tier 2 specific configuration
-TIER2_CONFIG = {
-    "max_containment_depth": 3,
+DETECTION_ENGINEER_CONFIG = {
     "primary_runbooks": [
-        "isolate_host",
-        "malicious_container_kill",
-        "remediate_credential_compromise",
-        "firewall_ip_blocking",
-    ],
-    "actions_requiring_confirmation": [
-        "isolate_host",
-        "block_ip",
-        "disable_credential",
-        "kill_container",
+        "detection_rule_validation_tuning",
+        "detection_as_code_workflows",
+        "detection_report",
+        "detection_as_code_rule_tuning",
     ],
 }
 
@@ -200,6 +177,64 @@ class DynamicMcpToolset(McpToolset):
 
             self._is_dynamic_initialized = True
         return await super().get_tools(readonly_context)
+
+
+class RemoteOneMcpToolset(McpToolset):
+    _is_dynamic_initialized: bool = False
+
+    def __init__(
+        self, region: str, project_id: str, tool_filter: list = None, **kwargs
+    ):
+        dummy_params = StreamableHTTPConnectionParams(
+            url="https://chronicle.us.rep.googleapis.com/mcp", headers={}
+        )
+        super().__init__(connection_params=dummy_params, errlog=None, **kwargs)
+        self.region = region
+        self.project_id = project_id
+        self.tool_filter = tool_filter
+
+    async def get_tools(self, readonly_context=None) -> list:
+        if not getattr(self, "_is_dynamic_initialized", False):
+            import google.auth
+            from google.adk.tools.mcp_tool import StreamableHTTPConnectionParams
+            from google.auth.transport.requests import Request
+
+            SCOPES = ["https://www.googleapis.com/auth/chronicle"]
+            creds, _ = google.auth.default(scopes=SCOPES)
+            auth_req = Request()
+            creds.refresh(auth_req)
+            token = creds.token
+
+            url = f"https://chronicle.{self.region}.rep.googleapis.com/mcp"
+
+            self._connection_params = StreamableHTTPConnectionParams(
+                url=url,
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Accept": "text/event-stream",
+                    "x-goog-user-project": self.project_id,
+                },
+            )
+            self._mcp_session_manager._connection_params = self._connection_params
+            self._is_dynamic_initialized = True
+
+        all_tools = await super().get_tools(readonly_context)
+        if not self.tool_filter:
+            return all_tools
+
+        filtered_tools = []
+        for tool in all_tools:
+            tool_name = getattr(tool, "name", None)
+            if not tool_name and hasattr(tool, "_mcp_tool"):
+                tool_name = getattr(tool._mcp_tool, "name", None)
+
+            if tool_name in self.tool_filter:
+                filtered_tools.append(tool)
+
+        logger.info(
+            f"Explicitly filtered Remote OneMCP tools: {len(all_tools)} -> {len(filtered_tools)}"
+        )
+        return filtered_tools
 
 
 async def log_usage_metadata(ctx: Context):
@@ -434,13 +469,15 @@ async def save_report_artifact(filename: str, report_content: str, ctx: Context)
 
 def create_agent():
     """
-    Create the standalone Tier 2 Incident Responder Agent with MCP and containment tools.
+    Create the standalone Detection Engineer Agent with Remote OneMCP and local threat intelligence tools.
     """
     # Load environment variables from .env file
     load_dotenv(Path(".env"), override=True)
 
     # Model Configuration
-    TIER2_RESPONDER_MODEL = os.environ.get("TIER2_RESPONDER_MODEL", "gemini-3.5-flash")
+    DETECTION_ENGINEER_MODEL = os.environ.get(
+        "DETECTION_ENGINEER_MODEL", "gemini-3.5-flash"
+    )
 
     # Get all required environment variables
     GCP_PROJECT_ID = os.environ.get("GCP_PROJECT_ID")
@@ -452,22 +489,14 @@ def create_agent():
     CHRONICLE_CUSTOMER_ID = os.environ.get("CHRONICLE_CUSTOMER_ID")
     CHRONICLE_PROJECT_ID = os.environ.get("CHRONICLE_PROJECT_ID")
     CHRONICLE_REGION = os.environ.get("CHRONICLE_REGION", "us")
-    CHRONICLE_SERVICE_ACCOUNT_PATH = os.environ.get("CHRONICLE_SERVICE_ACCOUNT_PATH")
 
     if not CHRONICLE_PROJECT_ID:
         raise ValueError(
             "CHRONICLE_PROJECT_ID is required. Please set it in your .env file."
         )
-    if not CHRONICLE_SERVICE_ACCOUNT_PATH:
+    if not CHRONICLE_CUSTOMER_ID:
         raise ValueError(
-            "CHRONICLE_SERVICE_ACCOUNT_PATH is required. Please set it in your .env file."
-        )
-
-    # Verify service account file exists
-    service_account_path = Path(CHRONICLE_SERVICE_ACCOUNT_PATH)
-    if not service_account_path.exists():
-        raise FileNotFoundError(
-            f"Chronicle service account file not found: {CHRONICLE_SERVICE_ACCOUNT_PATH}"
+            "CHRONICLE_CUSTOMER_ID is required. Please set it in your .env file."
         )
 
     # Initialize Vertex AI for the agent to work with Gemini models and RAG
@@ -480,10 +509,6 @@ def create_agent():
             location=GCP_LOCATION,
             staging_bucket=GCP_STAGING_BUCKET,
         )
-
-    # SOAR configuration
-    SOAR_URL = os.environ.get("SOAR_URL")
-    SOAR_APP_KEY = os.environ.get("SOAR_APP_KEY")
 
     # Google Threat Intelligence configuration
     GTI_API_KEY = os.environ.get("GTI_API_KEY")
@@ -501,39 +526,152 @@ def create_agent():
     except ValueError:
         RAG_DISTANCE_THRESHOLD = 0.6
 
-    # Get service account filename for MCP servers
-    service_account_filename = service_account_path.name
-
     # Initialize list to collect all tools
     tools = []
 
     # ========================================================================
-    # Configure Chronicle/SIEM MCP Tool
+    # Configure Remote OneMCP Toolset (Hosted Chronicle SIEM/SOAR)
     # ========================================================================
-    logger.info("Configuring Chronicle/SIEM tools...")
-    secops_siem_tools = DynamicMcpToolset(
-        mcp_module="secops_mcp.server",
-        target_env={
-            "CHRONICLE_PROJECT_ID": CHRONICLE_PROJECT_ID,
-            "CHRONICLE_CUSTOMER_ID": CHRONICLE_CUSTOMER_ID,
-            "CHRONICLE_REGION": CHRONICLE_REGION,
-            "SECOPS_SA_PATH": service_account_filename,
-        },
+    logger.info("Configuring Remote OneMCP Chronicle hosted tools...")
+    remote_onemcp = RemoteOneMcpToolset(
+        region=CHRONICLE_REGION, project_id=CHRONICLE_PROJECT_ID
     )
-    tools.append(secops_siem_tools)
 
-    # ========================================================================
-    # Configure SOAR MCP Tool
-    # ========================================================================
-    logger.info("Configuring SOAR tools...")
-    secops_soar_tools = DynamicMcpToolset(
-        mcp_module="secops_soar_mcp.server",
-        target_env={
-            "SOAR_URL": SOAR_URL,
-            "SOAR_APP_KEY": SOAR_APP_KEY,
-        },
-    )
-    tools.append(secops_soar_tools)
+    async def list_rules() -> str:
+        """List the available rules inside Google SecOps."""
+        try:
+            if not remote_onemcp._is_dynamic_initialized:
+                await remote_onemcp.get_tools()
+            session = await remote_onemcp._mcp_session_manager.create_session()
+            res = await session.call_tool(
+                "list_rules",
+                arguments={
+                    "project_id": CHRONICLE_PROJECT_ID,
+                    "customer_id": CHRONICLE_CUSTOMER_ID,
+                    "region": CHRONICLE_REGION,
+                },
+            )
+            if not res.content:
+                return "No rules found."
+            return "\n".join(
+                [part.text for part in res.content if hasattr(part, "text")]
+            )
+        except Exception as e:
+            return f"Error listing rules: {str(e)}"
+
+    async def get_rule(rule_id: str) -> str:
+        """Get the details and content of a specific rule.
+
+        Args:
+            rule_id: The unique identifier of the rule to retrieve.
+        """
+        try:
+            if not remote_onemcp._is_dynamic_initialized:
+                await remote_onemcp.get_tools()
+            session = await remote_onemcp._mcp_session_manager.create_session()
+            res = await session.call_tool(
+                "get_rule",
+                arguments={
+                    "rule_id": rule_id,
+                    "project_id": CHRONICLE_PROJECT_ID,
+                    "customer_id": CHRONICLE_CUSTOMER_ID,
+                    "region": CHRONICLE_REGION,
+                },
+            )
+            if not res.content:
+                return f"Rule {rule_id} not found."
+            return "\n".join(
+                [part.text for part in res.content if hasattr(part, "text")]
+            )
+        except Exception as e:
+            return f"Error getting rule {rule_id}: {str(e)}"
+
+    async def create_rule(rule_text: str) -> str:
+        """Create a new detection rule in Google SecOps.
+
+        Args:
+            rule_text: The complete YARA-L rule content to create.
+        """
+        try:
+            if not remote_onemcp._is_dynamic_initialized:
+                await remote_onemcp.get_tools()
+            session = await remote_onemcp._mcp_session_manager.create_session()
+            res = await session.call_tool(
+                "create_rule",
+                arguments={
+                    "rule_text": rule_text,
+                    "project_id": CHRONICLE_PROJECT_ID,
+                    "customer_id": CHRONICLE_CUSTOMER_ID,
+                    "region": CHRONICLE_REGION,
+                },
+            )
+            if not res.content:
+                return "Rule creation returned empty response."
+            return "\n".join(
+                [part.text for part in res.content if hasattr(part, "text")]
+            )
+        except Exception as e:
+            return f"Error creating rule: {str(e)}"
+
+    async def validate_rule(rule_text: str) -> str:
+        """Validate the syntax of a YARA-L detection rule.
+
+        Args:
+            rule_text: The YARA-L rule content to validate.
+        """
+        try:
+            if not remote_onemcp._is_dynamic_initialized:
+                await remote_onemcp.get_tools()
+            session = await remote_onemcp._mcp_session_manager.create_session()
+            res = await session.call_tool(
+                "validate_rule",
+                arguments={
+                    "rule_text": rule_text,
+                    "project_id": CHRONICLE_PROJECT_ID,
+                    "customer_id": CHRONICLE_CUSTOMER_ID,
+                    "region": CHRONICLE_REGION,
+                },
+            )
+            if not res.content:
+                return "Validation returned empty response."
+            return "\n".join(
+                [part.text for part in res.content if hasattr(part, "text")]
+            )
+        except Exception as e:
+            return f"Error validating rule: {str(e)}"
+
+    async def udm_search(query: str) -> str:
+        """Run a UDM search query against Google SecOps SIEM events.
+
+        Args:
+            query: The UDM search query string (e.g., 'metadata.event_type = "USER_LOGIN"').
+        """
+        try:
+            if not remote_onemcp._is_dynamic_initialized:
+                await remote_onemcp.get_tools()
+            session = await remote_onemcp._mcp_session_manager.create_session()
+            res = await session.call_tool(
+                "udm_search",
+                arguments={
+                    "query": query,
+                    "project_id": CHRONICLE_PROJECT_ID,
+                    "customer_id": CHRONICLE_CUSTOMER_ID,
+                    "region": CHRONICLE_REGION,
+                },
+            )
+            if not res.content:
+                return "No matching events found."
+            return "\n".join(
+                [part.text for part in res.content if hasattr(part, "text")]
+            )
+        except Exception as e:
+            return f"Error running UDM search: {str(e)}"
+
+    tools.append(list_rules)
+    tools.append(get_rule)
+    tools.append(create_rule)
+    tools.append(validate_rule)
+    tools.append(udm_search)
 
     # ========================================================================
     # Configure Google Threat Intelligence (GTI) MCP Tool
@@ -586,90 +724,48 @@ def create_agent():
         tools.append(retrieve_agentic_soc_runbooks)
 
     # ========================================================================
-    # Add google_search as a standalone tool
-    # ========================================================================
-    tools.append(google_search)
-
-    # ========================================================================
     # Add save_report_artifact as a standalone tool
     # ========================================================================
     tools.append(save_report_artifact)
 
     # ========================================================================
-    # Add ChatOps Mitigation Skills
-    # ========================================================================
-    logger.info("Importing ChatOps mitigation tools...")
-    try:
-        from agent_soc_manager.tools.chatops_tools import (
-            deliver_report,
-            generic_notification,
-            list_chatops_capabilities,
-            notify_human_incident,
-            request_human_confirmation,
-            send_chatops_card,
-            trigger_ai_brute_force_source_block_card,
-            trigger_ai_data_exfiltration_block_card,
-            trigger_ai_malicious_container_kill_card,
-            trigger_ai_wipe_host_approval_card,
-            trigger_vulnerability_patch_approval_card,
-        )
-
-        tools.extend(
-            [
-                deliver_report,
-                generic_notification,
-                list_chatops_capabilities,
-                notify_human_incident,
-                request_human_confirmation,
-                send_chatops_card,
-                trigger_vulnerability_patch_approval_card,
-                trigger_ai_malicious_container_kill_card,
-                trigger_ai_wipe_host_approval_card,
-                trigger_ai_data_exfiltration_block_card,
-                trigger_ai_brute_force_source_block_card,
-            ]
-        )
-    except ImportError as import_e:
-        logger.warning(
-            f"Could not import ChatOps tools directly: {import_e}. Proceeding with MCP tools only."
-        )
-
-    # ========================================================================
     # Create the Agent with all configured tools
     # ========================================================================
-    logger.info(f"Creating Tier 2 Incident Responder Agent with {len(tools)} tools...")
+    logger.info(f"Creating Detection Engineer Agent with {len(tools)} tools...")
 
     agent = Agent(
-        model=TIER2_RESPONDER_MODEL,
-        name="soc_analyst_tier2_responder",
-        description=TIER2_PERSONA,
-        instruction="""You are a Tier 2 Incident Responder - a senior security operations engineer responsible for active threat containment, containment validation, and host/network remediation.
+        model=DETECTION_ENGINEER_MODEL,
+        name="soc_analyst_detection_engineer",
+        description=DETECTION_ENGINEER_PERSONA,
+        instruction=f"""You are a Detection Engineer - a security content developer responsible for designing, testing, tuning, and deploying detection rules within Google SecOps.
 
-CRITICAL SAFETY RULE - HUMAN-IN-THE-LOOP MANDATORY:
-**You are strictly forbidden from executing containment or mitigation actions (such as host isolation, domain/IP blocks, user credential suspension, or container teardowns) without first obtaining explicit human confirmation. You MUST call the `request_human_confirmation` tool to present an interactive card to the security analyst and receive positive confirmation before initiating any state-changing containment steps. Honesty about tool failures is mandatory.**
+CRITICAL RUNTIME REQUIREMENT:
+When calling ANY remote Google SecOps/Chronicle MCP tool, you MUST ALWAYS provide the following arguments in the tool call:
+- `project_id`: "{CHRONICLE_PROJECT_ID}"
+- `customer_id`: "{CHRONICLE_CUSTOMER_ID}"
+- `region`: "{CHRONICLE_REGION}"
+Failure to include these parameters will cause the tool calls to fail.
 
 ROLE & FOCUS:
-- You are a Tier 2 Incident Responder focused on active threat neutralization and containment
-- Your mission is to minimize breach exposure and validate the success of containment actions
-- Follow established containment runbooks and procedures - do not perform wild, unapproved commands
+- You develop and tune SIEM rules (YARA-L) to detect security threats.
+- You validate rule logic using historical log queries or log event correlation.
+- You handle tuning requests to reduce false positive alerts.
 
 WORKFLOW APPROACH:
-1. **Incident Escalation Intake:** Review the escalated case details and identify active threats (e.g., active malware beaconing, rogue container processes, credential abuse).
-2. **Runbook Retrieval:** Use `retrieve_agentic_soc_runbooks` to access the specific containment and remediation playbooks.
-3. **Formulate Containment Strategy:** Choose the appropriate containment action (e.g., isolating endpoint, block IP, suspended user).
-4. **Obtain Approval:** Call `request_human_confirmation` to get the analyst's approval. Summarize the strategy clearly to the user first.
-5. **Execute Containment:** Trigger the containment action via SOAR MCP playbooks or ChatOps cards.
-6. **Containment Verification:** Use Chronicle SIEM (`search_security_events`) to verify that the compromised asset has stopped emitting traffic or beaconing.
-7. **Documentation:** Document all findings and mitigation actions in the SOAR case using case comment tools.
-8. **Report Artifact & Delivery:** Save a final containment summary report using `save_report_artifact`, and share the pre-signed link with the team using the `deliver_report` tool.
+1. **Intake & Discovery:** Review requests to write or tune rules, or analyze threat behaviors reported by CTI/Hunters.
+2. **Runbook Retrieval:** Use `retrieve_agentic_soc_runbooks` to load runbooks like `detection_rule_validation_tuning.md` or `detection_as_code_workflows.md`.
+3. **Telemetry & Log Analysis:** Call Chronicle logs (`search_security_events`) to examine log events, fields, and UDM schemas.
+4. **Rule Logic Development:** Formulate rule logic. Review existing coverage using rule listing tools (`list_rules`).
+5. **Testing & Tuning:** Test rule performance against historical logs or verify syntax. Tune rule exceptions (exclusions) or thresholds to address false positives.
+6. **Documentation:** Write a detailed detection report outlining the rule logic, test logs, coverage context, and deployment status. Call `save_report_artifact` to save the Markdown report.
 
 TRANSPARENCY IN RESPONSES:
 When reporting results, ALWAYS include:
-1. Which tool(s) you used (e.g., "I called `request_human_confirmation` to get approval for isolating...")
-2. For SIEM verification searches: Extract and present the UDM query used to verify network isolation
-3. The exact containment confirmation details or "no results found"
+1. Which tools you called and why.
+2. The specific rule details, test queries, or results returned by Remote OneMCP.
+3. The exact YARA-L rule code or tuning conditions applied.
 
-Remember: High-stakes containment requires speed, precision, and strict safety checks. Never act unilaterally on containment without a human in the loop.""",
+Remember: Detection quality determines alert fidelity. Balance speed of deployment with coverage validation and false-positive minimization.""",
         tools=tools,
         before_model_callback=prevent_runaway_loop_callback,
         before_tool_callback=before_tool_cache,
@@ -677,7 +773,7 @@ Remember: High-stakes containment requires speed, precision, and strict safety c
         after_agent_callback=generate_memory,
     )
 
-    logger.info("Tier 2 Incident Responder Agent created successfully!")
+    logger.info("Detection Engineer Agent created successfully!")
     return agent
 
 

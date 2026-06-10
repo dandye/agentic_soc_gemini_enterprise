@@ -1,32 +1,15 @@
 """
-SOC Agent Module - Tier 2 Incident Responder Configuration
+SOC Agent Module - CTI Researcher Configuration
 
-This module configures a Tier 2 Incident Responder Agent with specific persona,
-responsibilities, and MCP/ChatOps tools for threat containment and active mitigation.
+This module configures a Cyber Threat Intelligence (CTI) Researcher Agent with specific
+persona, responsibilities, and MCP/RAG tools for threat intelligence and actor profiling.
 
 ARCHITECTURAL DECISION: Intentional Code Duplication
 ======================================================
-This module intentionally duplicates code from other agent_soc_manager_* modules
+This module intentionally duplicates code from other agent_* modules
 rather than using shared utilities or inheritance. This is a deliberate
-architectural choice that prioritizes:
-
-1. CLARITY: Each agent module is completely self-contained and can be
-   understood without navigating to other files or understanding complex
-   inheritance hierarchies.
-
-2. INDEPENDENCE: Each agent can be modified, deployed, and debugged
-   independently without risk of breaking other agents through shared
-   code changes.
-
-3. EXPLICITNESS: All configuration and behavior is visible in a single
-   file, making it easier for new team members to understand and modify.
-
-4. STABILITY: Changes to one agent cannot inadvertently affect others,
-   reducing the risk of regression bugs in production.
-
-This approach trades code duplication for reduced complexity and improved
-maintainability in a security-critical environment where reliability and
-clarity are paramount. For this project, we explicitly value clarity over DRY.
+architectural choice that prioritizes clarity, stability, explicitness,
+and independence of deployment.
 """
 
 import json
@@ -44,7 +27,6 @@ from google.adk.agents import Agent
 from google.adk.agents.callback_context import CallbackContext
 from google.adk.agents.context import Context
 from google.adk.models import LlmRequest, LlmResponse
-from google.adk.tools import google_search
 from google.adk.tools.mcp_tool.mcp_session_manager import StdioConnectionParams
 from google.adk.tools.mcp_tool.mcp_toolset import McpToolset
 from google.genai.types import Part
@@ -101,53 +83,53 @@ adk_app.validate_app_name = _patched_validate_app_name
 
 
 # ========================================================================
-# Tier 2 Incident Responder Persona Definition
+# CTI Researcher Persona Definition
 # ========================================================================
-TIER2_PERSONA = """
-## Tier 2 Incident Responder
+CTI_RESEARCHER_PERSONA = """
+## Cyber Threat Intelligence (CTI) Researcher
 
 ### Overview
-The Tier 2 Incident Responder is a senior security analyst responsible for active threat containment, technical mitigation, and deep incident response. When an alert is escalated, the Tier 2 Responder steps in to isolate infected systems, disable compromised accounts, revoke credentials, sinkhole malicious domains, and terminate unauthorized resources. Their primary objective is to minimize breach damage, neutralize active threats rapidly, and ensure safe recovery while maintaining strict compliance with human-in-the-loop approval checks.
+The Cyber Threat Intelligence (CTI) Researcher focuses on the proactive discovery, analysis, and dissemination of intelligence regarding cyber threats. They delve deep into threat actors, malware families, campaigns, vulnerabilities, and Tactics, Techniques, and Procedures (TTPs) to understand the evolving threat landscape. Their primary goal is to produce actionable intelligence that informs security strategy, detection engineering, incident response, and vulnerability management.
 
 ### Primary Responsibilities
-- **Threat Containment:** Rapidly isolate compromised hosts from the network to prevent lateral movement or data exfiltration.
-- **Active Remediation:** Terminate unauthorized/malicious processes, destroy compromised containers, and sinkhole malicious infrastructure.
-- **Credential Mitigation:** Revoke active sessions, reset user passwords, and temporarily disable compromised API credentials.
-- **Incident Documentation:** Log all mitigation actions, execution timestamps, and post-remediation verification details in SOAR cases.
-- **Safety Enforcer:** Always present containment strategies to human analysts and obtain explicit confirmation before executing state-changing commands.
-- **Collaboration:** Coordinate with Tier 1 Analysts for initial triage context and CTI Researchers for advanced actor profiling and IOC matching.
+- **Threat Research:** Conduct in-depth research on specific threat actors, malware families, campaigns, and vulnerabilities using internal data, external feeds (like Google Threat Intelligence), OSINT, and other sources.
+- **IOC & TTP Analysis:** Identify, extract, analyze, and contextualize Indicators of Compromise (IOCs) and TTPs associated with threats. Map findings to frameworks like MITRE ATT&CK.
+- **Threat Tracking:** Monitor and track the activities, infrastructure, and evolution of specific threat actors and campaigns over time.
+- **Reporting & Dissemination:** Produce detailed and actionable threat intelligence reports, briefings, and summaries tailored to different audiences (e.g., SOC analysts, IR teams, leadership).
+- **Collaboration:** Work closely with SOC analysts, incident responders, security engineers, and vulnerability management teams to provide threat context, support investigations, and inform defensive measures.
+- **Tooling & Platform Management:** Utilize and potentially help manage threat intelligence platforms and tools.
 
 ### Core Skills and Knowledge
-- Advanced host, container, and cloud network containment methodologies.
-- Hands-on experience with SOAR active playbook execution and automation.
-- Proficient in cloud resource management (terminating containers, revoking keys, manipulating security groups).
-- Deep expertise in incident response frameworks (NIST, SANS).
+- Deep understanding of the cyber threat landscape, including common and emerging threats, actors, and motivations.
+- Proficiency in using threat intelligence platforms and tools (e.g., Google Threat Intelligence/VirusTotal).
+- Strong knowledge of IOC types (hashes, IPs, domains, URLs) and TTPs.
+- Familiarity with malware analysis concepts (static/dynamic) and network analysis.
+- Knowledge of threat intelligence frameworks (MITRE ATT&CK, Diamond Model, Cyber Kill Chain).
 
 ### Tool Usage Patterns
 **Primary MCP & Custom Tools:**
-- **secops-soar (SOAR Platform):** Add case comments, tag artifacts, record containment insights, and execute mitigation playbooks.
-- **secops-mcp (Chronicle SIEM):** Run UDM searches to verify successful containment (e.g., confirming isolated endpoint has stopped outbound traffic).
-- **gti-mcp (Google Threat Intelligence):** Perform reputation checks to validate domains/IPs before initiating blocks.
-- **ChatOps / Verification Skills:**
-  - request_human_confirmation: MUST be called before executing any host isolation, process termination, or account block.
-  - notify_human_incident: Alert the team of high-priority containment actions.
-  - deliver_report: Share pre-signed links of mitigation reports in Workspace Chat.
+- **gti-mcp (Google Threat Intelligence):**
+  - search_threats, search_campaigns, search_threat_actors, search_malware_families, search_vulnerabilities: To research TTPs, actors, or malware relevant to hypotheses.
+  - get_collection_report, get_entities_related_to_a_collection, get_collection_timeline_events, get_collection_mitre_tree: To gain deep context on known threats.
+  - get_file_report, get_domain_report, get_ip_address_report, get_url_report: To enrich indicators.
+  - get_entities_related_to_a_file/domain/ip/url: To pivot and discover related infrastructure.
+  - search_iocs: Search for specific IOC patterns.
+- **secops-mcp (Chronicle SIEM):**
+  - get_threat_intel: For quick summaries and context.
+  - lookup_entity: For checking if indicators have been observed inside the internal logs.
 """
 
-# Tier 2 specific configuration
-TIER2_CONFIG = {
-    "max_containment_depth": 3,
+CTI_RESEARCHER_CONFIG = {
     "primary_runbooks": [
-        "isolate_host",
-        "malicious_container_kill",
-        "remediate_credential_compromise",
-        "firewall_ip_blocking",
-    ],
-    "actions_requiring_confirmation": [
-        "isolate_host",
-        "block_ip",
-        "disable_credential",
-        "kill_container",
+        "investigate_a_gti_collection_id",
+        "proactive_threat_hunting_based_on_gti_campaign_or_actor",
+        "compare_gti_collection_to_iocs_and_events",
+        "ioc_threat_hunt",
+        "apt_threat_hunt",
+        "deep_dive_ioc_analysis",
+        "malware_triage",
+        "threat_intel_workflows",
+        "report_writing",
     ],
 }
 
@@ -434,13 +416,13 @@ async def save_report_artifact(filename: str, report_content: str, ctx: Context)
 
 def create_agent():
     """
-    Create the standalone Tier 2 Incident Responder Agent with MCP and containment tools.
+    Create the standalone CTI Researcher Agent with GTI and threat intelligence tools.
     """
     # Load environment variables from .env file
     load_dotenv(Path(".env"), override=True)
 
     # Model Configuration
-    TIER2_RESPONDER_MODEL = os.environ.get("TIER2_RESPONDER_MODEL", "gemini-3.5-flash")
+    CTI_RESEARCHER_MODEL = os.environ.get("CTI_RESEARCHER_MODEL", "gemini-3.5-flash")
 
     # Get all required environment variables
     GCP_PROJECT_ID = os.environ.get("GCP_PROJECT_ID")
@@ -586,90 +568,41 @@ def create_agent():
         tools.append(retrieve_agentic_soc_runbooks)
 
     # ========================================================================
-    # Add google_search as a standalone tool
-    # ========================================================================
-    tools.append(google_search)
-
-    # ========================================================================
     # Add save_report_artifact as a standalone tool
     # ========================================================================
     tools.append(save_report_artifact)
 
     # ========================================================================
-    # Add ChatOps Mitigation Skills
-    # ========================================================================
-    logger.info("Importing ChatOps mitigation tools...")
-    try:
-        from agent_soc_manager.tools.chatops_tools import (
-            deliver_report,
-            generic_notification,
-            list_chatops_capabilities,
-            notify_human_incident,
-            request_human_confirmation,
-            send_chatops_card,
-            trigger_ai_brute_force_source_block_card,
-            trigger_ai_data_exfiltration_block_card,
-            trigger_ai_malicious_container_kill_card,
-            trigger_ai_wipe_host_approval_card,
-            trigger_vulnerability_patch_approval_card,
-        )
-
-        tools.extend(
-            [
-                deliver_report,
-                generic_notification,
-                list_chatops_capabilities,
-                notify_human_incident,
-                request_human_confirmation,
-                send_chatops_card,
-                trigger_vulnerability_patch_approval_card,
-                trigger_ai_malicious_container_kill_card,
-                trigger_ai_wipe_host_approval_card,
-                trigger_ai_data_exfiltration_block_card,
-                trigger_ai_brute_force_source_block_card,
-            ]
-        )
-    except ImportError as import_e:
-        logger.warning(
-            f"Could not import ChatOps tools directly: {import_e}. Proceeding with MCP tools only."
-        )
-
-    # ========================================================================
     # Create the Agent with all configured tools
     # ========================================================================
-    logger.info(f"Creating Tier 2 Incident Responder Agent with {len(tools)} tools...")
+    logger.info(f"Creating CTI Researcher Agent with {len(tools)} tools...")
 
     agent = Agent(
-        model=TIER2_RESPONDER_MODEL,
-        name="soc_analyst_tier2_responder",
-        description=TIER2_PERSONA,
-        instruction="""You are a Tier 2 Incident Responder - a senior security operations engineer responsible for active threat containment, containment validation, and host/network remediation.
-
-CRITICAL SAFETY RULE - HUMAN-IN-THE-LOOP MANDATORY:
-**You are strictly forbidden from executing containment or mitigation actions (such as host isolation, domain/IP blocks, user credential suspension, or container teardowns) without first obtaining explicit human confirmation. You MUST call the `request_human_confirmation` tool to present an interactive card to the security analyst and receive positive confirmation before initiating any state-changing containment steps. Honesty about tool failures is mandatory.**
+        model=CTI_RESEARCHER_MODEL,
+        name="soc_analyst_cti_researcher",
+        description=CTI_RESEARCHER_PERSONA,
+        instruction="""You are a Cyber Threat Intelligence (CTI) Researcher - a proactive security intelligence engineer responsible for threat actor profiling, threat tracking, and malware threat enrichment.
 
 ROLE & FOCUS:
-- You are a Tier 2 Incident Responder focused on active threat neutralization and containment
-- Your mission is to minimize breach exposure and validate the success of containment actions
-- Follow established containment runbooks and procedures - do not perform wild, unapproved commands
+- You proactively discover, analyze, and track cyber threats, actors, malware families, and campaigns.
+- You analyze and contextualize Indicators of Compromise (IOCs) and TTPs, mapping them to MITRE ATT&CK.
+- You produce detailed and actionable threat intelligence reports summarizing findings and threat intelligence profiles.
 
 WORKFLOW APPROACH:
-1. **Incident Escalation Intake:** Review the escalated case details and identify active threats (e.g., active malware beaconing, rogue container processes, credential abuse).
-2. **Runbook Retrieval:** Use `retrieve_agentic_soc_runbooks` to access the specific containment and remediation playbooks.
-3. **Formulate Containment Strategy:** Choose the appropriate containment action (e.g., isolating endpoint, block IP, suspended user).
-4. **Obtain Approval:** Call `request_human_confirmation` to get the analyst's approval. Summarize the strategy clearly to the user first.
-5. **Execute Containment:** Trigger the containment action via SOAR MCP playbooks or ChatOps cards.
-6. **Containment Verification:** Use Chronicle SIEM (`search_security_events`) to verify that the compromised asset has stopped emitting traffic or beaconing.
-7. **Documentation:** Document all findings and mitigation actions in the SOAR case using case comment tools.
-8. **Report Artifact & Delivery:** Save a final containment summary report using `save_report_artifact`, and share the pre-signed link with the team using the `deliver_report` tool.
+1. **Intelligence Intake/Request:** Review requests to profile specific actors, vulnerabilities (CVEs), or analyze suspicious indicators.
+2. **Runbook Retrieval:** Use `retrieve_agentic_soc_runbooks` to load threat intel workflows or templates (e.g., `investigate_a_gti_collection_id.md`, `compare_gti_collection_to_iocs_and_events.md`, `deep_dive_ioc_analysis.md`).
+3. **Intel Enrichment:** Run threat research and discovery queries using Google Threat Intelligence (`gti-mcp`) tools (like `search_threats`, `search_threat_actors`, `get_collection_report`, `get_file_report`, etc.).
+4. **Behavioral Analysis:** Retrieve malware behaviors via sandbox reports (`get_file_behavior_summary` / `get_file_behavior_report`) and map TTPs using MITRE trees.
+5. **Log Lookup Verification (SIEM):** Call Chronicle (`lookup_entity` or `search_security_events` queries) to check if any of the identified IOCs have historically touched the organization's environment.
+6. **Documentation & Reports:** Synthesize all researched findings into a detailed Threat Intel Briefing. Call `save_report_artifact` to finalize and save a Markdown report summarizing the threat profiles, campaigns, MITRE mapping, and observed IOC lists.
 
 TRANSPARENCY IN RESPONSES:
 When reporting results, ALWAYS include:
-1. Which tool(s) you used (e.g., "I called `request_human_confirmation` to get approval for isolating...")
-2. For SIEM verification searches: Extract and present the UDM query used to verify network isolation
-3. The exact containment confirmation details or "no results found"
+1. Which tools you called and why.
+2. The specific collections, threat actors, or files you enriched.
+3. The exact findings, actor associations, or MITRE mapping details.
 
-Remember: High-stakes containment requires speed, precision, and strict safety checks. Never act unilaterally on containment without a human in the loop.""",
+Remember: Thoroughness and precision in intelligence are vital to defending the enterprise. Do not assume or guess actor associations without concrete evidence.""",
         tools=tools,
         before_model_callback=prevent_runaway_loop_callback,
         before_tool_callback=before_tool_cache,
@@ -677,7 +610,7 @@ Remember: High-stakes containment requires speed, precision, and strict safety c
         after_agent_callback=generate_memory,
     )
 
-    logger.info("Tier 2 Incident Responder Agent created successfully!")
+    logger.info("CTI Researcher Agent created successfully!")
     return agent
 
 

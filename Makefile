@@ -158,10 +158,19 @@ agent-engine-deploy-pro: check-prereqs ## Deploy Pro agent (gemini-3.1-pro-previ
 agent-engine-deploy-tier2: check-prereqs ## Deploy Tier 2 agent (incident responder specialist)
 	$(Q)$(MAKE) agent-engine-deploy AGENT_MODULE=agent_a2a_tier2
 
+agent-engine-deploy-threat-hunter: check-prereqs ## Deploy Threat Hunter agent (proactive hunting specialist)
+	$(Q)$(MAKE) agent-engine-deploy AGENT_MODULE=agent_a2a_threat_hunter
+
+agent-engine-deploy-cti-researcher: check-prereqs ## Deploy CTI Researcher agent (threat intelligence specialist)
+	$(Q)$(MAKE) agent-engine-deploy AGENT_MODULE=agent_a2a_cti_researcher
+
+agent-engine-deploy-detection-engineer: check-prereqs ## Deploy Detection Engineer agent (detection lifecycle specialist)
+	$(Q)$(MAKE) agent-engine-deploy AGENT_MODULE=agent_a2a_detection_engineer
+
 agent-engine-deploy-and-delete: check-prereqs ## Deploy agent engine and intelligently delete older versions
 	$(Q)$(PYTHON) $(MANAGE_AGENT_ENGINE) deploy --agent-module $(AGENT_MODULE) $(if $(DESCRIPTION),--description "$(DESCRIPTION)")
 
-agent-engine-test: ## Test the deployed agent engine (use AGENT_MODULE=agent_a2a_tier2 for Tier 2)
+agent-engine-test: ## Test the deployed agent engine (e.g., AGENT_MODULE=agent_a2a_tier2, agent_a2a_threat_hunter, agent_a2a_cti_researcher, or agent_a2a_detection_engineer)
 	$(PYTHON) $(MANAGE_AGENT_ENGINE) test --agent-module $(AGENT_MODULE)
 
 agent-engine-warmup: check-deploy ## Pre-warm MCP server connections to reduce cold start latency

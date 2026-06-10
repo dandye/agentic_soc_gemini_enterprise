@@ -5,3 +5,4 @@ pydantic
 python-dotenv
 google-auth-oauthlib
 typer
+mcp[cli]>=1.4.1

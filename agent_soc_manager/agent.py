@@ -798,39 +798,47 @@ async def delegate_to_tier2_responder(query: str, tool_context: Context) -> str:
     Args:
         query: The specific containment task or mitigation request (e.g., 'Isolate host MALWARETEST-WIN' or 'Suspend compromised user credentials').
     """
-    logger.info(f"A2A_DELEGATION: Attempting to delegate to Tier 2 Incident Responder for: {query}")
+    logger.info(
+        f"A2A_DELEGATION: Attempting to delegate to Tier 2 Incident Responder for: {query}"
+    )
     try:
         # Retrieve Tier 2 Agent Engine resource name from environment variables
         tier2_engine_name = os.environ.get("TIER2_AGENT_RESOURCE_NAME")
         if not tier2_engine_name:
-            logger.error("A2A_DELEGATION_ERROR: TIER2_AGENT_RESOURCE_NAME not set in environment.")
+            logger.error(
+                "A2A_DELEGATION_ERROR: TIER2_AGENT_RESOURCE_NAME not set in environment."
+            )
             return "Error: Tier 2 Incident Responder is not currently configured in the environment."
 
         # Get the remote Reasoning Engine client
         from vertexai import agent_engines
+
         remote_engine = agent_engines.get(tier2_engine_name)
-        
+
         # Retrieve session context parameters
         session_id = None  # Let remote specialist auto-create its own session to prevent SessionNotFoundError
         user_id = "secops_assistant"
-        
+
         # Map parent context to child session if available
-        if hasattr(tool_context, "_invocation_context") and tool_context._invocation_context:
+        if (
+            hasattr(tool_context, "_invocation_context")
+            and tool_context._invocation_context
+        ):
             root_ctx = tool_context._invocation_context
             if hasattr(root_ctx, "user_id"):
                 user_id = root_ctx.user_id
 
-        logger.info(f"A2A_DELEGATION: Calling remote Tier 2 agent ({tier2_engine_name}) with User: {user_id}")
-        
+        logger.info(
+            f"A2A_DELEGATION: Calling remote Tier 2 agent ({tier2_engine_name}) with User: {user_id}"
+        )
+
         # Invoke the remote engine client dynamically accumulating streaming events
         response_parts = []
         async for event in remote_engine.async_stream_query(
-            user_id=user_id,
-            session_id=session_id,
-            message=query
+            user_id=user_id, session_id=session_id, message=query
         ):
             logger.debug(f"A2A_DELEGATION_EVENT: {event}")
-            
+
             # Safe lookup helper supporting both dict and object structures interchangeably
             def get_field(obj, field_name):
                 if obj is None:
@@ -849,28 +857,290 @@ async def delegate_to_tier2_responder(query: str, tool_context: Context) -> str:
                         text = get_field(part, "text")
                         if text:
                             response_parts.append(text)
-                        
+
                         # 2. Extract tool/function calls for real-time status updates
                         function_call = get_field(part, "function_call")
                         if function_call:
                             name = get_field(function_call, "name")
-                            if name in ["request_human_confirmation", "request_triage_approval"]:
-                                response_parts.append("[Specialist Action] Dispatched a high-priority ChatOps confirmation card to the security operations channel requesting human analyst approval before executing containment.")
+                            if name in [
+                                "request_human_confirmation",
+                                "request_triage_approval",
+                            ]:
+                                response_parts.append(
+                                    "[Specialist Action] Dispatched a high-priority ChatOps confirmation card to the security operations channel requesting human analyst approval before executing containment."
+                                )
                             elif name == "deliver_report":
-                                response_parts.append("[Specialist Action] Saved and delivered the incident containment report to the security operations channel.")
+                                response_parts.append(
+                                    "[Specialist Action] Saved and delivered the incident containment report to the security operations channel."
+                                )
                             else:
-                                response_parts.append(f"[Specialist Action] Invoking containment tool: {name}")
+                                response_parts.append(
+                                    f"[Specialist Action] Invoking containment tool: {name}"
+                                )
 
         final_text = "".join(response_parts).strip()
         if not final_text:
             final_text = "The Tier 2 specialist completed the request without generating a text response."
 
         logger.info("A2A_DELEGATION_SUCCESS: Successfully completed remote A2A call.")
-        return f"--- Response from Tier 2 Incident Responder Specialist ---\n{final_text}"
-        
+        return (
+            f"--- Response from Tier 2 Incident Responder Specialist ---\n{final_text}"
+        )
+
     except Exception as e:
-        logger.error(f"A2A_DELEGATION_ERROR: Failed to delegate task to Tier 2 agent: {e}", exc_info=True)
+        logger.error(
+            f"A2A_DELEGATION_ERROR: Failed to delegate task to Tier 2 agent: {e}",
+            exc_info=True,
+        )
         return f"Failed to communicate with the remote Tier 2 Incident Responder specialist agent: {e}"
+
+
+async def delegate_to_threat_hunter(query: str, tool_context: Context) -> str:
+    """
+    Delegates proactive threat hunting, hypothesis validation, log searching (UDM),
+    and threat intelligence prevalence correlation to the standalone Threat Hunter agent remotely via Agent-to-Agent (A2A) call.
+
+    Args:
+        query: The specific threat hunt request or hypothesis to validate (e.g., 'Check for potential malicious beaconing to superstarts.top').
+    """
+    logger.info(f"A2A_DELEGATION: Attempting to delegate to Threat Hunter for: {query}")
+    try:
+        engine_name = os.environ.get("THREAT_HUNTER_AGENT_RESOURCE_NAME")
+        if not engine_name:
+            logger.error(
+                "A2A_DELEGATION_ERROR: THREAT_HUNTER_AGENT_RESOURCE_NAME not set."
+            )
+            return "Error: Threat Hunter agent is not configured in the environment."
+
+        from vertexai import agent_engines
+
+        remote_engine = agent_engines.get(engine_name)
+        session_id = None
+        user_id = "secops_assistant"
+
+        if (
+            hasattr(tool_context, "_invocation_context")
+            and tool_context._invocation_context
+        ):
+            root_ctx = tool_context._invocation_context
+            if hasattr(root_ctx, "user_id"):
+                user_id = root_ctx.user_id
+
+        logger.info(
+            f"A2A_DELEGATION: Calling remote Threat Hunter agent ({engine_name}) with User: {user_id}"
+        )
+
+        response_parts = []
+        async for event in remote_engine.async_stream_query(
+            user_id=user_id, session_id=session_id, message=query
+        ):
+
+            def get_field(obj, field_name):
+                if obj is None:
+                    return None
+                if isinstance(obj, dict):
+                    return obj.get(field_name)
+                return getattr(obj, field_name, None)
+
+            content = get_field(event, "content")
+            if content:
+                parts = get_field(content, "parts")
+                if parts and isinstance(parts, list):
+                    for part in parts:
+                        text = get_field(part, "text")
+                        if text:
+                            response_parts.append(text)
+
+                        function_call = get_field(part, "function_call")
+                        if function_call:
+                            name = get_field(function_call, "name")
+                            response_parts.append(
+                                f"[Specialist Action] Invoking hunting/intelligence tool: {name}"
+                            )
+
+        final_text = "".join(response_parts).strip()
+        if not final_text:
+            final_text = "The Threat Hunter specialist completed the request without generating a text response."
+
+        logger.info(
+            "A2A_DELEGATION_SUCCESS: Successfully completed remote A2A call to Threat Hunter."
+        )
+        return f"--- Response from Threat Hunter Specialist ---\n{final_text}"
+
+    except Exception as e:
+        logger.error(
+            f"A2A_DELEGATION_ERROR: Failed to delegate to Threat Hunter: {e}",
+            exc_info=True,
+        )
+        return (
+            f"Failed to communicate with the remote Threat Hunter specialist agent: {e}"
+        )
+
+
+async def delegate_to_cti_researcher(query: str, tool_context: Context) -> str:
+    """
+    Delegates cyber threat intelligence profiling, malware analysis, actor tracking, and campaign enrichment
+    to the standalone CTI Researcher agent remotely via Agent-to-Agent (A2A) call.
+
+    Args:
+        query: The threat intelligence research query (e.g., 'Research actor APT28 and list related hashes').
+    """
+    logger.info(
+        f"A2A_DELEGATION: Attempting to delegate to CTI Researcher for: {query}"
+    )
+    try:
+        engine_name = os.environ.get("CTI_RESEARCHER_AGENT_RESOURCE_NAME")
+        if not engine_name:
+            logger.error(
+                "A2A_DELEGATION_ERROR: CTI_RESEARCHER_AGENT_RESOURCE_NAME not set."
+            )
+            return "Error: CTI Researcher agent is not configured in the environment."
+
+        from vertexai import agent_engines
+
+        remote_engine = agent_engines.get(engine_name)
+        session_id = None
+        user_id = "secops_assistant"
+
+        if (
+            hasattr(tool_context, "_invocation_context")
+            and tool_context._invocation_context
+        ):
+            root_ctx = tool_context._invocation_context
+            if hasattr(root_ctx, "user_id"):
+                user_id = root_ctx.user_id
+
+        logger.info(
+            f"A2A_DELEGATION: Calling remote CTI Researcher agent ({engine_name}) with User: {user_id}"
+        )
+
+        response_parts = []
+        async for event in remote_engine.async_stream_query(
+            user_id=user_id, session_id=session_id, message=query
+        ):
+
+            def get_field(obj, field_name):
+                if obj is None:
+                    return None
+                if isinstance(obj, dict):
+                    return obj.get(field_name)
+                return getattr(obj, field_name, None)
+
+            content = get_field(event, "content")
+            if content:
+                parts = get_field(content, "parts")
+                if parts and isinstance(parts, list):
+                    for part in parts:
+                        text = get_field(part, "text")
+                        if text:
+                            response_parts.append(text)
+
+                        function_call = get_field(part, "function_call")
+                        if function_call:
+                            name = get_field(function_call, "name")
+                            response_parts.append(
+                                f"[Specialist Action] Invoking threat intelligence tool: {name}"
+                            )
+
+        final_text = "".join(response_parts).strip()
+        if not final_text:
+            final_text = "The CTI Researcher specialist completed the request without generating a text response."
+
+        logger.info(
+            "A2A_DELEGATION_SUCCESS: Successfully completed remote A2A call to CTI Researcher."
+        )
+        return f"--- Response from CTI Researcher Specialist ---\n{final_text}"
+
+    except Exception as e:
+        logger.error(
+            f"A2A_DELEGATION_ERROR: Failed to delegate to CTI Researcher: {e}",
+            exc_info=True,
+        )
+        return f"Failed to communicate with the remote CTI Researcher specialist agent: {e}"
+
+
+async def delegate_to_detection_engineer(query: str, tool_context: Context) -> str:
+    """
+    Delegates detection rule development (YARA-L), rule verification, validation, tuning, and rule lifecycle audits
+    in Google SecOps to the standalone Detection Engineer agent remotely via Agent-to-Agent (A2A) call.
+
+    Args:
+        query: The specific detection engineering or rule tuning task (e.g., 'Write a rule to detect brute force on GCP console' or 'Tune rule X to exclude user Y').
+    """
+    logger.info(
+        f"A2A_DELEGATION: Attempting to delegate to Detection Engineer for: {query}"
+    )
+    try:
+        engine_name = os.environ.get("DETECTION_ENGINEER_AGENT_RESOURCE_NAME")
+        if not engine_name:
+            logger.error(
+                "A2A_DELEGATION_ERROR: DETECTION_ENGINEER_AGENT_RESOURCE_NAME not set."
+            )
+            return (
+                "Error: Detection Engineer agent is not configured in the environment."
+            )
+
+        from vertexai import agent_engines
+
+        remote_engine = agent_engines.get(engine_name)
+        session_id = None
+        user_id = "secops_assistant"
+
+        if (
+            hasattr(tool_context, "_invocation_context")
+            and tool_context._invocation_context
+        ):
+            root_ctx = tool_context._invocation_context
+            if hasattr(root_ctx, "user_id"):
+                user_id = root_ctx.user_id
+
+        logger.info(
+            f"A2A_DELEGATION: Calling remote Detection Engineer agent ({engine_name}) with User: {user_id}"
+        )
+
+        response_parts = []
+        async for event in remote_engine.async_stream_query(
+            user_id=user_id, session_id=session_id, message=query
+        ):
+
+            def get_field(obj, field_name):
+                if obj is None:
+                    return None
+                if isinstance(obj, dict):
+                    return obj.get(field_name)
+                return getattr(obj, field_name, None)
+
+            content = get_field(event, "content")
+            if content:
+                parts = get_field(content, "parts")
+                if parts and isinstance(parts, list):
+                    for part in parts:
+                        text = get_field(part, "text")
+                        if text:
+                            response_parts.append(text)
+
+                        function_call = get_field(part, "function_call")
+                        if function_call:
+                            name = get_field(function_call, "name")
+                            response_parts.append(
+                                f"[Specialist Action] Invoking detection engineering tool: {name}"
+                            )
+
+        final_text = "".join(response_parts).strip()
+        if not final_text:
+            final_text = "The Detection Engineer specialist completed the request without generating a text response."
+
+        logger.info(
+            "A2A_DELEGATION_SUCCESS: Successfully completed remote A2A call to Detection Engineer."
+        )
+        return f"--- Response from Detection Engineer Specialist ---\n{final_text}"
+
+    except Exception as e:
+        logger.error(
+            f"A2A_DELEGATION_ERROR: Failed to delegate to Detection Engineer: {e}",
+            exc_info=True,
+        )
+        return f"Failed to communicate with the remote Detection Engineer specialist agent: {e}"
 
 
 def create_agent():
@@ -920,7 +1190,9 @@ def create_agent():
     logger.warning(
         f"AUTH_DEBUG [agent_soc_manager]: CHRONICLE_PROJECT_ID={CHRONICLE_PROJECT_ID}"
     )
-    logger.warning(f"AUTH_DEBUG [agent_soc_manager]: CHRONICLE_REGION={CHRONICLE_REGION}")
+    logger.warning(
+        f"AUTH_DEBUG [agent_soc_manager]: CHRONICLE_REGION={CHRONICLE_REGION}"
+    )
     logger.warning(
         f"AUTH_DEBUG [agent_soc_manager]: CHRONICLE_SERVICE_ACCOUNT_PATH={CHRONICLE_SERVICE_ACCOUNT_PATH}"
     )
@@ -995,7 +1267,9 @@ def create_agent():
         )
         mcp_env["CHRONICLE_SERVICE_ACCOUNT_SECRET"] = CHRONICLE_SERVICE_ACCOUNT_SECRET
     elif service_account_filename:
-        logger.warning("AUTH_DEBUG [agent_soc_manager]: Adding SECOPS_SA_PATH to mcp_env")
+        logger.warning(
+            "AUTH_DEBUG [agent_soc_manager]: Adding SECOPS_SA_PATH to mcp_env"
+        )
         # Ensure we use the filename (not absolute path) so it works in the container where the file is copied.
         # For local execution, use the absolute path since the file isn't copied to the runner CWD.
         if os.environ.get("REASONING_ENGINE_DEPLOYMENT") == "True":
@@ -1058,145 +1332,13 @@ def create_agent():
         logger.info("  No location restrictions - all Gemini models available")
 
     # ========================================================================
-    # SUB-AGENT 1: CTI Researcher (GTI + Chronicle + SOAR)
-    # ========================================================================
-    logger.info("Creating CTI sub-agent...")
-
     logger.info("Loading ADK Skills...")
     skill_dir = Path(__file__).parent / "skills"
-    ioc_enrichment_skill = load_skill_from_dir(skill_dir / "ioc-enrichment-skill")
     malware_triage_skill = load_skill_from_dir(skill_dir / "malware-triage-skill")
     chatops_skill = load_skill_from_dir(skill_dir / "chatops-skill")
 
-    cti_skill_toolset = skill_toolset.SkillToolset(skills=[ioc_enrichment_skill])
     tier1_skill_toolset = skill_toolset.SkillToolset(
         skills=[malware_triage_skill, chatops_skill]
-    )
-
-    cti_tools = [
-        save_report_artifact,
-        cti_skill_toolset,
-        SharedScopePreloadMemoryTool(),  # Auto-load memories at start of every turn
-        LoadMemoryTool(),  # On-demand memory queries during investigation
-    ]
-
-    # GTI tools for threat intelligence
-    cti_tools.append(
-        McpToolset(
-            connection_params=StdioConnectionParams(
-                server_params=StdioServerParameters(
-                    command=PYTHON_EXECUTABLE,
-                    args=["-m", "gti_mcp.server"],
-                    env=mcp_env,
-                ),
-                timeout=90000,  # 90 seconds (balanced timeout)
-            ),
-            errlog=None,  # Suppress errlog to permit serialization
-        )
-    )
-
-    # Chronicle for correlation
-    cti_tools.append(
-        McpToolset(
-            connection_params=StdioConnectionParams(
-                server_params=StdioServerParameters(
-                    command=PYTHON_EXECUTABLE,
-                    args=["-m", "secops_mcp.server"],
-                    env=mcp_env,
-                ),
-                timeout=90000,  # 90 seconds (balanced timeout)
-            ),
-            errlog=None,  # Suppress errlog to permit serialization
-        )
-    )
-
-    # SOAR for dissemination
-    cti_tools.append(
-        McpToolset(
-            connection_params=StdioConnectionParams(
-                server_params=StdioServerParameters(
-                    command=PYTHON_EXECUTABLE,
-                    args=["-m", "secops_soar_mcp.server"],
-                    env=mcp_env,
-                ),
-                timeout=90000,  # 90 seconds (balanced timeout)
-            ),
-            errlog=None,  # Suppress errlog to permit serialization
-        )
-    )
-
-    # SCC for cloud security findings
-    cti_tools.append(
-        McpToolset(
-            connection_params=StdioConnectionParams(
-                server_params=StdioServerParameters(
-                    command=PYTHON_EXECUTABLE, args=["-m", "scc_mcp"], env=mcp_env
-                ),
-                timeout=90000,  # 90 seconds (balanced timeout)
-            ),
-            errlog=None,  # Suppress errlog to permit serialization
-        )
-    )
-
-    cti_subagent = Agent(
-        name="cti_researcher",
-        model=CTI_RESEARCHER_MODEL,
-        description=CTI_PERSONA,
-        instruction="""You are a Cyber Threat Intelligence (CTI) Researcher focused on proactive threat discovery, analysis, and intelligence production.
-
-CRITICAL SAFETY RULE - NEVER HALLUCINATE:
-**NEVER make up threat intelligence data, IOCs, or findings. If a tool fails or returns an error, you MUST report the actual error to the user. Do NOT fabricate threat actor details, IOCs, attack patterns, or any other intelligence data. Honesty about tool failures is mandatory.**
-
-INTERPRETING TOOL RESPONSES:
-- **Tool Error (isError=True or exception)**: Report the actual error to the user
-- **Empty Success (isError=False, empty/null data)**: Confidently state "No results found" or "No [items] at this time"
-  - Example: `list_cases()` returns `{}` → "There are no open cases at this time"
-  - Example: `search_security_events()` returns `[]` → "No events matching the criteria were found"
-- Do NOT say "unable to retrieve" or "might indicate" when a tool succeeds with empty results - be definitive
-
-ROLE & FOCUS:
-- Specialize in threat actor tracking, malware analysis, and campaign investigation
-- Produce actionable intelligence that informs security strategy and operations
-- Apply structured analytical techniques and maintain high confidence standards
-
-ANALYTICAL APPROACH:
-1. Research Initiation: Start with clear intelligence requirements
-2. Data Collection: Use GTI as primary source, correlate with Chronicle
-3. Analysis & Pivoting: Follow relationships between entities, actors, campaigns (up to 5 levels deep)
-4. Intelligence Production: Create reports with confidence levels, source attribution, MITRE ATT&CK mapping
-5. Dissemination: Share findings through SOAR comments
-
-TOOL USAGE:
-- **LoadMemoryTool** (CONTEXT): Retrieve historical insights, actor profiles, and previous investigation findings.
-  - ALWAYS use this at the start of a research task to identify known patterns or previous encounters with an entity/actor.
-- **GTI (PRIMARY)**: Threat research, IOC analysis, actor tracking, collection reports, MITRE mapping
-  - Specify which GTI tool you used (e.g., `get_ip_address_report()`, `get_file_report()`)
-- **Chronicle (CORRELATION)**: Validate threats locally, IOC hunting, prevalence checking
-  - When using `search_security_events()`, ALWAYS extract and present the UDM query from the response
-- **SOAR (DISSEMINATION)**: Add threat context to cases, formal insights
-- **SCC**: Cloud security findings and posture
-
-TRANSPARENCY IN RESPONSES:
-When reporting results, ALWAYS include:
-1. Which tool(s) you used (e.g., "I used `get_ip_address_report()` to lookup...")
-2. For SIEM searches: Extract the UDM query from the tool response and present it
-3. The actual results or "no results found" (be definitive about empty responses)
-
-INTELLIGENCE STANDARDS:
-- Include confidence levels (Low/Medium/High)
-- Provide source attribution and reliability scoring
-- Map TTPs to MITRE ATT&CK when possible
-- Include timeline of threat activity
-- Offer actionable defensive recommendations
-
-CRITICAL: When formulating analysis plans, summarize your approach and ask for user permission before executing state-changing tools.""",
-        tools=cti_tools,
-        before_tool_callback=before_tool_cache,
-        after_tool_callback=after_tool_cache,
-        after_agent_callback=generate_memory,
-        generate_content_config=strict_config,
-        mode="task",
-        disallow_transfer_to_peers=True,
     )
 
     # ========================================================================
@@ -1401,6 +1543,9 @@ CRITICAL: Summarize procedures and ask for user permission before executing stat
         trigger_temp_admin_request_card,
         trigger_vulnerability_patch_approval_card,
         delegate_to_tier2_responder,
+        delegate_to_threat_hunter,
+        delegate_to_cti_researcher,
+        delegate_to_detection_engineer,
     ]
 
     # Add RAG tool DIRECTLY to orchestrator (not via sub-agent) to preserve grounding citations
@@ -1454,10 +1599,7 @@ You have direct access to several tools and can delegate to specialized sub-agen
 ### SPECIALIZED SUB-AGENTS & REMOTE SPECIALISTS:
 
 #### LOCAL SUB-AGENTS (You delegate to these in-process specialists):
-1. **cti_researcher** (Threat Intelligence specialist):
-   - Deep threat research, actor analysis, malware investigation, IOC analysis.
-
-2. **tier1_analyst** (Alert Triage specialist):
+1. **tier1_analyst** (Alert Triage specialist):
    - Initial alert triage, basic investigation, false positive identification.
 
 #### REMOTE A2A SPECIALISTS (You delegate using tool calls):
@@ -1465,13 +1607,24 @@ You have direct access to several tools and can delegate to specialized sub-agen
    - High-privilege incident containment, host network isolation, unauthorized process/container termination, and active remediation (disabling compromised credentials).
    - **CRITICAL:** Use ONLY when a threat is confirmed and active containment/mitigation is required.
 
+2. **delegate_to_threat_hunter**:
+   - Proactive threat hunting, hypothesis formulation and validation, log query development, and malicious prevalence validation.
+
+3. **delegate_to_cti_researcher**:
+   - In-depth cyber threat intelligence profiling, malware behavior analysis, actor/campaign tracking, and IOC enrichment.
+
+4. **delegate_to_detection_engineer**:
+   - SIEM rules (YARA-L) design, rule auditing, rule testing against historical events, syntax validation, and alert tuning/exclusions.
+
 DELEGATION STRATEGY:
 1. Analyze the user's request to determine the type of work required.
 2. For runbook/procedure queries: Use `retrieve_agentic_soc_runbooks` directly.
-3. For threat intelligence: Delegate to `cti_researcher`.
-4. For alert triage/investigation: Delegate to `tier1_analyst`.
-5. For querying historical memory or recording analyst notes: Delegate to `tier1_analyst`.
-6. For active containment, network host isolation, process/container termination, or credential suspension: Call the `delegate_to_tier2_responder` tool.
+3. For alert triage/investigation: Delegate to `tier1_analyst`.
+4. For querying historical memory or recording analyst notes: Delegate to `tier1_analyst`.
+5. For active containment, network host isolation, process/container termination, or credential suspension: Call `delegate_to_tier2_responder`.
+6. For proactive hunting, query development, or searching log prevalence for a specific domain/IP: Call `delegate_to_threat_hunter`.
+7. For researching a threat actor, campaign context, vulnerability (CVE) details, or malware family behavior: Call `delegate_to_cti_researcher`.
+8. For writing YARA-L rules, listing rules, analyzing rule performance/errors, or tuning alerts/exclusions: Call `delegate_to_detection_engineer`.
 """
 
     orchestrator_instruction += """
@@ -1576,7 +1729,7 @@ Remember: Your role is to be an intelligent orchestrator that makes security ope
         description="SecOps Security Agent - An intelligent SOC orchestrator for Google SecOps that delegates security operations to specialized persona-based agents.",
         instruction=orchestrator_instruction,
         tools=orchestrator_tools,
-        sub_agents=[cti_subagent, tier1_subagent],  # LLM delegation to specialists
+        sub_agents=[tier1_subagent],  # LLM delegation to specialists
         before_tool_callback=before_tool_cache,
         after_tool_callback=after_tool_cache,
         after_agent_callback=generate_memory,

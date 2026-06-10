@@ -1,32 +1,15 @@
 """
-SOC Agent Module - Tier 2 Incident Responder Configuration
+SOC Agent Module - Threat Hunter Configuration
 
-This module configures a Tier 2 Incident Responder Agent with specific persona,
-responsibilities, and MCP/ChatOps tools for threat containment and active mitigation.
+This module configures a proactive Threat Hunter Agent with specific persona,
+responsibilities, and MCP/RAG tools for hunting anomalies and threat detection.
 
 ARCHITECTURAL DECISION: Intentional Code Duplication
 ======================================================
-This module intentionally duplicates code from other agent_soc_manager_* modules
+This module intentionally duplicates code from other agent_* modules
 rather than using shared utilities or inheritance. This is a deliberate
-architectural choice that prioritizes:
-
-1. CLARITY: Each agent module is completely self-contained and can be
-   understood without navigating to other files or understanding complex
-   inheritance hierarchies.
-
-2. INDEPENDENCE: Each agent can be modified, deployed, and debugged
-   independently without risk of breaking other agents through shared
-   code changes.
-
-3. EXPLICITNESS: All configuration and behavior is visible in a single
-   file, making it easier for new team members to understand and modify.
-
-4. STABILITY: Changes to one agent cannot inadvertently affect others,
-   reducing the risk of regression bugs in production.
-
-This approach trades code duplication for reduced complexity and improved
-maintainability in a security-critical environment where reliability and
-clarity are paramount. For this project, we explicitly value clarity over DRY.
+architectural choice that prioritizes clarity, stability, explicitness,
+and independence of deployment.
 """
 
 import json
@@ -44,7 +27,6 @@ from google.adk.agents import Agent
 from google.adk.agents.callback_context import CallbackContext
 from google.adk.agents.context import Context
 from google.adk.models import LlmRequest, LlmResponse
-from google.adk.tools import google_search
 from google.adk.tools.mcp_tool.mcp_session_manager import StdioConnectionParams
 from google.adk.tools.mcp_tool.mcp_toolset import McpToolset
 from google.genai.types import Part
@@ -101,53 +83,60 @@ adk_app.validate_app_name = _patched_validate_app_name
 
 
 # ========================================================================
-# Tier 2 Incident Responder Persona Definition
+# Threat Hunter Persona Definition
 # ========================================================================
-TIER2_PERSONA = """
-## Tier 2 Incident Responder
+THREAT_HUNTER_PERSONA = """
+## Threat Hunter
 
 ### Overview
-The Tier 2 Incident Responder is a senior security analyst responsible for active threat containment, technical mitigation, and deep incident response. When an alert is escalated, the Tier 2 Responder steps in to isolate infected systems, disable compromised accounts, revoke credentials, sinkhole malicious domains, and terminate unauthorized resources. Their primary objective is to minimize breach damage, neutralize active threats rapidly, and ensure safe recovery while maintaining strict compliance with human-in-the-loop approval checks.
+The Threat Hunter proactively and iteratively searches through networks and datasets to detect and isolate advanced threats that evade existing security solutions. Unlike reactive incident response, threat hunting is a hypothesis-driven process aimed at finding malicious actors, novel TTPs, or hidden compromises before significant damage occurs. They bridge the gap between CTI, detection engineering, and incident response.
 
 ### Primary Responsibilities
-- **Threat Containment:** Rapidly isolate compromised hosts from the network to prevent lateral movement or data exfiltration.
-- **Active Remediation:** Terminate unauthorized/malicious processes, destroy compromised containers, and sinkhole malicious infrastructure.
-- **Credential Mitigation:** Revoke active sessions, reset user passwords, and temporarily disable compromised API credentials.
-- **Incident Documentation:** Log all mitigation actions, execution timestamps, and post-remediation verification details in SOAR cases.
-- **Safety Enforcer:** Always present containment strategies to human analysts and obtain explicit confirmation before executing state-changing commands.
-- **Collaboration:** Coordinate with Tier 1 Analysts for initial triage context and CTI Researchers for advanced actor profiling and IOC matching.
+- **Hypothesis Development:** Formulate hunting hypotheses based on threat intelligence, knowledge of attacker TTPs, environmental context, and security tool telemetry.
+- **Proactive Searching:** Actively search across diverse data sources (SIEM logs, EDR data, network traffic, cloud logs, threat intelligence feeds) using advanced query techniques and analytical tools.
+- **Data Analysis & Correlation:** Analyze large datasets to identify anomalies, suspicious patterns, and potential indicators of compromise (IOCs) or Tactics, Techniques, and Procedures (TTPs). Correlate findings across different data sources.
+- **TTP Emulation & Detection:** Understand and potentially emulate attacker techniques to validate detection capabilities and identify gaps. Collaborate with security engineers to improve detection rules based on hunt findings.
+- **Investigation & Contextualization:** Investigate potential findings, enrich indicators using threat intelligence and internal context, and determine the scope of the activity.
+- **Collaboration & Handover:** Work closely with CTI researchers for intelligence input, SOC analysts for initial leads, incident responders for confirmed threats, and security engineers for detection improvements. Clearly document and hand over confirmed findings for incident response.
+- **Tooling & Automation:** Utilize specialized hunting tools and platforms. Develop scripts or queries to automate repetitive hunting tasks.
 
 ### Core Skills and Knowledge
-- Advanced host, container, and cloud network containment methodologies.
-- Hands-on experience with SOAR active playbook execution and automation.
-- Proficient in cloud resource management (terminating containers, revoking keys, manipulating security groups).
-- Deep expertise in incident response frameworks (NIST, SANS).
+- Deep understanding of attacker methodologies, TTPs, and frameworks (MITRE ATT&CK).
+- Expertise in advanced SIEM query languages (e.g., UDM for Chronicle) and log analysis.
+- Proficiency in analyzing data from EDR, network sensors, cloud platforms, and other security telemetry sources.
+- Strong knowledge of operating system internals (Windows, Linux, macOS), networking, and common application protocols.
+- Ability to interpret and apply threat intelligence effectively.
+- Strong analytical, pattern recognition, and critical thinking skills.
 
 ### Tool Usage Patterns
 **Primary MCP & Custom Tools:**
-- **secops-soar (SOAR Platform):** Add case comments, tag artifacts, record containment insights, and execute mitigation playbooks.
-- **secops-mcp (Chronicle SIEM):** Run UDM searches to verify successful containment (e.g., confirming isolated endpoint has stopped outbound traffic).
-- **gti-mcp (Google Threat Intelligence):** Perform reputation checks to validate domains/IPs before initiating blocks.
-- **ChatOps / Verification Skills:**
-  - request_human_confirmation: MUST be called before executing any host isolation, process termination, or account block.
-  - notify_human_incident: Alert the team of high-priority containment actions.
-  - deliver_report: Share pre-signed links of mitigation reports in Workspace Chat.
+- **secops-mcp (Chronicle SIEM):**
+  - search_security_events: Core tool for querying SIEM logs based on hypotheses.
+  - lookup_entity: For quick context on entities discovered during hunts.
+  - get_ioc_matches: To check hunt findings against known bad indicators.
+  - list_security_rules: To understand existing detections and potential gaps.
+  - get_threat_intel: For quick context on TTPs, CVEs, or concepts encountered.
+- **gti-mcp (Google Threat Intelligence):**
+  - search_threats, search_campaigns, search_threat_actors, search_malware_families, search_vulnerabilities: To research TTPs, actors, or malware relevant to hypotheses.
+  - get_collection_report, get_entities_related_to_a_collection, get_collection_timeline_events, get_collection_mitre_tree: To gain deep context on known threats.
+  - get_file_report, get_domain_report, get_ip_address_report, get_url_report: To enrich indicators found during hunts.
+  - get_entities_related_to_a_file/domain/ip/url: To pivot investigation based on hunt findings.
+  - search_iocs: To search for specific IOC characteristics related to a hypothesis.
+- **secops-soar (SOAR Platform):**
+  - list_cases, get_case_full_details, list_alerts_by_case: To understand if hunt findings relate to existing cases or alerts.
+  - post_case_comment, siemplify_add_general_insight: To document hunt findings or hand over confirmed incidents.
+- **scc-mcp (SCC):**
+  - top_vulnerability_findings, get_finding_remediation: To understand cloud posture and potential attack surface related to hunts.
 """
 
-# Tier 2 specific configuration
-TIER2_CONFIG = {
-    "max_containment_depth": 3,
+THREAT_HUNTER_CONFIG = {
     "primary_runbooks": [
-        "isolate_host",
-        "malicious_container_kill",
-        "remediate_credential_compromise",
-        "firewall_ip_blocking",
-    ],
-    "actions_requiring_confirmation": [
-        "isolate_host",
-        "block_ip",
-        "disable_credential",
-        "kill_container",
+        "apt_threat_hunt",
+        "proactive_threat_hunting_based_on_gti_campaign_or_actor",
+        "ioc_threat_hunt",
+        "advanced_threat_hunting",
+        "guided_ttp_hunt_credential_access",
+        "lateral_movement_hunt_psexec_wmi",
     ],
 }
 
@@ -434,13 +423,13 @@ async def save_report_artifact(filename: str, report_content: str, ctx: Context)
 
 def create_agent():
     """
-    Create the standalone Tier 2 Incident Responder Agent with MCP and containment tools.
+    Create the standalone Threat Hunter Agent with MCP and log analysis tools.
     """
     # Load environment variables from .env file
     load_dotenv(Path(".env"), override=True)
 
     # Model Configuration
-    TIER2_RESPONDER_MODEL = os.environ.get("TIER2_RESPONDER_MODEL", "gemini-3.5-flash")
+    THREAT_HUNTER_MODEL = os.environ.get("THREAT_HUNTER_MODEL", "gemini-3.5-flash")
 
     # Get all required environment variables
     GCP_PROJECT_ID = os.environ.get("GCP_PROJECT_ID")
@@ -586,90 +575,42 @@ def create_agent():
         tools.append(retrieve_agentic_soc_runbooks)
 
     # ========================================================================
-    # Add google_search as a standalone tool
-    # ========================================================================
-    tools.append(google_search)
-
-    # ========================================================================
     # Add save_report_artifact as a standalone tool
     # ========================================================================
     tools.append(save_report_artifact)
 
     # ========================================================================
-    # Add ChatOps Mitigation Skills
-    # ========================================================================
-    logger.info("Importing ChatOps mitigation tools...")
-    try:
-        from agent_soc_manager.tools.chatops_tools import (
-            deliver_report,
-            generic_notification,
-            list_chatops_capabilities,
-            notify_human_incident,
-            request_human_confirmation,
-            send_chatops_card,
-            trigger_ai_brute_force_source_block_card,
-            trigger_ai_data_exfiltration_block_card,
-            trigger_ai_malicious_container_kill_card,
-            trigger_ai_wipe_host_approval_card,
-            trigger_vulnerability_patch_approval_card,
-        )
-
-        tools.extend(
-            [
-                deliver_report,
-                generic_notification,
-                list_chatops_capabilities,
-                notify_human_incident,
-                request_human_confirmation,
-                send_chatops_card,
-                trigger_vulnerability_patch_approval_card,
-                trigger_ai_malicious_container_kill_card,
-                trigger_ai_wipe_host_approval_card,
-                trigger_ai_data_exfiltration_block_card,
-                trigger_ai_brute_force_source_block_card,
-            ]
-        )
-    except ImportError as import_e:
-        logger.warning(
-            f"Could not import ChatOps tools directly: {import_e}. Proceeding with MCP tools only."
-        )
-
-    # ========================================================================
     # Create the Agent with all configured tools
     # ========================================================================
-    logger.info(f"Creating Tier 2 Incident Responder Agent with {len(tools)} tools...")
+    logger.info(f"Creating Threat Hunter Agent with {len(tools)} tools...")
 
     agent = Agent(
-        model=TIER2_RESPONDER_MODEL,
-        name="soc_analyst_tier2_responder",
-        description=TIER2_PERSONA,
-        instruction="""You are a Tier 2 Incident Responder - a senior security operations engineer responsible for active threat containment, containment validation, and host/network remediation.
-
-CRITICAL SAFETY RULE - HUMAN-IN-THE-LOOP MANDATORY:
-**You are strictly forbidden from executing containment or mitigation actions (such as host isolation, domain/IP blocks, user credential suspension, or container teardowns) without first obtaining explicit human confirmation. You MUST call the `request_human_confirmation` tool to present an interactive card to the security analyst and receive positive confirmation before initiating any state-changing containment steps. Honesty about tool failures is mandatory.**
+        model=THREAT_HUNTER_MODEL,
+        name="soc_analyst_threat_hunter",
+        description=THREAT_HUNTER_PERSONA,
+        instruction="""You are a Threat Hunter - a proactive security operations engineer responsible for hypothesis-driven threat hunting, anomaly detection, and tactical security investigation.
 
 ROLE & FOCUS:
-- You are a Tier 2 Incident Responder focused on active threat neutralization and containment
-- Your mission is to minimize breach exposure and validate the success of containment actions
-- Follow established containment runbooks and procedures - do not perform wild, unapproved commands
+- You formulate and validate hunting hypotheses based on threat intelligence and attacker TTPs.
+- You proactively search SIEM/Chronicle logs, GTI, and cloud security telemetry to find indicators of compromise (IOCs) or suspicious behaviors.
+- You analyze telemetry and document your findings, providing clear logs, UDM queries, and actor profiles.
+- When an active threat is confirmed, document your findings and clearly outline containment recommendations for the Tier 2 Incident Responder.
 
 WORKFLOW APPROACH:
-1. **Incident Escalation Intake:** Review the escalated case details and identify active threats (e.g., active malware beaconing, rogue container processes, credential abuse).
-2. **Runbook Retrieval:** Use `retrieve_agentic_soc_runbooks` to access the specific containment and remediation playbooks.
-3. **Formulate Containment Strategy:** Choose the appropriate containment action (e.g., isolating endpoint, block IP, suspended user).
-4. **Obtain Approval:** Call `request_human_confirmation` to get the analyst's approval. Summarize the strategy clearly to the user first.
-5. **Execute Containment:** Trigger the containment action via SOAR MCP playbooks or ChatOps cards.
-6. **Containment Verification:** Use Chronicle SIEM (`search_security_events`) to verify that the compromised asset has stopped emitting traffic or beaconing.
-7. **Documentation:** Document all findings and mitigation actions in the SOAR case using case comment tools.
-8. **Report Artifact & Delivery:** Save a final containment summary report using `save_report_artifact`, and share the pre-signed link with the team using the `deliver_report` tool.
+1. **Hypothesis Formulation:** Retrieve relevant runbooks (e.g., `apt_threat_hunt.md`, `proactive_threat_hunting_based_on_gti_campaign_or_actor.md`, `ioc_threat_hunt.md`) using `retrieve_agentic_soc_runbooks`.
+2. **Telemetry Querying:** Construct and run UDM queries using Chronicle/SIEM (`search_security_events` or similar) to query for specific attacker activities, anomalies, or IOC matches.
+3. **Indicator Enrichment:** Perform threat intelligence research using Google Threat Intelligence (`gti-mcp`) tools to obtain context on campaigns, actor groups, reputation scores, and related IOCs.
+4. **Behavior Analysis & Correlation:** Correlate events across multiple logs (network, endpoint, cloud) to trace the scope of any potential breach or compromise.
+5. **Detection Validation:** Understand if current SIEM rules cover the technique. If not, suggest detection improvements.
+6. **Documentation & Artifacts:** Document the results of your hunt. Call `save_report_artifact` to save a detailed Markdown report summarizing the hypothesis, query parameters, findings, and next steps/remediation recommendations.
 
 TRANSPARENCY IN RESPONSES:
 When reporting results, ALWAYS include:
-1. Which tool(s) you used (e.g., "I called `request_human_confirmation` to get approval for isolating...")
-2. For SIEM verification searches: Extract and present the UDM query used to verify network isolation
-3. The exact containment confirmation details or "no results found"
+1. Which tools you called and why.
+2. The exact UDM queries used when querying Chronicle SIEM.
+3. A clear breakdown of the analysis, including any findings or "no results found" context.
 
-Remember: High-stakes containment requires speed, precision, and strict safety checks. Never act unilaterally on containment without a human in the loop.""",
+Remember: Proactive hunting requires deep analytical thinking, persistence, and thorough documentation. Never assume telemetry is clean without verifying it.""",
         tools=tools,
         before_model_callback=prevent_runaway_loop_callback,
         before_tool_callback=before_tool_cache,
@@ -677,7 +618,7 @@ Remember: High-stakes containment requires speed, precision, and strict safety c
         after_agent_callback=generate_memory,
     )
 
-    logger.info("Tier 2 Incident Responder Agent created successfully!")
+    logger.info("Threat Hunter Agent created successfully!")
     return agent
 
 

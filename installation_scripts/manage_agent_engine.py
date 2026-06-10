@@ -851,8 +851,12 @@ class AgentEngineManager:
                 "CHATOPS_BASE_URL": os.environ.get("CHATOPS_BASE_URL"),
                 "CHRONICLE_CHATOPS_SECRET": os.environ.get("CHRONICLE_CHATOPS_SECRET"),
                 # Remote Specialist A2A Coordinates
-                "TIER2_AGENT_RESOURCE_NAME": os.environ.get("TIER2_AGENT_RESOURCE_NAME"),
-                "TIER1_AGENT_RESOURCE_NAME": os.environ.get("TIER1_AGENT_RESOURCE_NAME"),
+                "TIER2_AGENT_RESOURCE_NAME": os.environ.get(
+                    "TIER2_AGENT_RESOURCE_NAME"
+                ),
+                "TIER1_AGENT_RESOURCE_NAME": os.environ.get(
+                    "TIER1_AGENT_RESOURCE_NAME"
+                ),
             }
 
             # Add service account configuration based on authentication method
@@ -872,6 +876,12 @@ class AgentEngineManager:
             # Determine display name based on agent module
             if agent_module == "agent_a2a_tier2":
                 display_name = "SecOps Security Agent - Tier 2"
+            elif agent_module == "agent_a2a_threat_hunter":
+                display_name = "SecOps Security Agent - Threat Hunter"
+            elif agent_module == "agent_a2a_cti_researcher":
+                display_name = "SecOps Security Agent - CTI Researcher"
+            elif agent_module == "agent_a2a_detection_engineer":
+                display_name = "SecOps Security Agent - Detection Engineer"
             elif agent_module == "agent_soc_manager":
                 display_name = "SecOps Security Agent - Orchestrator"
             else:
@@ -895,6 +905,9 @@ class AgentEngineManager:
                 "installation_scripts/install.sh",  # installs MCP server packages
                 "agent_soc_manager",
                 "agent_a2a_tier2",
+                "agent_a2a_threat_hunter",
+                "agent_a2a_cti_researcher",
+                "agent_a2a_detection_engineer",
                 "external/mcp-security/server/secops",
                 "external/mcp-security/server/secops-soar",
                 "external/mcp-security/server/gti",
@@ -1019,7 +1032,9 @@ class AgentEngineManager:
             # Optionally run test
             if not no_test:
                 typer.echo("\nRunning test...")
-                self.test_agent_with_resource(remote_app.resource_name, agent_module=agent_module)
+                self.test_agent_with_resource(
+                    remote_app.resource_name, agent_module=agent_module
+                )
 
             return remote_app.resource_name
 
@@ -1030,7 +1045,9 @@ class AgentEngineManager:
             typer.echo(traceback.format_exc())
             return None
 
-    def test_agent_with_resource(self, resource_name: str, agent_module: str = "soc_agent") -> bool:
+    def test_agent_with_resource(
+        self, resource_name: str, agent_module: str = "soc_agent"
+    ) -> bool:
         """
         Test a deployed agent engine with a sample query.
 
@@ -1078,17 +1095,29 @@ class AgentEngineManager:
                 test_messages = (
                     "Isolate compromised host MALWARETEST-WIN from the network.",
                 )
+            elif agent_module == "agent_a2a_threat_hunter":
+                test_messages = (
+                    "Perform a threat hunt for malicious beaconing activity to the domain superstarts.top.",
+                )
+            elif agent_module == "agent_a2a_cti_researcher":
+                test_messages = (
+                    "Research threat actor APT28 (Fancy Bear) and outline their TTPs and related file hashes.",
+                )
+            elif agent_module == "agent_a2a_detection_engineer":
+                test_messages = (
+                    "List the available rules inside Google SecOps and search for any active rules targeting Ransomware.",
+                )
             else:
                 test_messages = (
                     "Use the get_ioc_matches tool for domain superstarts.top",
-                # "Get the 2 documents on Malware and then fetch_full_document for both",
-                # "List rules with ursnif in the name.",  # Chronicle SIEM MCP
-                # "List the first page of soar cases.",  # SOAR MCP
-                # memory save test
-                # "For our future investigations, please note that we have a critical asset: MALWARETEST-WIN at IP 50.90.32.142. Please acknowledge this so we have it for future reference.",
-                # soar case search test
-                # "Can you check our SOAR case management system to see if we have any currently open security cases that might relate to APT29?",
-            )
+                    # "Get the 2 documents on Malware and then fetch_full_document for both",
+                    # "List rules with ursnif in the name.",  # Chronicle SIEM MCP
+                    # "List the first page of soar cases.",  # SOAR MCP
+                    # memory save test
+                    # "For our future investigations, please note that we have a critical asset: MALWARETEST-WIN at IP 50.90.32.142. Please acknowledge this so we have it for future reference.",
+                    # soar case search test
+                    # "Can you check our SOAR case management system to see if we have any currently open security cases that might relate to APT29?",
+                )
 
             for test_message in test_messages:
                 typer.echo(f"\nSending test query: {test_message}")
@@ -1461,7 +1490,7 @@ def create(
         typer.Option(
             "--agent-module",
             "-a",
-            help="Agent module to deploy (e.g., 'agent_soc_manager', 'agent_a2a_tier2')",
+            help="Agent module to deploy (e.g., 'agent_soc_manager', 'agent_a2a_tier2', 'agent_a2a_threat_hunter')",
         ),
     ] = "agent_soc_manager",
     debug: Annotated[
@@ -1493,6 +1522,15 @@ def create(
         if agent_module == "agent_a2a_tier2":
             resource_var = "TIER2_AGENT_RESOURCE_NAME"
             id_var = "TIER2_AGENT_ID"
+        elif agent_module == "agent_a2a_threat_hunter":
+            resource_var = "THREAT_HUNTER_AGENT_RESOURCE_NAME"
+            id_var = "THREAT_HUNTER_AGENT_ID"
+        elif agent_module == "agent_a2a_cti_researcher":
+            resource_var = "CTI_RESEARCHER_AGENT_RESOURCE_NAME"
+            id_var = "CTI_RESEARCHER_AGENT_ID"
+        elif agent_module == "agent_a2a_detection_engineer":
+            resource_var = "DETECTION_ENGINEER_AGENT_RESOURCE_NAME"
+            id_var = "DETECTION_ENGINEER_AGENT_ID"
         else:
             resource_var = "AGENT_ENGINE_RESOURCE_NAME"
             id_var = "AGENT_ENGINE_ID"
@@ -1536,7 +1574,7 @@ def update(
         typer.Option(
             "--agent-module",
             "-a",
-            help="Agent module to deploy (e.g., 'agent_soc_manager', 'agent_a2a_tier2')",
+            help="Agent module to deploy (e.g., 'agent_soc_manager', 'agent_a2a_tier2', 'agent_a2a_threat_hunter')",
         ),
     ] = "agent_soc_manager",
     debug: Annotated[
@@ -1562,6 +1600,12 @@ def update(
         # Determine env var name based on agent module
         if agent_module == "agent_a2a_tier2":
             env_var = "TIER2_AGENT_RESOURCE_NAME"
+        elif agent_module == "agent_a2a_threat_hunter":
+            env_var = "THREAT_HUNTER_AGENT_RESOURCE_NAME"
+        elif agent_module == "agent_a2a_cti_researcher":
+            env_var = "CTI_RESEARCHER_AGENT_RESOURCE_NAME"
+        elif agent_module == "agent_a2a_detection_engineer":
+            env_var = "DETECTION_ENGINEER_AGENT_RESOURCE_NAME"
         else:
             env_var = "AGENT_ENGINE_RESOURCE_NAME"
 
@@ -1592,7 +1636,7 @@ def deploy(
         typer.Option(
             "--agent-module",
             "-a",
-            help="Agent module to deploy (e.g., 'agent_soc_manager', 'agent_a2a_tier2')",
+            help="Agent module to deploy (e.g., 'agent_soc_manager', 'agent_a2a_tier2', 'agent_a2a_threat_hunter')",
         ),
     ] = "agent_soc_manager",
     debug: Annotated[
@@ -1623,6 +1667,12 @@ def deploy(
     # Determine what the display name will be so we can find orphans later
     if agent_module == "agent_a2a_tier2":
         display_name = "SecOps Security Agent - Tier 2"
+    elif agent_module == "agent_a2a_threat_hunter":
+        display_name = "SecOps Security Agent - Threat Hunter"
+    elif agent_module == "agent_a2a_cti_researcher":
+        display_name = "SecOps Security Agent - CTI Researcher"
+    elif agent_module == "agent_a2a_detection_engineer":
+        display_name = "SecOps Security Agent - Detection Engineer"
     elif agent_module == "agent_soc_manager":
         display_name = "SecOps Security Agent - Orchestrator"
     else:
@@ -1660,6 +1710,15 @@ def deploy(
             if agent_module == "agent_a2a_tier2":
                 resource_var = "TIER2_AGENT_RESOURCE_NAME"
                 id_var = "TIER2_AGENT_ID"
+            elif agent_module == "agent_a2a_threat_hunter":
+                resource_var = "THREAT_HUNTER_AGENT_RESOURCE_NAME"
+                id_var = "THREAT_HUNTER_AGENT_ID"
+            elif agent_module == "agent_a2a_cti_researcher":
+                resource_var = "CTI_RESEARCHER_AGENT_RESOURCE_NAME"
+                id_var = "CTI_RESEARCHER_AGENT_ID"
+            elif agent_module == "agent_a2a_detection_engineer":
+                resource_var = "DETECTION_ENGINEER_AGENT_RESOURCE_NAME"
+                id_var = "DETECTION_ENGINEER_AGENT_ID"
             else:
                 resource_var = "AGENT_ENGINE_RESOURCE_NAME"
                 id_var = "AGENT_ENGINE_ID"
@@ -1752,7 +1811,7 @@ def test(
         typer.Option(
             "--agent-module",
             "-m",
-            help="Agent module to test (options: agent_soc_manager, agent_a2a_tier2)",
+            help="Agent module to test (options: agent_soc_manager, agent_a2a_tier2, agent_a2a_threat_hunter)",
         ),
     ] = "agent_soc_manager",
     env_file: Annotated[
@@ -1764,6 +1823,12 @@ def test(
         # Try to get from environment based on agent module
         if agent_module == "agent_a2a_tier2":
             env_var = "TIER2_AGENT_RESOURCE_NAME"
+        elif agent_module == "agent_a2a_threat_hunter":
+            env_var = "THREAT_HUNTER_AGENT_RESOURCE_NAME"
+        elif agent_module == "agent_a2a_cti_researcher":
+            env_var = "CTI_RESEARCHER_AGENT_RESOURCE_NAME"
+        elif agent_module == "agent_a2a_detection_engineer":
+            env_var = "DETECTION_ENGINEER_AGENT_RESOURCE_NAME"
         else:
             env_var = "AGENT_ENGINE_RESOURCE_NAME"
 
