@@ -185,6 +185,78 @@ def _apply_runtime_patches():
             f"[RUNTIME_PATCH_DEBUG] Failed to patch encode_unserializable_types: {e}"
         )
 
+    # 4. Monkeypatch lite_llm._decode_thought_signature to normalize URL-safe base64 strings
+    try:
+        import google.adk.models.lite_llm as adk_lite_llm
+
+        def _patched_decode_thought_signature(value):
+            if isinstance(value, bytes):
+                return value
+            if isinstance(value, str):
+                normalized = value.replace("-", "+").replace("_", "/")
+                padding_needed = (4 - len(normalized) % 4) % 4
+                normalized += "=" * padding_needed
+                try:
+                    return base64.b64decode(normalized, validate=True)
+                except Exception as e:
+                    logger.debug("Failed to decode thought signature in patch: %s", e)
+            return None
+
+        adk_lite_llm._decode_thought_signature = _patched_decode_thought_signature
+        logger.warning(
+            "[RUNTIME_PATCH_DEBUG] Successfully patched lite_llm._decode_thought_signature"
+        )
+    except Exception as e:
+        logger.warning(
+            f"[RUNTIME_PATCH_DEBUG] Failed to patch lite_llm._decode_thought_signature: {e}"
+        )
+
+    # 5. Monkeypatch part_converter base64.b64decode to normalize URL-safe base64 strings
+    try:
+        import google.adk.a2a.converters.part_converter as part_converter
+
+        original_part_b64decode = part_converter.base64.b64decode
+
+        def _patched_part_b64decode(s, *args, **kwargs):
+            if isinstance(s, str):
+                normalized = s.replace("-", "+").replace("_", "/")
+                padding_needed = (4 - len(normalized) % 4) % 4
+                normalized += "=" * padding_needed
+                return original_part_b64decode(normalized, *args, **kwargs)
+            return original_part_b64decode(s, *args, **kwargs)
+
+        part_converter.base64.b64decode = _patched_part_b64decode
+        logger.warning(
+            "[RUNTIME_PATCH_DEBUG] Successfully patched part_converter base64.b64decode"
+        )
+    except Exception as e:
+        logger.warning(
+            f"[RUNTIME_PATCH_DEBUG] Failed to patch part_converter base64.b64decode: {e}"
+        )
+
+    # 6. Monkeypatch interactions_utils base64.b64decode to normalize URL-safe base64 strings
+    try:
+        import google.adk.models.interactions_utils as interactions_utils
+
+        original_utils_b64decode = interactions_utils.base64.b64decode
+
+        def _patched_utils_b64decode(s, *args, **kwargs):
+            if isinstance(s, str):
+                normalized = s.replace("-", "+").replace("_", "/")
+                padding_needed = (4 - len(normalized) % 4) % 4
+                normalized += "=" * padding_needed
+                return original_utils_b64decode(normalized, *args, **kwargs)
+            return original_utils_b64decode(s, *args, **kwargs)
+
+        interactions_utils.base64.b64decode = _patched_utils_b64decode
+        logger.warning(
+            "[RUNTIME_PATCH_DEBUG] Successfully patched interactions_utils base64.b64decode"
+        )
+    except Exception as e:
+        logger.warning(
+            f"[RUNTIME_PATCH_DEBUG] Failed to patch interactions_utils base64.b64decode: {e}"
+        )
+
     _runtime_patches_applied = True
     logger.warning("[RUNTIME_PATCH_DEBUG] All runtime patches applied successfully!")
 
