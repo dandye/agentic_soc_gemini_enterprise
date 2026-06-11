@@ -96,6 +96,131 @@ def _patched_validate_app_name(name: str) -> None:
 
 
 adk_app.validate_app_name = _patched_validate_app_name
+
+
+# -------------------------------------------------------------------------
+
+
+from collections.abc import AsyncGenerator  # noqa: E402
+
+from google.adk.agents.invocation_context import InvocationContext  # noqa: E402
+from google.adk.agents.sequential_agent import Event  # noqa: E402
+
+
+_runtime_patches_applied = False
+
+
+def _apply_runtime_patches():
+    global _runtime_patches_applied
+    if _runtime_patches_applied:
+        return
+
+    import logging
+
+    logger = logging.getLogger(__name__)
+    logger.warning(
+        "[RUNTIME_PATCH_DEBUG] Applying runtime framework monkeypatches inside Reasoning Engine process..."
+    )
+
+    # 1. Monkeypatch validation function to prevent 400 INVALID_ARGUMENT when removing function call IDs
+    try:
+        import google.adk.flows.llm_flows.contents as adk_contents
+        import google.adk.flows.llm_flows.functions as adk_funcs
+
+        def _patched_remove_client_function_call_id(content) -> None:
+            pass
+
+        adk_funcs.remove_client_function_call_id = (
+            _patched_remove_client_function_call_id
+        )
+        adk_contents.remove_client_function_call_id = (
+            _patched_remove_client_function_call_id
+        )
+        logger.warning(
+            "[RUNTIME_PATCH_DEBUG] Successfully patched remove_client_function_call_id"
+        )
+    except Exception as e:
+        logger.warning(
+            f"[RUNTIME_PATCH_DEBUG] Failed to patch remove_client_function_call_id: {e}"
+        )
+
+    # 2. Monkeypatch McpTool._get_declaration to strip response_json_schema
+    try:
+        from google.adk.tools.mcp_tool.mcp_tool import McpTool
+        from google.genai.types import FunctionDeclaration
+
+        def _patched_get_declaration(self) -> FunctionDeclaration:
+            input_schema = self._mcp_tool.inputSchema
+            return FunctionDeclaration(
+                name=self.name,
+                description=self.description,
+                parameters_json_schema=input_schema,
+                response_json_schema=None,
+            )
+
+        McpTool._get_declaration = _patched_get_declaration
+        logger.warning(
+            "[RUNTIME_PATCH_DEBUG] Successfully patched McpTool._get_declaration"
+        )
+    except Exception as e:
+        logger.warning(
+            f"[RUNTIME_PATCH_DEBUG] Failed to patch McpTool._get_declaration: {e}"
+        )
+
+    # 3. Monkeypatch encode_unserializable_types to preserve standard base64 encoding for thought_signature bytes
+    try:
+        import base64
+
+        import google.genai._common as genai_common
+
+        original_encode = genai_common.encode_unserializable_types
+
+        def _patched_encode_unserializable_types(data):
+            if isinstance(data, dict):
+                processed = {}
+                for k, v in data.items():
+                    if k in ("thought_signature", "thoughtSignature") and isinstance(
+                        v, bytes
+                    ):
+                        processed[k] = base64.b64encode(v).decode("ascii")
+                    elif isinstance(v, dict):
+                        processed[k] = _patched_encode_unserializable_types(v)
+                    elif isinstance(v, list):
+                        processed[k] = [
+                            _patched_encode_unserializable_types(item)
+                            if isinstance(item, dict)
+                            else item
+                            for item in v
+                        ]
+                    else:
+                        processed[k] = v
+                return original_encode(processed)
+            return original_encode(data)
+
+        genai_common.encode_unserializable_types = _patched_encode_unserializable_types
+        logger.warning(
+            "[RUNTIME_PATCH_DEBUG] Successfully patched encode_unserializable_types"
+        )
+    except Exception as e:
+        logger.warning(
+            f"[RUNTIME_PATCH_DEBUG] Failed to patch encode_unserializable_types: {e}"
+        )
+
+    _runtime_patches_applied = True
+    logger.warning("[RUNTIME_PATCH_DEBUG] All runtime patches applied successfully!")
+
+
+class PatchedAgent(Agent):
+
+    async def run_async(
+        self,
+        parent_context: InvocationContext,
+    ) -> AsyncGenerator[Event, None]:
+        _apply_runtime_patches()
+        async for event in super().run_async(parent_context):
+            yield event
+
+
 # -------------------------------------------------------------------------
 
 
@@ -678,7 +803,7 @@ def create_agent():
     # ========================================================================
     logger.info(f"Creating Tier 2 Incident Responder Agent with {len(tools)} tools...")
 
-    agent = Agent(
+    agent = PatchedAgent(
         model=TIER2_RESPONDER_MODEL,
         name="soc_analyst_tier2_responder",
         description=TIER2_PERSONA,
