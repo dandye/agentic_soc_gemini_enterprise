@@ -54,7 +54,9 @@ class AgentSpaceManager:
         """
         self.env_file = env_file
         self.env_vars = self._load_env_vars()
-        self.creds, self.project = google.auth.default()
+        self.creds, self.project = google.auth.default(
+            scopes=["https://www.googleapis.com/auth/cloud-platform"]
+        )
 
     def _load_env_vars(self) -> dict[str, str]:
         """Load environment variables from the .env file using python-dotenv."""
