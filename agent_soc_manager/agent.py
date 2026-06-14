@@ -406,6 +406,68 @@ async def fetch_full_document(gcs_uri: str, ctx: Context) -> str:
         return f"Failed to retrieve document: {str(e)}"
 
 
+async def retrieve_elasticsearch_runbooks(query: str, ctx: Context) -> str:
+    """
+    Retrieve runbooks, IRPs, procedures, guidelines, and personas from the Elasticsearch index.
+
+    Args:
+        query: The search term or keyword to match against runbook titles and content.
+    """
+    logger.info(f"ELASTICSEARCH_RETRIEVAL_CALL: query='{query}'")
+
+    es_url = os.environ.get("ELASTICSEARCH_URL", "http://localhost:9200")
+    es_api_key = os.environ.get("ELASTICSEARCH_API_KEY")
+    es_user = os.environ.get("ELASTICSEARCH_USER")
+    es_password = os.environ.get("ELASTICSEARCH_PASSWORD")
+    index_name = os.environ.get("ELASTICSEARCH_INDEX", "agentic-soc-runbooks")
+
+    try:
+        import urllib3
+        from elasticsearch import Elasticsearch
+
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+        client_kwargs = {"verify_certs": False, "ssl_show_warn": False}
+
+        if es_api_key:
+            es = Elasticsearch(es_url, api_key=es_api_key, **client_kwargs)
+        elif es_user and es_password:
+            es = Elasticsearch(
+                es_url, basic_auth=(es_user, es_password), **client_kwargs
+            )
+        else:
+            es = Elasticsearch(es_url, **client_kwargs)
+
+        body = {
+            "query": {
+                "multi_match": {"query": query, "fields": ["title^2", "content"]}
+            },
+            "size": 5,
+        }
+
+        res = es.search(index=index_name, body=body)
+        hits = res["hits"]["hits"]
+        if not hits:
+            return "No matching runbooks found in Elasticsearch."
+
+        results = []
+        for hit in hits:
+            source = hit["_source"]
+            score = hit["_score"]
+            results.append(
+                f"Document: {source['title']}\n"
+                f"Path: {source['doc_path']}\n"
+                f"Score: {score:.4f}\n"
+                f"Content:\n{source['content']}\n"
+                f"{'='*40}"
+            )
+        return "\n\n".join(results)
+
+    except Exception as e:
+        logger.error(f"Elasticsearch retrieval failed: {e}")
+        return f"Error querying Elasticsearch: {e}"
+
+
 async def save_report_artifact(filename: str, report_content: str, ctx: Context) -> str:
     """
     Saves a generated analysis, intelligence report, or investigation finding as an artifact.
@@ -798,39 +860,47 @@ async def delegate_to_tier2_responder(query: str, tool_context: Context) -> str:
     Args:
         query: The specific containment task or mitigation request (e.g., 'Isolate host MALWARETEST-WIN' or 'Suspend compromised user credentials').
     """
-    logger.info(f"A2A_DELEGATION: Attempting to delegate to Tier 2 Incident Responder for: {query}")
+    logger.info(
+        f"A2A_DELEGATION: Attempting to delegate to Tier 2 Incident Responder for: {query}"
+    )
     try:
         # Retrieve Tier 2 Agent Engine resource name from environment variables
         tier2_engine_name = os.environ.get("TIER2_AGENT_RESOURCE_NAME")
         if not tier2_engine_name:
-            logger.error("A2A_DELEGATION_ERROR: TIER2_AGENT_RESOURCE_NAME not set in environment.")
+            logger.error(
+                "A2A_DELEGATION_ERROR: TIER2_AGENT_RESOURCE_NAME not set in environment."
+            )
             return "Error: Tier 2 Incident Responder is not currently configured in the environment."
 
         # Get the remote Reasoning Engine client
         from vertexai import agent_engines
+
         remote_engine = agent_engines.get(tier2_engine_name)
-        
+
         # Retrieve session context parameters
         session_id = None  # Let remote specialist auto-create its own session to prevent SessionNotFoundError
         user_id = "secops_assistant"
-        
+
         # Map parent context to child session if available
-        if hasattr(tool_context, "_invocation_context") and tool_context._invocation_context:
+        if (
+            hasattr(tool_context, "_invocation_context")
+            and tool_context._invocation_context
+        ):
             root_ctx = tool_context._invocation_context
             if hasattr(root_ctx, "user_id"):
                 user_id = root_ctx.user_id
 
-        logger.info(f"A2A_DELEGATION: Calling remote Tier 2 agent ({tier2_engine_name}) with User: {user_id}")
-        
+        logger.info(
+            f"A2A_DELEGATION: Calling remote Tier 2 agent ({tier2_engine_name}) with User: {user_id}"
+        )
+
         # Invoke the remote engine client dynamically accumulating streaming events
         response_parts = []
         async for event in remote_engine.async_stream_query(
-            user_id=user_id,
-            session_id=session_id,
-            message=query
+            user_id=user_id, session_id=session_id, message=query
         ):
             logger.debug(f"A2A_DELEGATION_EVENT: {event}")
-            
+
             # Safe lookup helper supporting both dict and object structures interchangeably
             def get_field(obj, field_name):
                 if obj is None:
@@ -849,27 +919,41 @@ async def delegate_to_tier2_responder(query: str, tool_context: Context) -> str:
                         text = get_field(part, "text")
                         if text:
                             response_parts.append(text)
-                        
+
                         # 2. Extract tool/function calls for real-time status updates
                         function_call = get_field(part, "function_call")
                         if function_call:
                             name = get_field(function_call, "name")
-                            if name in ["request_human_confirmation", "request_triage_approval"]:
-                                response_parts.append("[Specialist Action] Dispatched a high-priority ChatOps confirmation card to the security operations channel requesting human analyst approval before executing containment.")
+                            if name in [
+                                "request_human_confirmation",
+                                "request_triage_approval",
+                            ]:
+                                response_parts.append(
+                                    "[Specialist Action] Dispatched a high-priority ChatOps confirmation card to the security operations channel requesting human analyst approval before executing containment."
+                                )
                             elif name == "deliver_report":
-                                response_parts.append("[Specialist Action] Saved and delivered the incident containment report to the security operations channel.")
+                                response_parts.append(
+                                    "[Specialist Action] Saved and delivered the incident containment report to the security operations channel."
+                                )
                             else:
-                                response_parts.append(f"[Specialist Action] Invoking containment tool: {name}")
+                                response_parts.append(
+                                    f"[Specialist Action] Invoking containment tool: {name}"
+                                )
 
         final_text = "".join(response_parts).strip()
         if not final_text:
             final_text = "The Tier 2 specialist completed the request without generating a text response."
 
         logger.info("A2A_DELEGATION_SUCCESS: Successfully completed remote A2A call.")
-        return f"--- Response from Tier 2 Incident Responder Specialist ---\n{final_text}"
-        
+        return (
+            f"--- Response from Tier 2 Incident Responder Specialist ---\n{final_text}"
+        )
+
     except Exception as e:
-        logger.error(f"A2A_DELEGATION_ERROR: Failed to delegate task to Tier 2 agent: {e}", exc_info=True)
+        logger.error(
+            f"A2A_DELEGATION_ERROR: Failed to delegate task to Tier 2 agent: {e}",
+            exc_info=True,
+        )
         return f"Failed to communicate with the remote Tier 2 Incident Responder specialist agent: {e}"
 
 
@@ -920,7 +1004,9 @@ def create_agent():
     logger.warning(
         f"AUTH_DEBUG [agent_soc_manager]: CHRONICLE_PROJECT_ID={CHRONICLE_PROJECT_ID}"
     )
-    logger.warning(f"AUTH_DEBUG [agent_soc_manager]: CHRONICLE_REGION={CHRONICLE_REGION}")
+    logger.warning(
+        f"AUTH_DEBUG [agent_soc_manager]: CHRONICLE_REGION={CHRONICLE_REGION}"
+    )
     logger.warning(
         f"AUTH_DEBUG [agent_soc_manager]: CHRONICLE_SERVICE_ACCOUNT_PATH={CHRONICLE_SERVICE_ACCOUNT_PATH}"
     )
@@ -995,7 +1081,9 @@ def create_agent():
         )
         mcp_env["CHRONICLE_SERVICE_ACCOUNT_SECRET"] = CHRONICLE_SERVICE_ACCOUNT_SECRET
     elif service_account_filename:
-        logger.warning("AUTH_DEBUG [agent_soc_manager]: Adding SECOPS_SA_PATH to mcp_env")
+        logger.warning(
+            "AUTH_DEBUG [agent_soc_manager]: Adding SECOPS_SA_PATH to mcp_env"
+        )
         # Ensure we use the filename (not absolute path) so it works in the container where the file is copied.
         # For local execution, use the absolute path since the file isn't copied to the runner CWD.
         if os.environ.get("REASONING_ENGINE_DEPLOYMENT") == "True":
@@ -1403,17 +1491,30 @@ CRITICAL: Summarize procedures and ask for user permission before executing stat
         delegate_to_tier2_responder,
     ]
 
-    # Add RAG tool DIRECTLY to orchestrator (not via sub-agent) to preserve grounding citations
-    if RAG_CORPUS_ID:
-        orchestrator_tools.append(
-            VertexAiRagRetrieval(
-                name="retrieve_agentic_soc_runbooks",
-                description="Retrieve IRPs, Runbooks, Common Steps, Procedures, guidelines, and Personas for the Agentic SOC.",
-                rag_corpora=[RAG_CORPUS_ID],
-                similarity_top_k=RAG_SIMILARITY_TOP_K,
-                vector_distance_threshold=RAG_DISTANCE_THRESHOLD,
+    # Add grounding/retrieval tool based on configuration
+    ELASTICSEARCH_GROUNDING_ENABLED = (
+        os.environ.get("ELASTICSEARCH_GROUNDING_ENABLED", "False") == "True"
+    )
+
+    if ELASTICSEARCH_GROUNDING_ENABLED:
+        orchestrator_tools.append(retrieve_elasticsearch_runbooks)
+        grounding_tool_desc = """1. **retrieve_elasticsearch_runbooks** (Elasticsearch Grounding):
+   - Directly retrieves SOC runbooks, IRPs, procedures, and documentation from Elasticsearch index.
+   - **IMPORTANT:** This tool provides grounding citations - preserve document titles and paths in your response!"""
+    else:
+        if RAG_CORPUS_ID:
+            orchestrator_tools.append(
+                VertexAiRagRetrieval(
+                    name="retrieve_agentic_soc_runbooks",
+                    description="Retrieve IRPs, Runbooks, Common Steps, Procedures, guidelines, and Personas for the Agentic SOC.",
+                    rag_corpora=[RAG_CORPUS_ID],
+                    similarity_top_k=RAG_SIMILARITY_TOP_K,
+                    vector_distance_threshold=RAG_DISTANCE_THRESHOLD,
+                )
             )
-        )
+        grounding_tool_desc = """1. **retrieve_agentic_soc_runbooks** (RAG Knowledge Base):
+   - Directly retrieves SOC runbooks, IRPs, procedures, and documentation from RAG corpus.
+   - **IMPORTANT:** This tool provides grounding citations - preserve them in your response!"""
 
     # Add Memory tools — PreloadMemory for automatic context, LoadMemory for on-demand queries
     orchestrator_tools.append(
@@ -1422,16 +1523,14 @@ CRITICAL: Summarize procedures and ask for user permission before executing stat
     orchestrator_tools.append(LoadMemoryTool())  # On-demand memory queries
 
     # Build orchestrator instruction
-    orchestrator_instruction = """You are the SecOps Security Agent orchestrator for Google SecOps - a sophisticated coordinator that intelligently delegates security operations to specialized persona-based agents and retrieves knowledge base documentation.
+    orchestrator_instruction = f"""You are the SecOps Security Agent orchestrator for Google SecOps - a sophisticated coordinator that intelligently delegates security operations to specialized persona-based agents and retrieves knowledge base documentation.
 
 YOUR ARCHITECTURE:
 You have direct access to several tools and can delegate to specialized sub-agents.
 
 ### DIRECT TOOLS (You call these directly):
 
-1. **retrieve_agentic_soc_runbooks** (RAG Knowledge Base):
-   - Directly retrieves SOC runbooks, IRPs, procedures, and documentation from RAG corpus.
-   - **IMPORTANT:** This tool provides grounding citations - preserve them in your response!
+{grounding_tool_desc}
 
 2. **fetch_full_document**:
    - Fetches the complete document text from GCS using a gs:// URI.

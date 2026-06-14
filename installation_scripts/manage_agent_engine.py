@@ -851,8 +851,20 @@ class AgentEngineManager:
                 "CHATOPS_BASE_URL": os.environ.get("CHATOPS_BASE_URL"),
                 "CHRONICLE_CHATOPS_SECRET": os.environ.get("CHRONICLE_CHATOPS_SECRET"),
                 # Remote Specialist A2A Coordinates
-                "TIER2_AGENT_RESOURCE_NAME": os.environ.get("TIER2_AGENT_RESOURCE_NAME"),
-                "TIER1_AGENT_RESOURCE_NAME": os.environ.get("TIER1_AGENT_RESOURCE_NAME"),
+                "TIER2_AGENT_RESOURCE_NAME": os.environ.get(
+                    "TIER2_AGENT_RESOURCE_NAME"
+                ),
+                "TIER1_AGENT_RESOURCE_NAME": os.environ.get(
+                    "TIER1_AGENT_RESOURCE_NAME"
+                ),
+                # Elasticsearch Grounding
+                "ELASTICSEARCH_GROUNDING_ENABLED": os.environ.get(
+                    "ELASTICSEARCH_GROUNDING_ENABLED"
+                ),
+                "ELASTICSEARCH_URL": os.environ.get("ELASTICSEARCH_URL"),
+                "ELASTICSEARCH_USER": os.environ.get("ELASTICSEARCH_USER"),
+                "ELASTICSEARCH_PASSWORD": os.environ.get("ELASTICSEARCH_PASSWORD"),
+                "ELASTICSEARCH_INDEX": os.environ.get("ELASTICSEARCH_INDEX"),
             }
 
             # Add service account configuration based on authentication method
@@ -928,6 +940,8 @@ class AgentEngineManager:
                     "opentelemetry-sdk>=1.26.0",
                     "opentelemetry-exporter-gcp-logging>=0.47b0",
                     "opentelemetry-instrumentation-google-genai>=0.0.1",
+                    "elasticsearch>=8.0.0,<9.0.0",
+                    "elastic-transport>=8.0.0,<9.0.0",
                 ],
                 "build_options": {
                     "installation_scripts": ["installation_scripts/install.sh"]
@@ -1019,7 +1033,9 @@ class AgentEngineManager:
             # Optionally run test
             if not no_test:
                 typer.echo("\nRunning test...")
-                self.test_agent_with_resource(remote_app.resource_name, agent_module=agent_module)
+                self.test_agent_with_resource(
+                    remote_app.resource_name, agent_module=agent_module
+                )
 
             return remote_app.resource_name
 
@@ -1030,7 +1046,9 @@ class AgentEngineManager:
             typer.echo(traceback.format_exc())
             return None
 
-    def test_agent_with_resource(self, resource_name: str, agent_module: str = "soc_agent") -> bool:
+    def test_agent_with_resource(
+        self, resource_name: str, agent_module: str = "soc_agent"
+    ) -> bool:
         """
         Test a deployed agent engine with a sample query.
 
@@ -1081,14 +1099,14 @@ class AgentEngineManager:
             else:
                 test_messages = (
                     "Use the get_ioc_matches tool for domain superstarts.top",
-                # "Get the 2 documents on Malware and then fetch_full_document for both",
-                # "List rules with ursnif in the name.",  # Chronicle SIEM MCP
-                # "List the first page of soar cases.",  # SOAR MCP
-                # memory save test
-                # "For our future investigations, please note that we have a critical asset: MALWARETEST-WIN at IP 50.90.32.142. Please acknowledge this so we have it for future reference.",
-                # soar case search test
-                # "Can you check our SOAR case management system to see if we have any currently open security cases that might relate to APT29?",
-            )
+                    # "Get the 2 documents on Malware and then fetch_full_document for both",
+                    # "List rules with ursnif in the name.",  # Chronicle SIEM MCP
+                    # "List the first page of soar cases.",  # SOAR MCP
+                    # memory save test
+                    # "For our future investigations, please note that we have a critical asset: MALWARETEST-WIN at IP 50.90.32.142. Please acknowledge this so we have it for future reference.",
+                    # soar case search test
+                    # "Can you check our SOAR case management system to see if we have any currently open security cases that might relate to APT29?",
+                )
 
             for test_message in test_messages:
                 typer.echo(f"\nSending test query: {test_message}")

@@ -57,6 +57,8 @@ MANAGE_RAG := installation_scripts/manage_rag.py
 MANAGE_GCS := installation_scripts/manage_gcs.py
 MANAGE_VERTEX_AI := installation_scripts/manage_vertex_ai.py
 MANAGE_MODELS := installation_scripts/manage_models.py
+MANAGE_ELASTIC := installation_scripts/manage_elasticsearch.py
+
 
 # Validation targets
 .PHONY: check-prereqs check-deploy check-integration
@@ -353,6 +355,26 @@ sync-runbooks-gcs: ## Sync only valid local runbooks to GCS, deleting orphaned G
 
 sync-runbooks-prune: ## Prune files from RAG Corpus that no longer exist in GCS
 	@$(PYTHON) $(MANAGE_RAG) prune-corpus $(if $(RAG_CORPUS_ID),$(RAG_CORPUS_ID)) --env-file $(ENV_FILE)
+
+# Elasticsearch Grounding targets
+.PHONY: elastic-create elastic-sync elastic-search elastic-info
+
+elastic-create: ## Recreate the Elasticsearch index (deletes existing index first)
+	@$(PYTHON) $(MANAGE_ELASTIC) create --env-file $(ENV_FILE)
+
+elastic-sync: ## Sync local runbooks into Elasticsearch
+	@$(PYTHON) $(MANAGE_ELASTIC) sync $(if $(RECREATE),--recreate) --env-file $(ENV_FILE)
+
+elastic-search: ## Search the Elasticsearch runbooks index (use: QUERY="search query" LIMIT=3)
+	@if [ -z "$(QUERY)" ]; then \
+		echo "Error: QUERY is required. Usage: make elastic-search QUERY='malware response' LIMIT=3"; \
+		exit 1; \
+	fi
+	@$(PYTHON) $(MANAGE_ELASTIC) search "$(QUERY)" $(if $(LIMIT),--limit $(LIMIT)) --env-file $(ENV_FILE)
+
+elastic-info: ## Show details about the Elasticsearch index
+	@$(PYTHON) $(MANAGE_ELASTIC) info --env-file $(ENV_FILE)
+
 
 # GCS Management targets
 gcs-upload: ## Upload local files to GCS (use: FILES="file1 file2" BUCKET=bucket-name RECURSIVE=1)

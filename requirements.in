@@ -5,3 +5,4 @@ pydantic
 python-dotenv
 google-auth-oauthlib
 typer
+elasticsearch>=8.0.0,<9.0.0

@@ -22,6 +22,7 @@ from installation_scripts.manage_agent_engine import app as agent_engine_app
 from installation_scripts.manage_agentspace import app as agentspace_app
 from installation_scripts.manage_chat_ops import app as chatops_app
 from installation_scripts.manage_datastore import app as datastore_app
+from installation_scripts.manage_elasticsearch import app as elastic_app
 from installation_scripts.manage_iam import app as iam_app
 from installation_scripts.manage_memories import app as memories_app
 from installation_scripts.manage_models import app as models_app
@@ -60,6 +61,7 @@ app.add_typer(
 app.add_typer(
     models_app, name="models", help="List and discover available Gemini models"
 )
+app.add_typer(elastic_app, name="elastic", help="Manage Elasticsearch runbook index")
 
 
 # Workflow subcommand group
