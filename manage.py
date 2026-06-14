@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Unified CLI for Agentic SOC AgentSpace Management
+Unified CLI for Agentic SOC Gemini Enterprise Agent Platform Management
 
 This script provides a unified interface to manage all components of the
-Agentic SOC AgentSpace system including agent engines, AgentSpace apps,
+Agentic SOC Gemini Enterprise Agent Platform system including agent engines, Gemini Enterprise Agent Platform apps,
 OAuth authorizations, data stores, and RAG corpora.
 """
 
@@ -35,7 +35,7 @@ console = Console()
 # Create main app
 app = typer.Typer(
     name="manage",
-    help="Unified management interface for Agentic SOC AgentSpace",
+    help="Unified management interface for Agentic SOC Gemini Enterprise Agent Platform",
     add_completion=True,
     rich_markup_mode="rich",
     no_args_is_help=True,
@@ -46,14 +46,20 @@ app.add_typer(
     agent_engine_app, name="agent-engine", help="Manage Agent Engine instances"
 )
 app.add_typer(
-    agentspace_app, name="agentspace", help="Manage AgentSpace apps and agents"
+    agentspace_app,
+    name="agentspace",
+    help="Manage Gemini Enterprise Agent Platform apps and agents",
 )
 app.add_typer(oauth_app, name="oauth", help="Manage OAuth authorizations")
 app.add_typer(datastore_app, name="datastore", help="Manage data stores")
 app.add_typer(rag_app, name="rag", help="Manage RAG corpora")
 app.add_typer(memories_app, name="memories", help="Manage Agent Engine memories")
 app.add_typer(iam_app, name="iam", help="Manage IAM permissions for service accounts")
-app.add_typer(vertex_app, name="vertex", help="Verify and manage Vertex AI setup")
+app.add_typer(
+    vertex_app,
+    name="vertex",
+    help="Verify and manage Gemini Enterprise Agent Platform setup",
+)
 app.add_typer(
     chatops_app, name="chatops", help="Manage and test ChatOps cards and functions"
 )
@@ -82,7 +88,7 @@ def full_deploy(
     This workflow:
     1. Deploys the agent engine (requires main.py)
     2. Creates OAuth authorization
-    3. Links agent to AgentSpace
+    3. Links agent to Gemini Enterprise Agent Platform
     """
     console.print("\n[bold blue]Starting full deployment workflow...[/bold blue]\n")
 
@@ -132,15 +138,21 @@ def full_deploy(
         console.print("[red]Failed to create OAuth authorization[/red]")
         raise typer.Exit(code=1)
 
-    # Step 3: Link agent to AgentSpace
-    console.print("\n[yellow]Step 3: Link Agent to AgentSpace[/yellow]")
+    # Step 3: Link agent to Gemini Enterprise Agent Platform
+    console.print(
+        "\n[yellow]Step 3: Link Agent to Gemini Enterprise Agent Platform[/yellow]"
+    )
     from installation_scripts.manage_agentspace import AgentSpaceManager
 
     as_manager = AgentSpaceManager(env_file)
     if as_manager.link_agent_to_agentspace():
-        console.print("[green]Agent linked to AgentSpace successfully![/green]")
+        console.print(
+            "[green]Agent linked to Gemini Enterprise Agent Platform successfully![/green]"
+        )
     else:
-        console.print("[red]Failed to link agent to AgentSpace[/red]")
+        console.print(
+            "[red]Failed to link agent to Gemini Enterprise Agent Platform[/red]"
+        )
         raise typer.Exit(code=1)
 
     console.print(
@@ -155,11 +167,11 @@ def redeploy_all(
     ] = Path(".env"),
 ) -> None:
     """
-    Redeploy agent engine and update AgentSpace configuration.
+    Redeploy agent engine and update Gemini Enterprise Agent Platform configuration.
 
     This workflow:
     1. Redeploys the agent engine (requires main.py)
-    2. Updates AgentSpace agent configuration
+    2. Updates Gemini Enterprise Agent Platform agent configuration
     """
     console.print("\n[bold blue]Starting full redeployment...[/bold blue]\n")
 
@@ -172,15 +184,19 @@ def redeploy_all(
         console.print("[red]Redeployment cancelled.[/red]")
         raise typer.Exit(code=1)
 
-    # Step 2: Update AgentSpace
-    console.print("\n[yellow]Step 2: Update AgentSpace Configuration[/yellow]")
+    # Step 2: Update Gemini Enterprise Agent Platform
+    console.print(
+        "\n[yellow]Step 2: Update Gemini Enterprise Agent Platform Configuration[/yellow]"
+    )
     from installation_scripts.manage_agentspace import AgentSpaceManager
 
     manager = AgentSpaceManager(env_file)
     if manager.update_agent():
-        console.print("[green]AgentSpace updated successfully![/green]")
+        console.print(
+            "[green]Gemini Enterprise Agent Platform updated successfully![/green]"
+        )
     else:
-        console.print("[red]Failed to update AgentSpace[/red]")
+        console.print("[red]Failed to update Gemini Enterprise Agent Platform[/red]")
         raise typer.Exit(code=1)
 
     console.print(
@@ -199,7 +215,7 @@ def status(
 
     Displays information about:
     - Agent Engine deployment
-    - AgentSpace registration
+    - Gemini Enterprise Agent Platform registration
     - OAuth configuration
     - Data stores
     - RAG corpora
@@ -232,12 +248,16 @@ def status(
         else:
             console.print(f"  {var}: [red]Not set[/red]")
 
-    # Verify AgentSpace
-    console.print("\n[yellow]AgentSpace Status:[/yellow]")
+    # Verify Gemini Enterprise Agent Platform
+    console.print("\n[yellow]Gemini Enterprise Agent Platform Status:[/yellow]")
     if manager.verify_agent():
-        console.print("  [green]AgentSpace agent is verified and active[/green]")
+        console.print(
+            "  [green]Gemini Enterprise Agent Platform agent is verified and active[/green]"
+        )
     else:
-        console.print("  [red]AgentSpace agent verification failed[/red]")
+        console.print(
+            "  [red]Gemini Enterprise Agent Platform agent verification failed[/red]"
+        )
 
     console.print()
 
@@ -301,7 +321,9 @@ def setup(
 @app.command()
 def version() -> None:
     """Display version information."""
-    console.print("\n[bold blue]Agentic SOC AgentSpace Management CLI[/bold blue]")
+    console.print(
+        "\n[bold blue]Agentic SOC Gemini Enterprise Agent Platform Management CLI[/bold blue]"
+    )
     console.print("Version: [cyan]1.0.0[/cyan]")
     console.print("Python Typer-based unified management interface\n")
 

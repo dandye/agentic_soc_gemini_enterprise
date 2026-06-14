@@ -62,6 +62,7 @@ EXCLUDE_PATTERNS = [
     "uv.lock",
     "requirements*.txt",
     "Makefile",
+    "justfile",
     "*.sh",
     ".*/**",
     ".github/**",

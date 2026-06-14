@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Memory Bank Manager for Google Vertex AI Agent Engine
+Memory Bank Manager for Gemini Enterprise Agent Platform Agent Engine
 
 This script manages Agent Engine memories including listing, retrieving,
-and getting specific memories in Vertex AI.
+and getting specific memories in Gemini Enterprise Agent Platform.
 
 References
 
@@ -28,7 +28,7 @@ from installation_scripts.manage_agent_engine import AgentEngineManager
 
 app = typer.Typer(
     add_completion=False,
-    help="Manage Memory Bank for Agent Engine instances in Vertex AI.",
+    help="Manage Memory Bank for Agent Engine instances in Gemini Enterprise Agent Platform.",
 )
 
 # Debug mode configuration
@@ -36,7 +36,7 @@ DEBUG = os.environ.get("DEBUG", "False") == "True"
 
 
 class MemoryManager:
-    """Manages Memory Bank operations in Vertex AI."""
+    """Manages Memory Bank operations in Gemini Enterprise Agent Platform."""
 
     def __init__(self, env_file: Path):
         """
@@ -58,7 +58,7 @@ class MemoryManager:
         return dict(os.environ)
 
     def _initialize_vertex_ai(self) -> None:
-        """Initialize the Vertex AI SDK."""
+        """Initialize the Gemini Enterprise Agent Platform SDK."""
         self.project = self.env_vars.get("GCP_PROJECT_ID")
         self.location = self.env_vars.get("GCP_LOCATION", "us-central1")
         self.staging_bucket = self.env_vars.get("GCP_STAGING_BUCKET")
@@ -82,7 +82,10 @@ class MemoryManager:
                 os.environ["GEMINI_API_KEY"] = api_key
 
         except Exception as e:
-            typer.secho(f"Failed to initialize Vertex AI: {e}", fg=typer.colors.RED)
+            typer.secho(
+                f"Failed to initialize Gemini Enterprise Agent Platform: {e}",
+                fg=typer.colors.RED,
+            )
             raise typer.Exit(code=1)
 
     def _get_agent_engine_id(self, resource_name_or_index: str) -> str:

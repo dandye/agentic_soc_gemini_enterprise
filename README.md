@@ -60,13 +60,13 @@ python manage.py vertex verify
 python manage.py iam setup
 
 # 2. Deploy to Reasoning Engine
-make agent-engine-deploy
+just agent-engine-deploy
 
 # 3. Register with Gemini Enterprise
-make agentspace-register
+just agentspace-register
 ```
 
-Run `make help` to see all available commands.
+Run `just` to see all available commands.
 
 ## Architecture
 
@@ -164,13 +164,13 @@ gcloud services enable aiplatform.googleapis.com storage.googleapis.com \
 
 4. **Deploy:**
    ```bash
-   make agent-engine-deploy
+   just agent-engine-deploy
    # Save AGENT_ENGINE_RESOURCE_NAME to .env
    ```
 
 5. **Register with Gemini Enterprise:**
    ```bash
-   make agentspace-register
+   just agentspace-register
    ```
 
 ## Configuration
@@ -205,21 +205,21 @@ See [.env.example](.env.example) for all environment variables. Key variables:
 ### Common Commands
 
 ```bash
-make agent-engine-deploy      # Deploy agent
-make agent-engine-redeploy    # Redeploy existing agent
-make agentspace-register      # Register with Gemini Enterprise
-make agentspace-update        # Update registration
-make warmup                   # Pre-warm MCP connections
-make status                   # Check system status
+just agent-engine-deploy      # Deploy agent
+just agent-engine-redeploy    # Redeploy existing agent
+just agentspace-register      # Register with Gemini Enterprise
+just agentspace-update        # Update registration
+just agent-engine-warmup      # Pre-warm MCP connections
+just status                   # Check system status
 ```
 
 ## RAG Corpus Management
 
 ```bash
-make rag-list                 # List all RAG corpora
-make rag-create NAME="Security Runbooks"
-make rag-info RAG_CORPUS_ID=projects/.../ragCorpora/...
-make rag-delete RAG_CORPUS_ID=projects/.../ragCorpora/...
+just rag-list                 # List all RAG corpora
+just rag-create "Security Runbooks"
+just rag-info RAG_CORPUS_ID=projects/.../ragCorpora/...
+just rag-delete RAG_CORPUS_ID=projects/.../ragCorpora/...
 ```
 
 ## Gemini Enterprise Integration
@@ -228,23 +228,23 @@ make rag-delete RAG_CORPUS_ID=projects/.../ragCorpora/...
 > When creating apps via API/CLI, include `--app-type APP_TYPE_INTRANET` and `--industry-vertical GENERIC` for visibility in the Gemini Enterprise UI.
 
 > [!TIP]
-> To view all of your deployed Reasoning Engine (Agent Engine) backend runtimes in the Google Cloud Console (including private, remote A2A specialist agents that are not directly registered in AgentSpace), you can navigate to the Google Cloud Agent Platform Runtimes page:
+> To view all of your deployed Reasoning Engine (Agent Engine) backend runtimes in the Google Cloud Console (including private, remote A2A specialist agents that are not directly registered in Gemini Enterprise Agent Platform), you can navigate to the Google Cloud Agent Platform Runtimes page:
 > `https://console.cloud.google.com/agent-platform/runtimes?project=your-project-id`
 
 **Create via Console (Recommended):**
 1. Navigate to Vertex AI > Search & Conversation > Apps
 2. Click **Create App** > Select **Agent** type
 3. Copy App ID to `.env` as `AGENTSPACE_APP_ID`
-4. Run `make agentspace-register`
+4. Run `just agentspace-register`
 
 ## CLI Reference
 
-| Makefile | Python CLI |
+| justfile | Python CLI |
 |----------|------------|
-| `make agent-engine-list` | `python manage.py agent-engine list` |
-| `make agentspace-register` | `python manage.py agentspace register` |
-| `make rag-list` | `python manage.py rag list` |
-| `make status` | `python manage.py workflow status` |
+| `just agent-engine-list` | `python manage.py agent-engine list` |
+| `just agentspace-register` | `python manage.py agentspace register` |
+| `just rag-list` | `python manage.py rag list` |
+| `just status` | `python manage.py workflow status` |
 
 Run `python manage.py --help` for all commands.
 
@@ -280,7 +280,7 @@ uv run server.py
 | **403/401 Auth Error** | `gcloud auth application-default login` |
 | **API not enabled** | `gcloud services enable aiplatform.googleapis.com` |
 | **MCP module missing** | `git submodule update --init --recursive` |
-| **Agent not in Gemini Enterprise** | `make agentspace-verify` then `make agentspace-link-agent` |
+| **Agent not in Gemini Enterprise** | `just agentspace-verify` then `just agentspace-link-agent` |
 | **Agent not responding** | `gcloud logging tail "resource.type=aiplatform.googleapis.com/ReasoningEngine"` |
 
 ## FAQ
@@ -293,7 +293,7 @@ Default is `gemini-3.1-pro-preview` for orchestrator, `gemini-3-flash-preview` f
 
 **How do I update the agent?**
 ```bash
-git pull && make agent-engine-redeploy && make agentspace-update
+git pull && just agent-engine-redeploy && just agentspace-update
 ```
 
 **What are the costs?**
