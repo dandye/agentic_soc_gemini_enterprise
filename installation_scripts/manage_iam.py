@@ -3,7 +3,7 @@
 IAM Manager for Google Cloud Platform
 
 This script manages IAM policy bindings for service accounts required by
-AgentSpace integration, including AI Platform Reasoning Engine and Discovery
+Gemini Enterprise Agent Platform integration, including AI Platform Reasoning Engine and Discovery
 Engine service accounts.
 """
 
@@ -20,7 +20,7 @@ from google.iam.v1 import iam_policy_pb2, policy_pb2
 
 app = typer.Typer(
     add_completion=False,
-    help="Manage IAM permissions for AgentSpace service accounts.",
+    help="Manage IAM permissions for Gemini Enterprise Agent Platform service accounts.",
 )
 
 
@@ -216,7 +216,7 @@ class IAMManager:
         self, dry_run: bool = False, verbose: bool = False
     ) -> dict[str, list[str]]:
         """
-        Setup all required IAM permissions for AgentSpace integration.
+        Setup all required IAM permissions for Gemini Enterprise Agent Platform integration.
 
         Args:
             dry_run: If True, only simulate the changes
@@ -239,7 +239,7 @@ class IAMManager:
                 "service": "discoveryengine",
                 "name": "Discovery Engine",
                 "roles": ["roles/aiplatform.user", "roles/aiplatform.viewer"],
-                "purpose": "Call ADK agent from AgentSpace",
+                "purpose": "Call ADK agent from Gemini Enterprise Agent Platform",
             },
         ]
 
@@ -291,7 +291,7 @@ class IAMManager:
 
     def verify_agentspace_permissions(self) -> dict[str, bool]:
         """
-        Verify all required AgentSpace permissions are configured.
+        Verify all required Gemini Enterprise Agent Platform permissions are configured.
 
         Returns:
             Dictionary mapping permission descriptions to boolean status
@@ -373,16 +373,20 @@ def setup_command(
     ] = Path(".env"),
 ):
     """
-    Setup all required IAM permissions for AgentSpace integration.
+    Setup all required IAM permissions for Gemini Enterprise Agent Platform integration.
 
     This configures the following service accounts:
     - AI Platform Reasoning Engine Service Agent (for RAG access)
-    - Discovery Engine Service Account (for calling agents from AgentSpace)
+    - Discovery Engine Service Account (for calling agents from Gemini Enterprise Agent Platform)
     """
     manager = IAMManager(env_file)
 
     typer.secho("=" * 50, fg=typer.colors.CYAN)
-    typer.secho("AgentSpace IAM Permissions Setup", fg=typer.colors.CYAN, bold=True)
+    typer.secho(
+        "Gemini Enterprise Agent Platform IAM Permissions Setup",
+        fg=typer.colors.CYAN,
+        bold=True,
+    )
     typer.secho("=" * 50, fg=typer.colors.CYAN)
     typer.echo("")
 
@@ -447,13 +451,15 @@ def verify_command(
     ] = Path(".env"),
 ):
     """
-    Verify all required AgentSpace IAM permissions are configured.
+    Verify all required Gemini Enterprise Agent Platform IAM permissions are configured.
     """
     manager = IAMManager(env_file)
 
     typer.secho("=" * 50, fg=typer.colors.CYAN)
     typer.secho(
-        "AgentSpace IAM Permissions Verification", fg=typer.colors.CYAN, bold=True
+        "Gemini Enterprise Agent Platform IAM Permissions Verification",
+        fg=typer.colors.CYAN,
+        bold=True,
     )
     typer.secho("=" * 50, fg=typer.colors.CYAN)
     typer.echo("")
