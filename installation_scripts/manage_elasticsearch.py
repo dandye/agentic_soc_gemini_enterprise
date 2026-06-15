@@ -192,20 +192,8 @@ class ElasticsearchManager:
         return False
 
     def get_runbook_files(self) -> list[Path]:
-        """Scan submodules inside external/ and return files to index."""
+        """Scan harvested_investigations/ and return files to index."""
         files = []
-        for submodule_dir in ["ai-runbooks", "adk_runbooks"]:
-            source_path = self.project_root / "external" / submodule_dir
-            if source_path.exists():
-                # Get md and txt files
-                found_files = list(source_path.rglob("*.md")) + list(
-                    source_path.rglob("*.txt")
-                )
-                for file_path in found_files:
-                    if self._should_exclude(file_path):
-                        continue
-                    if self._is_in_include_directory(file_path, submodule_dir):
-                        files.append(file_path)
 
         # Scan harvested_investigations/
         harvested_path = self.project_root / "harvested_investigations"
