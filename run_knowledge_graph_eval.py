@@ -286,7 +286,6 @@ async def main():
     provenance_header = format_provenance(
         source_type="generative_ai",
         source_tool="run_knowledge_graph_eval.py",
-        is_fine_tune_safe=False,
         description="Integration evaluation report graded by Gemini judge model",
     )
     report_path.write_text(provenance_header + "\n".join(report_content))

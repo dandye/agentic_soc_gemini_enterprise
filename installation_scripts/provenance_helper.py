@@ -10,7 +10,6 @@ from datetime import datetime
 def format_provenance(
     source_type: str,
     source_tool: str,
-    is_fine_tune_safe: bool,
     description: str = "",
 ) -> str:
     """
@@ -19,14 +18,12 @@ def format_provenance(
     Args:
         source_type: 'api_response', 'mcp_tool', 'generative_ai', 'manual', or 'python_generated'
         source_tool: Name of the script, model, or tool generating the data
-        is_fine_tune_safe: Boolean indicating if this is safe for model fine-tuning
         description: Brief details about the context
 
     Returns:
         The formatted YAML frontmatter string block, including delimiters
     """
     timestamp = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
-    safe_str = "true" if is_fine_tune_safe else "false"
 
     frontmatter = [
         "---",
@@ -34,7 +31,6 @@ def format_provenance(
         f"  source_type: {source_type}",
         f"  source_tool: {source_tool}",
         f"  timestamp: {timestamp}",
-        f"  is_fine_tune_safe: {safe_str}",
     ]
 
     if description:

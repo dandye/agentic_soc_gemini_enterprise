@@ -6,7 +6,7 @@ to all existing Markdown files in harvested_investigations.
 
 from pathlib import Path
 
-from provenance_helper import format_provenance, has_provenance
+from provenance_helper import format_provenance
 
 
 def main():
@@ -23,16 +23,24 @@ def main():
     updated_count = 0
     skipped_count = 0
 
+    def strip_yaml_frontmatter(text: str) -> tuple[str, bool]:
+        stripped = text.lstrip()
+        if not stripped.startswith("---"):
+            return text, False
+        end_idx = stripped.find("---", 3)
+        if end_idx == -1:
+            return text, False
+        body = stripped[end_idx + 3 :].lstrip("\r\n")
+        return body, True
+
     for file_path in md_files:
         filename = file_path.name
 
         # Read current content
         content = file_path.read_text(encoding="utf-8")
 
-        # Check if it already has frontmatter
-        if has_provenance(content):
-            skipped_count += 1
-            continue
+        # Strip existing frontmatter
+        body_content, had_frontmatter = strip_yaml_frontmatter(content)
 
         # Determine target details based on filename pattern
         if filename.startswith("case_"):
@@ -49,14 +57,16 @@ def main():
         provenance_header = format_provenance(
             source_type="api_response",
             source_tool="harvest_investigations.py",
-            is_fine_tune_safe=True,
             description=description,
         )
 
         # Write updated content
-        new_content = provenance_header + content
+        new_content = provenance_header + body_content
         file_path.write_text(new_content, encoding="utf-8")
-        updated_count += 1
+        if had_frontmatter:
+            skipped_count += 1
+        else:
+            updated_count += 1
 
     print("\n==================================================")
     print("PROVENANCE RETROFIT MIGRATION COMPLETE")

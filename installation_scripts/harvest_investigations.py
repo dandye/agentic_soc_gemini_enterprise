@@ -679,7 +679,6 @@ def harvest(
             provenance_header = format_provenance(
                 source_type="api_response",
                 source_tool="harvest_investigations.py",
-                is_fine_tune_safe=True,
                 description=f"Harvested details for Chronicle investigation {inv_id}",
             )
             with open(md_path, "w", encoding="utf-8") as f:
@@ -1136,7 +1135,6 @@ def harvest_detections(
         provenance_header = format_provenance(
             source_type="api_response",
             source_tool="harvest_investigations.py",
-            is_fine_tune_safe=True,
             description=f"Harvested details for Chronicle alert {clean_id}",
         )
         with open(md_path, "w", encoding="utf-8") as f:
@@ -1167,7 +1165,6 @@ def harvest_detections(
         provenance_header = format_provenance(
             source_type="api_response",
             source_tool="harvest_investigations.py",
-            is_fine_tune_safe=True,
             description=f"Harvested report summary for SOAR case {cid}",
         )
         with open(case_md_path, "w", encoding="utf-8") as f:
