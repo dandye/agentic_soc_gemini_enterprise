@@ -91,13 +91,13 @@ TEST_CASES = [
     },
     {
         "id": "TC-3",
-        "name": "Elasticsearch Runbooks Grounding",
+        "name": "Telemetry Search Grounding",
         "agent_module": "agent_soc_manager",
         "resource_env_var": "AGENT_ENGINE_RESOURCE_NAME",
         "prompt": "What is our standard procedure for handling a Mimikatz credential dumping alert on a domain workstation?",
-        "expected_tool": "retrieve_elasticsearch_runbooks",
+        "expected_tool": "search_knowledge_base",
         "rubric": """
-        Evaluate whether the agent successfully queried the Elasticsearch grounding database and cited source markdown documents.
+        Evaluate whether the agent successfully queried the telemetry search database and cited source markdown documents.
 
         GRADING RUBRIC:
         - SCORE 5: Citations are present (contains relative paths like 'harvested_investigations/1b6bf948-0e8c-4977-9f3f-f8b085a76d2a.md' or similar document filenames) AND lists the triage steps accurately.
@@ -115,11 +115,11 @@ TEST_CASES = [
         "prompt": "Check if frank.kolzig is known in our graph database, and list any incident response runbooks associated with credential dumping.",
         "expected_tool": "query_neo4j_graph",
         "rubric": """
-        Evaluate whether the Tier 2 Incident Responder can use both query_neo4j_graph and retrieve_elasticsearch_runbooks.
+        Evaluate whether the Tier 2 Incident Responder can use both query_neo4j_graph and search_knowledge_base.
 
         GRADING RUBRIC:
-        - SCORE 5: Successfully invokes query_neo4j_graph for frank.kolzig and lists credential dumping runbook metadata from Elasticsearch.
-        - SCORE 3: Successfully queries one database (either Neo4j or Elasticsearch) but fails to query or locate data in the other.
+        - SCORE 5: Successfully invokes query_neo4j_graph for frank.kolzig and lists credential dumping case metadata from the knowledge base.
+        - SCORE 3: Successfully queries one database (either Neo4j or knowledge base search) but fails to query or locate data in the other.
         - SCORE 1: Fails to execute both tools or throws unexpected ToolNotFound errors.
 
         Provide your evaluation in JSON format with keys: 'score' (int 1-5), 'reason' (string), and 'facts_found' (list of strings).

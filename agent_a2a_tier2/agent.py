@@ -547,15 +547,14 @@ def create_agent():
             logger.error(f"Neo4j query failed: {e}")
             return f"Error querying Neo4j: {e}"
 
-    async def retrieve_elasticsearch_runbooks(query: str, ctx: Context) -> str:
+    async def search_knowledge_base(query: str, ctx: Context) -> str:
         """
-        Search and retrieve security playbook runbooks, standard operating procedures,
-        incident response guides, and common steps from the Elasticsearch grounding index.
+        Search historical cases, alerts, and investigations metadata in the knowledge base.
 
         Args:
-            query: The search term or semantic phrase to lookup.
+            query: The search term, keyword, indicator, or technique ID to query.
         """
-        logger.info(f"ELASTICSEARCH_GROUNDING_SEARCH: query='{query}'")
+        logger.info(f"KNOWLEDGE_BASE_SEARCH_CALL: query='{query}'")
 
         try:
             from elasticsearch import Elasticsearch
@@ -649,8 +648,8 @@ def create_agent():
     # Configure Grounding/Retrieval Tool
     # ========================================================================
     if ELASTICSEARCH_GROUNDING_ENABLED:
-        logger.info("Configuring Elasticsearch grounding retrieval...")
-        tools.append(retrieve_elasticsearch_runbooks)
+        logger.info("Configuring knowledge base search grounding retrieval...")
+        tools.append(search_knowledge_base)
     elif RAG_CORPUS_ID:
         logger.info(f"Configuring RAG retrieval with corpus: {RAG_CORPUS_ID}")
 

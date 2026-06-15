@@ -406,14 +406,14 @@ async def fetch_full_document(gcs_uri: str, ctx: Context) -> str:
         return f"Failed to retrieve document: {str(e)}"
 
 
-async def retrieve_elasticsearch_runbooks(query: str, ctx: Context) -> str:
+async def search_knowledge_base(query: str, ctx: Context) -> str:
     """
-    Retrieve runbooks, IRPs, procedures, guidelines, and personas from the Elasticsearch index.
+    Search historical cases, alerts, and investigations metadata in the knowledge base.
 
     Args:
-        query: The search term or keyword to match against runbook titles and content.
+        query: The search term, keyword, indicator, or technique ID to query.
     """
-    logger.info(f"ELASTICSEARCH_RETRIEVAL_CALL: query='{query}'")
+    logger.info(f"KNOWLEDGE_BASE_SEARCH_CALL: query='{query}'")
 
     es_url = os.environ.get("ELASTICSEARCH_URL", "http://localhost:9200")
     es_api_key = os.environ.get("ELASTICSEARCH_API_KEY")
@@ -1215,7 +1215,7 @@ def create_agent():
 
     # Configure grounding/retrieval for CTI Researcher
     if ELASTICSEARCH_GROUNDING_ENABLED:
-        cti_tools.append(retrieve_elasticsearch_runbooks)
+        cti_tools.append(search_knowledge_base)
     elif RAG_CORPUS_ID:
         cti_tools.append(
             VertexAiRagRetrieval(
@@ -1368,7 +1368,7 @@ CRITICAL: When formulating analysis plans, summarize your approach and ask for u
 
     # Configure grounding/retrieval for Tier 1 Analyst
     if ELASTICSEARCH_GROUNDING_ENABLED:
-        tier1_tools.append(retrieve_elasticsearch_runbooks)
+        tier1_tools.append(search_knowledge_base)
     elif RAG_CORPUS_ID:
         tier1_tools.append(
             VertexAiRagRetrieval(
@@ -1567,9 +1567,9 @@ CRITICAL: Summarize procedures and ask for user permission before executing stat
     )
 
     if ELASTICSEARCH_GROUNDING_ENABLED:
-        orchestrator_tools.append(retrieve_elasticsearch_runbooks)
-        grounding_tool_desc = """1. **retrieve_elasticsearch_runbooks** (Elasticsearch Grounding):
-   - Directly retrieves SOC runbooks, IRPs, procedures, and documentation from Elasticsearch index.
+        orchestrator_tools.append(search_knowledge_base)
+        grounding_tool_desc = """1. **search_knowledge_base** (Historical Telemetry Search):
+   - Directly searches historical cases, alerts, and investigations telemetry stored in the knowledge base.
    - **IMPORTANT:** This tool provides grounding citations - preserve document titles and paths in your response!"""
     else:
         if RAG_CORPUS_ID:
@@ -1640,11 +1640,13 @@ You have direct access to several tools and can delegate to specialized sub-agen
 
 DELEGATION STRATEGY:
 1. Analyze the user's request to determine the type of work required.
-2. For runbook/procedure queries: Use `retrieve_agentic_soc_runbooks` directly.
-3. For threat intelligence: Delegate to `cti_researcher`.
-4. For alert triage/investigation: Delegate to `tier1_analyst`.
-5. For querying historical memory or recording analyst notes: Delegate to `tier1_analyst`.
-6. For active containment, network host isolation, process/container termination, or credential suspension: Call the `delegate_to_tier2_responder` tool.
+2. For runbook/procedure queries: Use the RAG knowledge base directly.
+3. For structured queries about alerts, cases, user/host connections, or MITRE ATT&CK technique associations: Call the `query_neo4j_graph` tool directly to execute a Cypher query.
+4. For keyword/metadata searches of historical cases, alerts, or investigations (like searching for technique IDs or indicators across previous reports): Call `search_knowledge_base` directly (if available).
+5. For threat intelligence: Delegate to `cti_researcher`.
+6. For alert triage/investigation: Delegate to `tier1_analyst`.
+7. For querying historical memory or recording analyst notes: Delegate to `tier1_analyst`.
+8. For active containment, network host isolation, process/container termination, or credential suspension: Call the `delegate_to_tier2_responder` tool.
 """
 
     orchestrator_instruction += """
