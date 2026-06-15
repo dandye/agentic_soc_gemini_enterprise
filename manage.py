@@ -27,6 +27,7 @@ from installation_scripts.manage_elasticsearch import app as elastic_app
 from installation_scripts.manage_iam import app as iam_app
 from installation_scripts.manage_memories import app as memories_app
 from installation_scripts.manage_models import app as models_app
+from installation_scripts.manage_neo4j import app as neo4j_app
 from installation_scripts.manage_oauth import app as oauth_app
 from installation_scripts.manage_rag import app as rag_app
 from installation_scripts.manage_vertex_ai import app as vertex_app
@@ -68,6 +69,7 @@ app.add_typer(
     name="harvest",
     help="Harvest and enrich investigations and detections from Chronicle SIEM",
 )
+app.add_typer(neo4j_app, name="neo4j", help="Manage Neo4j Graph Database")
 
 
 # Workflow subcommand group

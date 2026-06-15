@@ -26,6 +26,8 @@ manage_models := "installation_scripts/manage_models.py"
 manage_secret := "installation_scripts/upload_secret.py"
 manage_harvest := "installation_scripts/harvest_investigations.py"
 manage_elastic := "installation_scripts/manage_elasticsearch.py"
+manage_neo4j := "installation_scripts/manage_neo4j.py"
+
 
 # Global options for GCS / RAG / Data Store (override on command line)
 bucket := ""
@@ -120,8 +122,9 @@ agent-engine-deploy-and-delete description="": check-prereqs
     {{ python }} {{ manage_agent_engine }} deploy --agent-module {{ agent_module }} {{ if description != "" { "--description " + quote(description) } else { "" } }}
 
 # Test the deployed agent engine (use agent_module=agent_a2a_tier2 for Tier 2)
-agent-engine-test:
-    {{ python }} {{ manage_agent_engine }} test --agent-module {{ agent_module }}
+agent-engine-test query="":
+    {{ python }} {{ manage_agent_engine }} test --agent-module {{ agent_module }} {{ if query != "" { "--query " + quote(query) } else { "" } }}
+
 
 # Pre-warm MCP server connections to reduce cold start latency
 agent-engine-warmup: check-deploy
@@ -762,3 +765,49 @@ elastic-search query limit="3":
 # Show details about the Elasticsearch index
 elastic-info:
     {{ python }} {{ manage_elastic }} info --env-file {{ env_file }}
+
+# Test the connection to the Neo4j database
+neo4j-test:
+    {{ python }} {{ manage_neo4j }} test-connection --env-file {{ env_file }}
+
+# Ingest the flat knowledge graph JSON into Neo4j
+neo4j-ingest:
+    {{ python }} {{ manage_neo4j }} ingest --env-file {{ env_file }}
+
+# Clear all data in the Neo4j database (force=true to skip confirmation)
+neo4j-clear force="false":
+    {{ python }} {{ manage_neo4j }} clear {{ if force == "true" { "--force" } else { "" } }} --env-file {{ env_file }}
+
+# Start a local Neo4j database container using Podman
+neo4j-start:
+    podman run -d --name neo4j_soc \
+        -p 7474:7474 -p 7687:7687 \
+        -e NEO4J_AUTH=neo4j/password \
+        -v neo4j_data:/data:Z \
+        -v neo4j_logs:/logs:Z \
+        neo4j:5.20.0-community
+
+# Stop and remove the local Neo4j database container
+neo4j-stop:
+    podman stop neo4j_soc && podman rm neo4j_soc
+
+# Deploy Neo4j Database on a GCE VM with Firewall Rules configured
+neo4j-gce-deploy:
+    @echo "Creating GCP Firewall Rule: allow-neo4j-bolt..."
+    -gcloud compute firewall-rules create allow-neo4j-bolt \
+        --project=$GCP_PROJECT_ID \
+        --direction=INGRESS \
+        --priority=1000 \
+        --network=default \
+        --action=ALLOW \
+        --rules=tcp:7687,tcp:7474 \
+        --source-ranges=0.0.0.0/0 \
+        --target-tags=neo4j-server
+    @echo "Deploying GCE VM instance: neo4j-soc-db..."
+    gcloud compute instances create neo4j-soc-db \
+        --project=$GCP_PROJECT_ID \
+        --zone=$GCP_LOCATION-a \
+        --machine-type=e2-medium \
+        --network-interface=network-tier=PREMIUM,subnet=default \
+        --tags=neo4j-server \
+        --metadata-from-file=startup-script=installation_scripts/startup_neo4j.sh

@@ -454,6 +454,15 @@ def create_agent():
     CHRONICLE_REGION = os.environ.get("CHRONICLE_REGION", "us")
     CHRONICLE_SERVICE_ACCOUNT_PATH = os.environ.get("CHRONICLE_SERVICE_ACCOUNT_PATH")
 
+    # Elasticsearch Grounding Configuration
+    ELASTICSEARCH_GROUNDING_ENABLED = (
+        os.environ.get("ELASTICSEARCH_GROUNDING_ENABLED", "False") == "True"
+    )
+    ELASTICSEARCH_URL = os.environ.get("ELASTICSEARCH_URL", "http://localhost:9200")
+    ELASTICSEARCH_USER = os.environ.get("ELASTICSEARCH_USER", "elastic")
+    ELASTICSEARCH_PASSWORD = os.environ.get("ELASTICSEARCH_PASSWORD", "password")
+    ELASTICSEARCH_INDEX = os.environ.get("ELASTICSEARCH_INDEX", "agentic-soc-runbooks")
+
     if not CHRONICLE_PROJECT_ID:
         raise ValueError(
             "CHRONICLE_PROJECT_ID is required. Please set it in your .env file."
@@ -503,6 +512,88 @@ def create_agent():
 
     # Get service account filename for MCP servers
     service_account_filename = service_account_path.name
+
+    async def query_neo4j_graph(cypher_query: str, ctx: Context) -> str:
+        """
+        Execute a read-only Cypher query against the Security Operations Neo4j knowledge graph
+        to query entity relationships, trace attack paths, and correlate logs.
+
+        Args:
+            cypher_query: The Cypher query string to execute. Example:
+              "MATCH (h:Host {name: 'WRK-SHASEK'})<-[:INVOLVES]-(i:Investigation) RETURN i.id, i.verdict"
+        """
+        logger.info(f"NEO4J_GRAPH_QUERY: query='{cypher_query}'")
+
+        uri = os.environ.get("NEO4J_URI", "bolt://localhost:7687")
+        user = os.environ.get("NEO4J_USER", "neo4j")
+        password = os.environ.get("NEO4J_PASSWORD", "password")
+
+        try:
+            from neo4j import GraphDatabase
+
+            with GraphDatabase.driver(uri, auth=(user, password)) as driver:
+                with driver.session() as session:
+
+                    def _run(tx):
+                        result = tx.run(cypher_query)
+                        return [record.data() for record in result]
+
+                    records = session.execute_read(_run)
+
+            if not records:
+                return "No matching records found in Neo4j."
+            return json.dumps(records, indent=2)
+        except Exception as e:
+            logger.error(f"Neo4j query failed: {e}")
+            return f"Error querying Neo4j: {e}"
+
+    async def retrieve_elasticsearch_runbooks(query: str, ctx: Context) -> str:
+        """
+        Search and retrieve security playbook runbooks, standard operating procedures,
+        incident response guides, and common steps from the Elasticsearch grounding index.
+
+        Args:
+            query: The search term or semantic phrase to lookup.
+        """
+        logger.info(f"ELASTICSEARCH_GROUNDING_SEARCH: query='{query}'")
+
+        try:
+            from elasticsearch import Elasticsearch
+
+            client = Elasticsearch(
+                ELASTICSEARCH_URL,
+                basic_auth=(ELASTICSEARCH_USER, ELASTICSEARCH_PASSWORD),
+                verify_certs=False,
+            )
+
+            resp = client.search(
+                index=ELASTICSEARCH_INDEX,
+                query={
+                    "multi_match": {
+                        "query": query,
+                        "fields": ["content", "title"],
+                    }
+                },
+                size=3,
+            )
+
+            results = []
+            for hit in resp["hits"]["hits"]:
+                source = hit["_source"]
+                results.append(
+                    f"Document: {source.get('title', 'Unknown')}\n"
+                    f"Path: {source.get('path', 'Unknown')}\n"
+                    f"Score: {hit['_score']}\n"
+                    f"Content:\n{source.get('content', '')}\n"
+                    f"========================================\n"
+                )
+
+            if not results:
+                return "No matching runbooks found in Elasticsearch."
+            return "\n".join(results)
+        except Exception as e:
+            logger.error(f"Elasticsearch search failed: {e}")
+            return f"Error searching Elasticsearch: {e}"
 
     # Initialize list to collect all tools
     tools = []
@@ -555,9 +646,12 @@ def create_agent():
     tools.append(scc_tools)
 
     # ========================================================================
-    # Configure RAG Retrieval Tool (if RAG corpus is configured)
+    # Configure Grounding/Retrieval Tool
     # ========================================================================
-    if RAG_CORPUS_ID:
+    if ELASTICSEARCH_GROUNDING_ENABLED:
+        logger.info("Configuring Elasticsearch grounding retrieval...")
+        tools.append(retrieve_elasticsearch_runbooks)
+    elif RAG_CORPUS_ID:
         logger.info(f"Configuring RAG retrieval with corpus: {RAG_CORPUS_ID}")
 
         def retrieve_agentic_soc_runbooks(query: str) -> str:
@@ -594,6 +688,11 @@ def create_agent():
     # Add save_report_artifact as a standalone tool
     # ========================================================================
     tools.append(save_report_artifact)
+
+    # ========================================================================
+    # Add query_neo4j_graph as a standalone tool
+    # ========================================================================
+    tools.append(query_neo4j_graph)
 
     # ========================================================================
     # Add ChatOps Mitigation Skills
