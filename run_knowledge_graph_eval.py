@@ -281,7 +281,15 @@ async def main():
         report_content.append(f"```text\n{r['response']}\n```")
         report_content.append("\n---\n")
 
-    report_path.write_text("\n".join(report_content))
+    from installation_scripts.provenance_helper import format_provenance
+
+    provenance_header = format_provenance(
+        source_type="generative_ai",
+        source_tool="run_knowledge_graph_eval.py",
+        is_fine_tune_safe=False,
+        description="Integration evaluation report graded by Gemini judge model",
+    )
+    report_path.write_text(provenance_header + "\n".join(report_content))
     print(f"\nEvaluation complete. Report generated at: {report_path}")
 
 

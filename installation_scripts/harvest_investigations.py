@@ -674,8 +674,16 @@ def harvest(
 
             # Save Markdown with full enrichment details
             md_content = generate_markdown(full_inv, alerts_data, entities_data)
+            from installation_scripts.provenance_helper import format_provenance
+
+            provenance_header = format_provenance(
+                source_type="api_response",
+                source_tool="harvest_investigations.py",
+                is_fine_tune_safe=True,
+                description=f"Harvested details for Chronicle investigation {inv_id}",
+            )
             with open(md_path, "w", encoding="utf-8") as f:
-                f.write(md_content)
+                f.write(provenance_header + md_content)
 
             print(f"Successfully harvested and enriched {inv_id}.")
             harvested_count += 1
@@ -1123,8 +1131,16 @@ def harvest_detections(
         md_content = generate_alert_markdown(
             alert, associated_case_id=associated_case_id
         )
+        from installation_scripts.provenance_helper import format_provenance
+
+        provenance_header = format_provenance(
+            source_type="api_response",
+            source_tool="harvest_investigations.py",
+            is_fine_tune_safe=True,
+            description=f"Harvested details for Chronicle alert {clean_id}",
+        )
         with open(md_path, "w", encoding="utf-8") as f:
-            f.write(md_content)
+            f.write(provenance_header + md_content)
 
         print(f"Successfully harvested alert: {clean_id}")
         harvested_count += 1
@@ -1146,8 +1162,16 @@ def harvest_detections(
         # Generate rich Case Markdown
         case_alerts = case_to_alerts_map.get(cid, [])
         rich_md = generate_rich_case_markdown(case, case_alerts, output_dir)
+        from installation_scripts.provenance_helper import format_provenance
+
+        provenance_header = format_provenance(
+            source_type="api_response",
+            source_tool="harvest_investigations.py",
+            is_fine_tune_safe=True,
+            description=f"Harvested report summary for SOAR case {cid}",
+        )
         with open(case_md_path, "w", encoding="utf-8") as f:
-            f.write(rich_md)
+            f.write(provenance_header + rich_md)
 
         print(f"Successfully harvested and updated SOAR case report: {cid}")
 
