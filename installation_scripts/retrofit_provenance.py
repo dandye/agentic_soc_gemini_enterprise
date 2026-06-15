@@ -1,12 +1,71 @@
 #!/usr/bin/env python3
 """
 Migration script to retroactively add provenance metadata blocks
-to all existing Markdown files in harvested_investigations.
+to all existing Markdown files in harvested_investigations, merging
+multiple YAML blocks into a single block.
 """
 
+from datetime import UTC, datetime
 from pathlib import Path
 
-from provenance_helper import format_provenance
+
+def merge_provenance_and_telemetry(content: str, description: str) -> str:
+    """
+    Parse a file's content, detect if there are 0, 1, or 2 YAML blocks,
+    extract the telemetry metadata, and output a single merged YAML block
+    with the new provenance fields.
+    """
+    parts = content.split("---")
+
+    # Check if there are 2 blocks (at least 5 parts when split by '---')
+    if len(parts) >= 5:
+        telemetry_yaml = parts[3].strip()
+        body = "---".join(parts[4:])
+    elif len(parts) >= 3:
+        # 1 block (3 parts)
+        yaml_content = parts[1].strip()
+        body = "---".join(parts[2:])
+        # Check if the block has provenance or telemetry
+        if "provenance:" in yaml_content:
+            # It only has provenance, strip it to start fresh
+            # Find any non-provenance keys in the block if present
+            lines = yaml_content.splitlines()
+            telemetry_lines = []
+            in_provenance = False
+            for line in lines:
+                if line.strip().startswith("provenance:"):
+                    in_provenance = True
+                    continue
+                if in_provenance and line.startswith("  "):
+                    continue
+                in_provenance = False
+                telemetry_lines.append(line)
+            telemetry_yaml = "\n".join(telemetry_lines).strip()
+        else:
+            telemetry_yaml = yaml_content
+    else:
+        # No frontmatter block
+        telemetry_yaml = ""
+        body = content
+
+    # Build the new provenance lines
+    timestamp = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    prov_lines = [
+        "provenance:",
+        "  source_type: api_response",
+        "  source_tool: harvest_investigations.py",
+        f"  timestamp: {timestamp}",
+    ]
+    if description:
+        clean_desc = description.replace('"', '\\"')
+        prov_lines.append(f'  description: "{clean_desc}"')
+
+    # Merge provenance and telemetry into a single YAML block
+    yaml_lines = prov_lines
+    if telemetry_yaml:
+        yaml_lines.append(telemetry_yaml)
+
+    return "---\n" + "\n".join(yaml_lines).strip() + "\n---\n" + body.lstrip("\r\n")
 
 
 def main():
@@ -21,26 +80,12 @@ def main():
     print(f"Found {len(md_files)} markdown files in {investigations_dir}.")
 
     updated_count = 0
-    skipped_count = 0
-
-    def strip_yaml_frontmatter(text: str) -> tuple[str, bool]:
-        stripped = text.lstrip()
-        if not stripped.startswith("---"):
-            return text, False
-        end_idx = stripped.find("---", 3)
-        if end_idx == -1:
-            return text, False
-        body = stripped[end_idx + 3 :].lstrip("\r\n")
-        return body, True
 
     for file_path in md_files:
         filename = file_path.name
 
         # Read current content
         content = file_path.read_text(encoding="utf-8")
-
-        # Strip existing frontmatter
-        body_content, had_frontmatter = strip_yaml_frontmatter(content)
 
         # Determine target details based on filename pattern
         if filename.startswith("case_"):
@@ -53,27 +98,16 @@ def main():
             inv_id = filename.replace(".md", "")
             description = f"Harvested details for Chronicle investigation {inv_id}"
 
-        # Generate provenance header
-        provenance_header = format_provenance(
-            source_type="api_response",
-            source_tool="harvest_investigations.py",
-            description=description,
-        )
-
-        # Write updated content
-        new_content = provenance_header + body_content
+        # Merge YAML block and write updated content
+        new_content = merge_provenance_and_telemetry(content, description)
         file_path.write_text(new_content, encoding="utf-8")
-        if had_frontmatter:
-            skipped_count += 1
-        else:
-            updated_count += 1
+        updated_count += 1
 
     print("\n==================================================")
     print("PROVENANCE RETROFIT MIGRATION COMPLETE")
     print("==================================================")
-    print(f"Total markdown files found: {len(md_files)}")
-    print(f"Successfully updated:       {updated_count}")
-    print(f"Already had provenance:     {skipped_count}")
+    print(f"Total markdown files found & merged: {len(md_files)}")
+    print(f"Successfully processed:              {updated_count}")
     print("==================================================")
 
 

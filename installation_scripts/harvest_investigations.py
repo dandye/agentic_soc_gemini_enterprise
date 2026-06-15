@@ -674,15 +674,16 @@ def harvest(
 
             # Save Markdown with full enrichment details
             md_content = generate_markdown(full_inv, alerts_data, entities_data)
-            from installation_scripts.provenance_helper import format_provenance
+            from installation_scripts.provenance_helper import inject_provenance
 
-            provenance_header = format_provenance(
+            enriched_md = inject_provenance(
+                content=md_content,
                 source_type="api_response",
                 source_tool="harvest_investigations.py",
                 description=f"Harvested details for Chronicle investigation {inv_id}",
             )
             with open(md_path, "w", encoding="utf-8") as f:
-                f.write(provenance_header + md_content)
+                f.write(enriched_md)
 
             print(f"Successfully harvested and enriched {inv_id}.")
             harvested_count += 1
@@ -1130,15 +1131,16 @@ def harvest_detections(
         md_content = generate_alert_markdown(
             alert, associated_case_id=associated_case_id
         )
-        from installation_scripts.provenance_helper import format_provenance
+        from installation_scripts.provenance_helper import inject_provenance
 
-        provenance_header = format_provenance(
+        enriched_md = inject_provenance(
+            content=md_content,
             source_type="api_response",
             source_tool="harvest_investigations.py",
             description=f"Harvested details for Chronicle alert {clean_id}",
         )
         with open(md_path, "w", encoding="utf-8") as f:
-            f.write(provenance_header + md_content)
+            f.write(enriched_md)
 
         print(f"Successfully harvested alert: {clean_id}")
         harvested_count += 1
@@ -1160,15 +1162,16 @@ def harvest_detections(
         # Generate rich Case Markdown
         case_alerts = case_to_alerts_map.get(cid, [])
         rich_md = generate_rich_case_markdown(case, case_alerts, output_dir)
-        from installation_scripts.provenance_helper import format_provenance
+        from installation_scripts.provenance_helper import inject_provenance
 
-        provenance_header = format_provenance(
+        enriched_md = inject_provenance(
+            content=rich_md,
             source_type="api_response",
             source_tool="harvest_investigations.py",
             description=f"Harvested report summary for SOAR case {cid}",
         )
         with open(case_md_path, "w", encoding="utf-8") as f:
-            f.write(provenance_header + rich_md)
+            f.write(enriched_md)
 
         print(f"Successfully harvested and updated SOAR case report: {cid}")
 
