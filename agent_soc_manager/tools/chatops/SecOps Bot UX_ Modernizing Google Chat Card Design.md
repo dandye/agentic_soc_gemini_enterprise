@@ -1,11 +1,11 @@
-Your current designs for the SecOps Bot provide a very clean and functional baseline\! However, by applying the UI/UX principles from the video and leveraging the specific features of Google Chat Cards v2, we can elevate them from looking like a simple "spreadsheet" to a highly intuitive, modern interface 1\.  
+Your current designs for the SecOps Bot provide a very clean and functional baseline\! However, by applying the UI/UX principles from the video and leveraging the specific features of Google Chat Cards v2, we can elevate them from looking like a simple "spreadsheet" to a highly intuitive, modern interface 1\.
 Here are a few design strategies and structural changes you can implement:
 
 ### 1\. Leverage "Semantic Colors" for Quick Decision Making
 
 The video emphasizes using "semantic colors" to provide instant signifiers to the user: blue for trust, red for danger or urgency, yellow for warning, and green for success 2, 3\. Currently, your buttons and text are mostly uniform in color.
 
-* **Privilege Access Card:** Instead of standard buttons, use the color attribute within your ButtonList JSON 4, 5\. You can define a green background ({ "red": 0, "green": 1, "blue": 0 }) for the **Approve** button to signify success/go, and red ({ "red": 1, "green": 0, "blue": 0 }) for **Deny** 5\.  
+* **Privilege Access Card:** Instead of standard buttons, use the color attribute within your ButtonList JSON 4, 5\. You can define a green background ({ "red": 0, "green": 1, "blue": 0 }) for the **Approve** button to signify success/go, and red ({ "red": 1, "green": 0, "blue": 0 }) for **Deny** 5\.
 * **Patch Management Card:** Because the CVE score is 9.8 (Critical), you could use red text or a red alert icon to instantly communicate danger 2\.
 
 ### 2\. Improve Visual Hierarchy with CardHeader
@@ -34,9 +34,9 @@ The video discusses having primary and secondary calls-to-action (CTAs) side by 
 
 **Summary of what your new JSON structure might look like for the "Privilege Access" card:**
 
-* **header**: A CardHeader containing the Shield Icon, "Privilege Access" title, and "PIM Request Elevation" subtitle 7, 8\.  
-* **sections**:  
-* *Widget 1*: A Columns layout 12 containing two DecoratedText widgets 4 (one for Analyst, one for Duration), utilizing Material Icons 10\.  
+* **header**: A CardHeader containing the Shield Icon, "Privilege Access" title, and "PIM Request Elevation" subtitle 7, 8\.
+* **sections**:
+* *Widget 1*: A Columns layout 12 containing two DecoratedText widgets 4 (one for Analyst, one for Duration), utilizing Material Icons 10\.
 * *Widget 2*: A ButtonList 4 with a Green "Approve" button and a Red "Deny" button 5\.
 
-Applying these concepts will give your bot a highly polished, professional feel\! Let me know if you'd like help writing the actual JSON for any of these specific widgets.  
+Applying these concepts will give your bot a highly polished, professional feel\! Let me know if you'd like help writing the actual JSON for any of these specific widgets.

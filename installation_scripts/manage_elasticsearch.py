@@ -206,6 +206,14 @@ class ElasticsearchManager:
                         continue
                     if self._is_in_include_directory(file_path, submodule_dir):
                         files.append(file_path)
+
+        # Scan harvested_investigations/
+        harvested_path = self.project_root / "harvested_investigations"
+        if harvested_path.exists():
+            for file_path in harvested_path.rglob("*.md"):
+                if not self._should_exclude(file_path):
+                    files.append(file_path)
+
         return sorted(set(files))
 
     def chunk_document(

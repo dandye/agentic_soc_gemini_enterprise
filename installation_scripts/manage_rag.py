@@ -62,6 +62,7 @@ EXCLUDE_PATTERNS = [
     "uv.lock",
     "requirements*.txt",
     "Makefile",
+    "justfile",
     "*.sh",
     ".*/**",
     ".github/**",
@@ -126,7 +127,18 @@ class RAGManager:
             raise typer.Exit(code=1)
 
         try:
-            credentials, _ = default()
+            sa_path = self.env_vars.get("SECOPS_SA_PATH") or self.env_vars.get(
+                "CHRONICLE_SERVICE_ACCOUNT_PATH"
+            )
+            if sa_path and os.path.exists(sa_path):
+                from google.oauth2 import service_account
+
+                scopes = ["https://www.googleapis.com/auth/cloud-platform"]
+                credentials = service_account.Credentials.from_service_account_file(
+                    sa_path, scopes=scopes
+                )
+            else:
+                credentials, _ = default()
             vertexai.init(
                 project=self.project_id, location=self.location, credentials=credentials
             )
@@ -139,7 +151,18 @@ class RAGManager:
         if self.storage_client:
             return
         try:
-            credentials, _ = default()
+            sa_path = self.env_vars.get("SECOPS_SA_PATH") or self.env_vars.get(
+                "CHRONICLE_SERVICE_ACCOUNT_PATH"
+            )
+            if sa_path and os.path.exists(sa_path):
+                from google.oauth2 import service_account
+
+                scopes = ["https://www.googleapis.com/auth/cloud-platform"]
+                credentials = service_account.Credentials.from_service_account_file(
+                    sa_path, scopes=scopes
+                )
+            else:
+                credentials, _ = default()
             self.storage_client = storage.Client(
                 project=self.project_id, credentials=credentials
             )

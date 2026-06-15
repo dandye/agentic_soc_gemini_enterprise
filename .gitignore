@@ -8,3 +8,4 @@ __pycache__/
 .DS_Store
 implementation_plan.md
 *.json
+harvested_investigations/

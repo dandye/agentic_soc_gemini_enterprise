@@ -58,6 +58,7 @@ MANAGE_GCS := installation_scripts/manage_gcs.py
 MANAGE_VERTEX_AI := installation_scripts/manage_vertex_ai.py
 MANAGE_MODELS := installation_scripts/manage_models.py
 MANAGE_ELASTIC := installation_scripts/manage_elasticsearch.py
+MANAGE_HARVEST := installation_scripts/harvest_investigations.py
 
 
 # Validation targets
@@ -372,8 +373,18 @@ elastic-search: ## Search the Elasticsearch runbooks index (use: QUERY="search q
 	fi
 	@$(PYTHON) $(MANAGE_ELASTIC) search "$(QUERY)" $(if $(LIMIT),--limit $(LIMIT)) --env-file $(ENV_FILE)
 
-elastic-info: ## Show details about the Elasticsearch index
-	@$(PYTHON) $(MANAGE_ELASTIC) info --env-file $(ENV_FILE)
+# Harvest targets
+.PHONY: harvest harvest-investigations harvest-detections
+
+harvest: ## Harvest both investigations and detections from Chronicle SIEM
+	@$(PYTHON) $(MANAGE_HARVEST) investigations
+	@$(PYTHON) $(MANAGE_HARVEST) detections
+
+harvest-investigations: ## Harvest and enrich investigations from Chronicle SIEM (use: TARGET_TOTAL=100)
+	@$(PYTHON) $(MANAGE_HARVEST) investigations $(if $(TARGET_TOTAL),--target-total $(TARGET_TOTAL))
+
+harvest-detections: ## Harvest and enrich alerting detections from Chronicle SIEM (use: DAYS_BACK=7 MAX_ALERTS=100 QUERY="soar_cases")
+	@$(PYTHON) $(MANAGE_HARVEST) detections $(if $(DAYS_BACK),--days-back $(DAYS_BACK)) $(if $(MAX_ALERTS),--max-alerts $(MAX_ALERTS)) $(if $(END_DATE),--end-date $(END_DATE)) $(if $(QUERY),--query "$(QUERY)")
 
 
 # GCS Management targets

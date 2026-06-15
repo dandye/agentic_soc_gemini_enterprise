@@ -34,12 +34,10 @@ import logging
 import mimetypes
 import os
 import re
-import shutil
-import importlib
-import asyncio
-import tempfile
 from pathlib import Path
 
+import google.adk.apps.app as adk_app
+import google.adk.sessions.in_memory_session_service as im_session
 import vertexai
 from dotenv import load_dotenv
 from google.adk.agents import Agent
@@ -49,10 +47,9 @@ from google.adk.models import LlmRequest, LlmResponse
 from google.adk.tools import google_search
 from google.adk.tools.mcp_tool.mcp_session_manager import StdioConnectionParams
 from google.adk.tools.mcp_tool.mcp_toolset import McpToolset
-from vertexai.preview import rag
-import google.adk.sessions.in_memory_session_service as im_session
-import google.adk.apps.app as adk_app
 from google.genai.types import Part
+from vertexai.preview import rag
+
 
 # Add text/markdown mimetype for .md files
 mimetypes.add_type("text/markdown", ".md")
@@ -69,6 +66,7 @@ logger = logging.getLogger(__name__)
 # Silence the harmless but noisy InMemorySessionService warning inside sub-agents
 original_append_event = im_session.InMemorySessionService.append_event
 
+
 async def _patched_append_event(self, session, event):
     app_name = session.app_name
     user_id = session.user_id
@@ -84,16 +82,19 @@ async def _patched_append_event(self, session, event):
 
     return await original_append_event(self, session, event)
 
+
 im_session.InMemorySessionService.append_event = _patched_append_event
 
 
 # Monkey-patch validate_app_name to prevent ADK 2.0 serialization errors
 original_validate_app_name = adk_app.validate_app_name
 
+
 def _patched_validate_app_name(name: str) -> None:
     if re.match(r"^\d+$", name):
         return
     return original_validate_app_name(name)
+
 
 adk_app.validate_app_name = _patched_validate_app_name
 # -------------------------------------------------------------------------
@@ -289,6 +290,7 @@ async def before_tool_cache(tool, args, tool_context: Context, **kwargs):
             and hasattr(tool_context, "_invocation_context")
             and getattr(tool_context._invocation_context, "memory_service", None)
         ):
+
             async def _shared_search_memory(self, query: str):
                 return await self._invocation_context.memory_service.search_memory(
                     app_name=self._invocation_context.app_name,
@@ -297,6 +299,7 @@ async def before_tool_cache(tool, args, tool_context: Context, **kwargs):
                 )
 
             import types
+
             tool_context.search_memory = types.MethodType(
                 _shared_search_memory, tool_context
             )
@@ -398,6 +401,7 @@ async def save_report_artifact(filename: str, report_content: str, ctx: Context)
 
                     try:
                         from datetime import timedelta
+
                         from google.cloud import storage
 
                         storage_client = storage.Client()
@@ -410,7 +414,9 @@ async def save_report_artifact(filename: str, report_content: str, ctx: Context)
                         link_to_provide = f"[{filename}]({signed_url})"
                     except Exception as sign_e:
                         logger.warning(f"Could not generate signed url: {sign_e}")
-                        gcs_url = f"https://storage.cloud.google.com/{bucket}/{blob_name}"
+                        gcs_url = (
+                            f"https://storage.cloud.google.com/{bucket}/{blob_name}"
+                        )
                         link_to_provide = f"[{filename}]({gcs_url})"
         except Exception as link_e:
             logger.warning(
@@ -449,9 +455,13 @@ def create_agent():
     CHRONICLE_SERVICE_ACCOUNT_PATH = os.environ.get("CHRONICLE_SERVICE_ACCOUNT_PATH")
 
     if not CHRONICLE_PROJECT_ID:
-        raise ValueError("CHRONICLE_PROJECT_ID is required. Please set it in your .env file.")
+        raise ValueError(
+            "CHRONICLE_PROJECT_ID is required. Please set it in your .env file."
+        )
     if not CHRONICLE_SERVICE_ACCOUNT_PATH:
-        raise ValueError("CHRONICLE_SERVICE_ACCOUNT_PATH is required. Please set it in your .env file.")
+        raise ValueError(
+            "CHRONICLE_SERVICE_ACCOUNT_PATH is required. Please set it in your .env file."
+        )
 
     # Verify service account file exists
     service_account_path = Path(CHRONICLE_SERVICE_ACCOUNT_PATH)
@@ -597,27 +607,32 @@ def create_agent():
             notify_human_incident,
             request_human_confirmation,
             send_chatops_card,
-            trigger_vulnerability_patch_approval_card,
+            trigger_ai_brute_force_source_block_card,
+            trigger_ai_data_exfiltration_block_card,
             trigger_ai_malicious_container_kill_card,
             trigger_ai_wipe_host_approval_card,
-            trigger_ai_data_exfiltration_block_card,
-            trigger_ai_brute_force_source_block_card,
+            trigger_vulnerability_patch_approval_card,
         )
-        tools.extend([
-            deliver_report,
-            generic_notification,
-            list_chatops_capabilities,
-            notify_human_incident,
-            request_human_confirmation,
-            send_chatops_card,
-            trigger_vulnerability_patch_approval_card,
-            trigger_ai_malicious_container_kill_card,
-            trigger_ai_wipe_host_approval_card,
-            trigger_ai_data_exfiltration_block_card,
-            trigger_ai_brute_force_source_block_card,
-        ])
+
+        tools.extend(
+            [
+                deliver_report,
+                generic_notification,
+                list_chatops_capabilities,
+                notify_human_incident,
+                request_human_confirmation,
+                send_chatops_card,
+                trigger_vulnerability_patch_approval_card,
+                trigger_ai_malicious_container_kill_card,
+                trigger_ai_wipe_host_approval_card,
+                trigger_ai_data_exfiltration_block_card,
+                trigger_ai_brute_force_source_block_card,
+            ]
+        )
     except ImportError as import_e:
-        logger.warning(f"Could not import ChatOps tools directly: {import_e}. Proceeding with MCP tools only.")
+        logger.warning(
+            f"Could not import ChatOps tools directly: {import_e}. Proceeding with MCP tools only."
+        )
 
     # ========================================================================
     # Create the Agent with all configured tools
