@@ -505,3 +505,8 @@ yarl==1.24.2
     # via aiohttp
 zipp==4.1.0
     # via importlib-metadata
+elastic-transport==8.17.1
+    # via elasticsearch
+elasticsearch==8.19.3
+    # via requirements.in
+neo4j==5.27.0

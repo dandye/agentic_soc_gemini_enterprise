@@ -12,6 +12,17 @@ This file provides guidance to Gemini Code Assist when working with code in this
 - No emojis in documentation
 - Emojis are unprofessional and must not be used in any context
 
+### Markdown Provenance Metadata
+All Markdown (`.md`) files created or modified in the workspace must include a standard YAML frontmatter block containing provenance tracking information:
+```yaml
+---
+provenance:
+  source_type: "api_response" | "python_generated" | "generative_ai" | "manual" | "mcp_tool"
+  source_tool: "name_of_script_tool_or_model"
+  timestamp: "ISO-8601-UTC-timestamp"
+---
+```
+
 ## Project Overview
 
 This is a security operations (SOC) agent system built with Google Vertex AI Agent Development Kit (ADK). It deploys AI agents to Google Cloud with integrated access to Chronicle SIEM, SOAR, Google Threat Intelligence, Security Command Center, and RAG-based runbook retrieval through the Model Context Protocol (MCP).

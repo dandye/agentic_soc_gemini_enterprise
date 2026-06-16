@@ -6,3 +6,5 @@ python-dotenv
 google-auth-oauthlib
 mcp[cli]>=1.4.1
 typer
+elasticsearch>=8.0.0,<9.0.0
+neo4j>=5.0.0

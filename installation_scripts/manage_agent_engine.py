@@ -215,6 +215,8 @@ class AgentEngineManager:
 
                 typer.secho(f"{i}. {agent.display_name}", fg=typer.colors.CYAN)
                 typer.echo(f"   Resource: {agent.name}")
+                if getattr(agent, "description", None):
+                    typer.echo(f"   Description: {agent.description}")
                 typer.echo(
                     f"   Created: {self._format_timestamp(agent.create_time.timestamp() if agent.create_time else None)}"
                 )
@@ -869,6 +871,18 @@ class AgentEngineManager:
                 "TIER1_AGENT_RESOURCE_NAME": os.environ.get(
                     "TIER1_AGENT_RESOURCE_NAME"
                 ),
+                # Elasticsearch Grounding
+                "ELASTICSEARCH_GROUNDING_ENABLED": os.environ.get(
+                    "ELASTICSEARCH_GROUNDING_ENABLED"
+                ),
+                "ELASTICSEARCH_URL": os.environ.get("ELASTICSEARCH_URL"),
+                "ELASTICSEARCH_USER": os.environ.get("ELASTICSEARCH_USER"),
+                "ELASTICSEARCH_PASSWORD": os.environ.get("ELASTICSEARCH_PASSWORD"),
+                "ELASTICSEARCH_INDEX": os.environ.get("ELASTICSEARCH_INDEX"),
+                # Neo4j Graph Database
+                "NEO4J_URI": os.environ.get("NEO4J_URI"),
+                "NEO4J_USER": os.environ.get("NEO4J_USER"),
+                "NEO4J_PASSWORD": os.environ.get("NEO4J_PASSWORD"),
             }
 
             # Add service account configuration based on authentication method
@@ -958,6 +972,9 @@ class AgentEngineManager:
                     "opentelemetry-sdk>=1.26.0",
                     "opentelemetry-exporter-gcp-logging>=0.47b0",
                     "opentelemetry-instrumentation-google-genai>=0.0.1",
+                    "elasticsearch>=8.0.0,<9.0.0",
+                    "elastic-transport>=8.0.0,<9.0.0",
+                    "neo4j>=5.0.0",
                 ],
                 "build_options": {
                     "installation_scripts": ["installation_scripts/install.sh"]
@@ -1063,13 +1080,17 @@ class AgentEngineManager:
             return None
 
     def test_agent_with_resource(
-        self, resource_name: str, agent_module: str = "soc_agent"
+        self,
+        resource_name: str,
+        agent_module: str = "soc_agent",
+        query: str | None = None,
     ) -> bool:
         """
         Test a deployed agent engine with a sample query.
 
         Args:
             resource_name: Resource name of the agent to test
+            query: Custom query to send to the agent
 
         Returns:
             True if test successful, False otherwise
@@ -1096,14 +1117,20 @@ class AgentEngineManager:
             remote_app = agent_engines.get(resource_name)
 
             # Run async test
-            asyncio.run(self._async_test_agent(remote_app, agent_module=agent_module))
+            asyncio.run(
+                self._async_test_agent(
+                    remote_app, agent_module=agent_module, query=query
+                )
+            )
             return True
 
         except Exception as e:
             typer.secho(f" Error testing agent: {e}", fg=typer.colors.RED)
             return False
 
-    async def _async_test_agent(self, remote_app, agent_module: str = "soc_agent"):
+    async def _async_test_agent(
+        self, remote_app, agent_module: str = "soc_agent", query: str | None = None
+    ):
         """Async test function for agent engine."""
         fd, log_path = tempfile.mkstemp(suffix=".log", prefix="agent_test_")
         typer.secho(
@@ -1117,7 +1144,9 @@ class AgentEngineManager:
             typer.echo(f"Created session: {session_id}")
             log_file.write(f"Created session: {session_id}\n")
 
-            if agent_module == "agent_soc_manager":
+            if query:
+                test_messages = (query,)
+            elif agent_module == "agent_soc_manager":
                 test_messages = (
                     "We have confirmed active ransomware encryption and beaconing from host MALWARETEST-WIN. Please isolate this endpoint from the network immediately to contain the threat.",
                 )
@@ -1844,6 +1873,10 @@ def test(
             help="Agent module to test (options: agent_soc_manager, agent_a2a_tier2, agent_a2a_threat_hunter)",
         ),
     ] = "agent_soc_manager",
+    query: Annotated[
+        str | None,
+        typer.Option("--query", "-q", help="Custom query to send to the agent"),
+    ] = None,
     env_file: Annotated[
         Path, typer.Option(help="Path to the environment file.")
     ] = Path(".env"),
@@ -1893,7 +1926,9 @@ def test(
             raise typer.Exit(code=1)
         resource = agents[index - 1]["resource_name"]
 
-    success = manager.test_agent_with_resource(resource, agent_module=agent_module)
+    success = manager.test_agent_with_resource(
+        resource, agent_module=agent_module, query=query
+    )
     if not success:
         raise typer.Exit(code=1)
 

@@ -681,6 +681,107 @@ async def fetch_full_document(gcs_uri: str, ctx: Context) -> str:
         return f"Failed to retrieve document: {str(e)}"
 
 
+async def search_knowledge_base(query: str, ctx: Context) -> str:
+    """
+    Search historical cases, alerts, and investigations metadata in the knowledge base.
+
+    Args:
+        query: The search term, keyword, indicator, or technique ID to query.
+    """
+    logger.info(f"KNOWLEDGE_BASE_SEARCH_CALL: query='{query}'")
+
+    es_url = os.environ.get("ELASTICSEARCH_URL", "http://localhost:9200")
+    es_api_key = os.environ.get("ELASTICSEARCH_API_KEY")
+    es_user = os.environ.get("ELASTICSEARCH_USER")
+    es_password = os.environ.get("ELASTICSEARCH_PASSWORD")
+    index_name = os.environ.get("ELASTICSEARCH_INDEX", "agentic-soc-runbooks")
+
+    try:
+        import urllib3
+        from elasticsearch import Elasticsearch
+
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+        client_kwargs = {"verify_certs": False, "ssl_show_warn": False}
+
+        if es_api_key:
+            es = Elasticsearch(es_url, api_key=es_api_key, **client_kwargs)
+        elif es_user and es_password:
+            es = Elasticsearch(
+                es_url, basic_auth=(es_user, es_password), **client_kwargs
+            )
+        else:
+            es = Elasticsearch(es_url, **client_kwargs)
+
+        body = {
+            "query": {
+                "multi_match": {"query": query, "fields": ["title^2", "content"]}
+            },
+            "size": 5,
+        }
+
+        res = es.search(index=index_name, body=body)
+        hits = res["hits"]["hits"]
+        if not hits:
+            return "No matching runbooks found in Elasticsearch."
+
+        results = []
+        for hit in hits:
+            source = hit["_source"]
+            score = hit["_score"]
+            results.append(
+                f"Document: {source['title']}\n"
+                f"Path: {source['doc_path']}\n"
+                f"Score: {score:.4f}\n"
+                f"Content:\n{source['content']}\n"
+                f"{'='*40}"
+            )
+        return "\n\n".join(results)
+
+    except Exception as e:
+        logger.error(f"Elasticsearch retrieval failed: {e}")
+        return f"Error querying Elasticsearch: {e}"
+
+
+async def query_neo4j_graph(cypher_query: str, ctx: Context) -> str:
+    """
+    Execute a read-only Cypher query against the Security Operations Neo4j knowledge graph
+    to query entity relationships, trace attack paths, and correlate logs.
+
+    Args:
+        cypher_query: The Cypher query string to execute. Example:
+          "MATCH (h:Host {name: 'WRK-SHASEK'})<-[:INVOLVES]-(i:Investigation) RETURN i.id, i.verdict"
+    """
+    logger.info(f"NEO4J_GRAPH_QUERY: query='{cypher_query}'")
+
+    uri = os.environ.get("NEO4J_URI", "bolt://localhost:7687")
+    user = os.environ.get("NEO4J_USER", "neo4j")
+    password = os.environ.get("NEO4J_PASSWORD", "password")
+
+    try:
+        from neo4j import GraphDatabase
+
+        # Open driver and run query in a read transaction to ensure read-only safety
+        with GraphDatabase.driver(uri, auth=(user, password)) as driver:
+            with driver.session() as session:
+
+                def _run(tx):
+                    result = tx.run(cypher_query)
+                    return [record.data() for record in result]
+
+                records = session.execute_read(_run)
+
+        if not records:
+            return "No matching records found in Neo4j."
+
+        # Format output as formatted JSON string for readability
+        return json.dumps(records, indent=2)
+
+    except Exception as e:
+        logger.error(f"Neo4j query failed: {e}")
+        return f"Error querying Neo4j: {e}"
+
+
 async def save_report_artifact(filename: str, report_content: str, ctx: Context) -> str:
     """
     Saves a generated analysis, intelligence report, or investigation finding as an artifact.
@@ -1652,6 +1753,11 @@ def create_agent():
     RAG_DISTANCE_THRESHOLD = float(os.environ.get("RAG_DISTANCE_THRESHOLD", "0.6"))
     RAG_GCP_LOCATION = os.environ.get("RAG_GCP_LOCATION")
 
+    # Elasticsearch grounding configuration
+    ELASTICSEARCH_GROUNDING_ENABLED = (
+        os.environ.get("ELASTICSEARCH_GROUNDING_ENABLED", "False") == "True"
+    )
+
     # Debug mode
     DEBUG = os.environ.get("DEBUG", "False") == "True"
     if DEBUG:
@@ -1745,6 +1851,7 @@ def create_agent():
         tier1_skill_toolset,
         SharedScopePreloadMemoryTool(),  # Auto-load memories at start of every turn
         LoadMemoryTool(),  # On-demand memory queries during investigation
+        query_neo4j_graph,
         notify_human_incident,
         request_human_confirmation,
         send_chatops_card,
@@ -1756,6 +1863,19 @@ def create_agent():
         send_all_example_cards,
     ]
 
+    # Configure grounding/retrieval for Tier 1 Analyst
+    if ELASTICSEARCH_GROUNDING_ENABLED:
+        tier1_tools.append(search_knowledge_base)
+    elif RAG_CORPUS_ID:
+        tier1_tools.append(
+            VertexAiRagRetrieval(
+                name="retrieve_agentic_soc_runbooks",
+                description="Retrieve IRPs, Runbooks, Common Steps, Procedures, guidelines, and Personas for the Agentic SOC.",
+                rag_corpora=[RAG_CORPUS_ID],
+            )
+        )
+
+    # Chronicle for basic entity lookups
     tier1_tools.append(
         create_remote_secops_toolset(
             CHRONICLE_REGION,
@@ -1940,39 +2060,54 @@ CRITICAL: Summarize procedures and ask for user permission before executing stat
         delegate_to_detection_engineer,
     ]
 
-    # Add RAG tool DIRECTLY to orchestrator (not via sub-agent) to preserve grounding citations
-    if RAG_CORPUS_ID:
-        orchestrator_tools.append(
-            VertexAiRagRetrieval(
-                name="retrieve_agentic_soc_runbooks",
-                description="Retrieve IRPs, Runbooks, Common Steps, Procedures, guidelines, and Personas for the Agentic SOC.",
-                rag_corpora=[RAG_CORPUS_ID],
-                similarity_top_k=RAG_SIMILARITY_TOP_K,
-                vector_distance_threshold=RAG_DISTANCE_THRESHOLD,
+    # Add grounding/retrieval tool based on configuration
+    ELASTICSEARCH_GROUNDING_ENABLED = (
+        os.environ.get("ELASTICSEARCH_GROUNDING_ENABLED", "False") == "True"
+    )
+
+    if ELASTICSEARCH_GROUNDING_ENABLED:
+        orchestrator_tools.append(search_knowledge_base)
+        grounding_tool_desc = """1. **search_knowledge_base** (Historical Telemetry Search):
+   - Directly searches historical cases, alerts, and investigations telemetry stored in the knowledge base.
+   - **IMPORTANT:** This tool provides grounding citations - preserve document titles and paths in your response!"""
+    else:
+        if RAG_CORPUS_ID:
+            orchestrator_tools.append(
+                VertexAiRagRetrieval(
+                    name="retrieve_agentic_soc_runbooks",
+                    description="Retrieve IRPs, Runbooks, Common Steps, Procedures, guidelines, and Personas for the Agentic SOC.",
+                    rag_corpora=[RAG_CORPUS_ID],
+                    similarity_top_k=RAG_SIMILARITY_TOP_K,
+                    vector_distance_threshold=RAG_DISTANCE_THRESHOLD,
+                )
             )
-        )
+        grounding_tool_desc = """1. **retrieve_agentic_soc_runbooks** (RAG Knowledge Base):
+   - Directly retrieves SOC runbooks, IRPs, procedures, and documentation from RAG corpus.
+   - **IMPORTANT:** This tool provides grounding citations - preserve them in your response!"""
 
     # Add Memory tools — PreloadMemory for automatic context, LoadMemory for on-demand queries
     orchestrator_tools.append(
         SharedScopePreloadMemoryTool()
     )  # Auto-load at start of every turn
     orchestrator_tools.append(LoadMemoryTool())  # On-demand memory queries
+    orchestrator_tools.append(query_neo4j_graph)  # On-demand Neo4j queries
 
     # Build orchestrator instruction
-    orchestrator_instruction = """You are the SecOps Security Agent orchestrator for Google SecOps - a sophisticated coordinator that intelligently delegates security operations to specialized persona-based agents and retrieves knowledge base documentation.
+    orchestrator_instruction = f"""You are the SecOps Security Agent orchestrator for Google SecOps - a sophisticated coordinator that intelligently delegates security operations to specialized persona-based agents and retrieves knowledge base documentation.
 
 YOUR ARCHITECTURE:
 You have direct access to several tools and can delegate to specialized sub-agents.
 
 ### DIRECT TOOLS (You call these directly):
 
-1. **retrieve_agentic_soc_runbooks** (RAG Knowledge Base):
-   - Directly retrieves SOC runbooks, IRPs, procedures, and documentation from RAG corpus.
-   - **IMPORTANT:** This tool provides grounding citations - preserve them in your response!
+{grounding_tool_desc}
 
 2. **fetch_full_document**:
    - Fetches the complete document text from GCS using a gs:// URI.
    - Use for reading the complete text of a document to avoid truncation.
+
+5. **query_neo4j_graph**:
+   - Executes a read-only Cypher query against the Neo4j Security Operations Knowledge Graph to trace relationships and correlate entities (hosts, users, files, domains, alerts, investigations).
 """
 
     orchestrator_instruction += """
@@ -2010,13 +2145,15 @@ You have direct access to several tools and can delegate to specialized sub-agen
 
 DELEGATION STRATEGY:
 1. Analyze the user's request to determine the type of work required.
-2. For runbook/procedure queries: Use `retrieve_agentic_soc_runbooks` directly.
-3. For alert triage/investigation: Delegate to `tier1_analyst`.
-4. For querying historical memory or recording analyst notes: Delegate to `tier1_analyst`.
-5. For active containment, network host isolation, process/container termination, or credential suspension: Call `delegate_to_tier2_responder`.
-6. For proactive hunting, query development, or searching log prevalence for a specific domain/IP: Call `delegate_to_threat_hunter`.
-7. For researching a threat actor, campaign context, vulnerability (CVE) details, or malware family behavior: Call `delegate_to_cti_researcher`.
-8. For writing YARA-L rules, listing rules, analyzing rule performance/errors, or tuning alerts/exclusions: Call `delegate_to_detection_engineer`.
+2. For runbook/procedure queries: Use the RAG knowledge base directly via `retrieve_agentic_soc_runbooks`.
+3. For structured queries about alerts, cases, user/host connections, or MITRE ATT&CK technique associations: Call the `query_neo4j_graph` tool directly to execute a Cypher query.
+4. For keyword/metadata searches of historical cases, alerts, or investigations (like searching for technique IDs or indicators across previous reports): Call `search_knowledge_base` directly (if available).
+5. For alert triage/investigation: Delegate to `tier1_analyst`.
+6. For querying historical memory or recording analyst notes: Delegate to `tier1_analyst`.
+7. For active containment, network host isolation, process/container termination, or credential suspension: Call `delegate_to_tier2_responder`.
+8. For proactive hunting, query development, or searching log prevalence for a specific domain/IP: Call `delegate_to_threat_hunter`.
+9. For researching a threat actor, campaign context, vulnerability (CVE) details, or malware family behavior: Call `delegate_to_cti_researcher`.
+10. For writing YARA-L rules, listing rules, analyzing rule performance/errors, or tuning alerts/exclusions: Call `delegate_to_detection_engineer`.
 """
 
     orchestrator_instruction += """
