@@ -400,12 +400,26 @@ class EvaluationRunner:
         )
         typer.echo("=" * 80 + "\n")
 
-        # Save markdown report artifact
-        self._save_report_artifact(evalset_id, name, avg_score, case_results)
+        # Get git metadata, timestamp, and commit hash once
+        git_meta = self._get_git_metadata()
+        timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+        commit_short = git_meta["commit"][:7]
+
+        # Save markdown report directly in the local runs directory
+        self._save_report_artifact(
+            evalset_id, name, avg_score, case_results, timestamp, commit_short
+        )
 
         # Write structured JSON run to Local Ledger
         self._write_to_ledger(
-            evalset_id, agent_resource, eval_cases, case_results, avg_score
+            evalset_id,
+            agent_resource,
+            eval_cases,
+            case_results,
+            avg_score,
+            git_meta,
+            timestamp,
+            commit_short,
         )
 
     def _write_to_ledger(
@@ -415,11 +429,11 @@ class EvaluationRunner:
         eval_cases: list,
         case_results: list,
         avg_score: float,
+        git_meta: dict,
+        timestamp: str,
+        commit_short: str,
     ):
         """Write a structured JSON summary of the evaluation run to the local ledger."""
-        git_meta = self._get_git_metadata()
-        timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
-        commit_short = git_meta["commit"][:7]
         kg_path = Path("harvested_investigations/knowledge_graph.json")
 
         run_data = {
@@ -471,7 +485,7 @@ class EvaluationRunner:
                 k for k, v in sc.items() if not v
             ]
 
-        runs_dir = Path("eval_runs")
+        runs_dir = Path("evalsets/eval_runs")
         runs_dir.mkdir(exist_ok=True)
         run_file = runs_dir / f"run_{evalset_id}_{timestamp}_{commit_short}.json"
 
@@ -483,21 +497,25 @@ class EvaluationRunner:
         )
 
     def _save_report_artifact(
-        self, evalset_id: str, evalset_name: str, avg_score: float, case_results: list
+        self,
+        evalset_id: str,
+        evalset_name: str,
+        avg_score: float,
+        case_results: list,
+        timestamp: str,
+        commit_short: str,
     ):
-        """Save a premium markdown evaluation report as an artifact."""
-        artifacts_dir = Path(
-            "/Users/dandye/.gemini/jetski/brain/5a85dba2-4972-4b15-92b8-1afd3f5c9aad"
-        )
-        artifacts_dir.mkdir(parents=True, exist_ok=True)
+        """Save a premium markdown evaluation report in the local runs directory."""
+        runs_dir = Path("evalsets/eval_runs")
+        runs_dir.mkdir(exist_ok=True)
 
-        report_path = artifacts_dir / f"evaluation_report_{evalset_id}.md"
+        report_path = runs_dir / f"report_{evalset_id}_{timestamp}_{commit_short}.md"
 
         md_content = f"""---
 provenance:
   source_type: "generative_ai"
   source_tool: "Antigravity"
-  timestamp: "{os.environ.get('TIMESTAMP', '2026-06-16T16:30:00Z')}"
+  timestamp: "{datetime.utcnow().isoformat() + 'Z'}"
 ---
 # Evaluation Report: {evalset_name}
 
@@ -587,12 +605,10 @@ def _save_compare_report(
     base_commit: str,
     new_commit: str,
 ):
-    """Save a premium markdown comparison report to the brain directory."""
-    artifacts_dir = Path(
-        "/Users/dandye/.gemini/jetski/brain/5a85dba2-4972-4b15-92b8-1afd3f5c9aad"
-    )
-    artifacts_dir.mkdir(parents=True, exist_ok=True)
-    report_path = artifacts_dir / f"evaluation_compare_{evalset_id}.md"
+    """Save a premium markdown comparison report to the local runs directory."""
+    runs_dir = Path("evalsets/eval_runs")
+    runs_dir.mkdir(exist_ok=True)
+    report_path = runs_dir / f"compare_{evalset_id}.md"
 
     changelog_md = "*No commits between these runs (same codebase).*"
     if (
@@ -711,7 +727,7 @@ def compare(
     ] = None,
 ) -> None:
     """Compare evaluation scores, trajectories, and extract git changelog between runs."""
-    runs_dir = Path("eval_runs")
+    runs_dir = Path("evalsets/eval_runs")
     if not runs_dir.exists() or not list(runs_dir.glob(f"run_{evalset_id}_*.json")):
         typer.secho(
             f"✗ No evaluation runs found for evalset '{evalset_id}' in eval_runs/",
