@@ -185,11 +185,11 @@ The project uses a staged configuration approach:
 - Optional: `CHRONICLE_REGION`, `DEBUG`, `RAG_SIMILARITY_TOP_K`, `RAG_DISTANCE_THRESHOLD`
 - **Database Grounding Variables (Optional)**:
   - `ELASTICSEARCH_GROUNDING_ENABLED`: Set to `True` to route runbook searches directly to Elasticsearch. Defaults to `False` (falling back to Vertex AI RAG).
-  - `ELASTICSEARCH_URL`: Elasticsearch API URL (e.g., `http://34.145.140.152:9200`).
+  - `ELASTICSEARCH_URL`: Elasticsearch API URL (e.g., `http://${ELASTICSEARCH_VM_IP}:9200`).
   - `ELASTICSEARCH_USER`: Elasticsearch username (e.g., `elastic`).
   - `ELASTICSEARCH_PASSWORD`: Elasticsearch user password.
   - `ELASTICSEARCH_INDEX`: Elasticsearch runbooks index name (e.g., `agentic-soc-runbooks`).
-  - `NEO4J_URI`: Neo4j Bolt connection URI (e.g., `bolt://34.181.222.38:7687`).
+  - `NEO4J_URI`: Neo4j Bolt connection URI (e.g., `bolt://${NEO4J_VM_IP}:7687`).
   - `NEO4J_USER`: Neo4j username (e.g., `neo4j`).
   - `NEO4J_PASSWORD`: Neo4j user password.
 
