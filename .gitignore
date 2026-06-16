@@ -11,3 +11,4 @@ implementation_plan.md
 .env.secops.adc
 harvested_investigations/
 *.json
+!evalsets/**/*.json
