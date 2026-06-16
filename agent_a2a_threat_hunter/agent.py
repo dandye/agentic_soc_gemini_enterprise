@@ -601,6 +601,45 @@ def create_agent():
         tools.append(retrieve_agentic_soc_runbooks)
 
     # ========================================================================
+    # Add query_neo4j_graph as a standalone tool
+    # ========================================================================
+    async def query_neo4j_graph(cypher_query: str, ctx: Context) -> str:
+        """
+        Execute a read-only Cypher query against the Security Operations Neo4j knowledge graph
+        to query entity relationships, trace attack paths, and correlate logs.
+
+        Args:
+            cypher_query: The Cypher query string to execute. Example:
+              "MATCH (h:Host {name: 'WRK-SHASEK'})<-[:INVOLVES]-(i:Investigation) RETURN i.id, i.verdict"
+        """
+        logger.info(f"NEO4J_GRAPH_QUERY: query='{cypher_query}'")
+
+        uri = os.environ.get("NEO4J_URI", "bolt://localhost:7687")
+        user = os.environ.get("NEO4J_USER", "neo4j")
+        password = get_secret("NEO4J_PASSWORD", GCP_PROJECT_ID)
+
+        try:
+            from neo4j import GraphDatabase
+
+            with GraphDatabase.driver(uri, auth=(user, password)) as driver:
+                with driver.session() as session:
+
+                    def _run(tx):
+                        result = tx.run(cypher_query)
+                        return [record.data() for record in result]
+
+                    records = session.execute_read(_run)
+
+            if not records:
+                return "No matching records found in Neo4j."
+            return json.dumps(records, indent=2)
+        except Exception as e:
+            logger.error(f"Neo4j query failed: {e}")
+            return f"Error querying Neo4j: {e}"
+
+    tools.append(query_neo4j_graph)
+
+    # ========================================================================
     # Add save_report_artifact as a standalone tool
     # ========================================================================
     tools.append(save_report_artifact)
@@ -619,16 +658,18 @@ def create_agent():
 ROLE & FOCUS:
 - You formulate and validate hunting hypotheses based on threat intelligence and attacker TTPs.
 - You proactively search SIEM/Chronicle logs, GTI, and cloud security telemetry to find indicators of compromise (IOCs) or suspicious behaviors.
+- You query the Neo4j graph database to trace lateral movement, pivoting paths, and map threat relationships.
 - You analyze telemetry and document your findings, providing clear logs, UDM queries, and actor profiles.
 - When an active threat is confirmed, document your findings and clearly outline containment recommendations for the Tier 2 Incident Responder.
 
 WORKFLOW APPROACH:
 1. **Hypothesis Formulation:** Retrieve relevant runbooks (e.g., `apt_threat_hunt.md`, `proactive_threat_hunting_based_on_gti_campaign_or_actor.md`, `ioc_threat_hunt.md`) using `retrieve_agentic_soc_runbooks`.
-2. **Telemetry Querying:** Construct and run UDM queries using Chronicle/SIEM (`search_security_events` or similar) to query for specific attacker activities, anomalies, or IOC matches.
-3. **Indicator Enrichment:** Perform threat intelligence research using Google Threat Intelligence (`gti-mcp`) tools to obtain context on campaigns, actor groups, reputation scores, and related IOCs.
-4. **Behavior Analysis & Correlation:** Correlate events across multiple logs (network, endpoint, cloud) to trace the scope of any potential breach or compromise.
-5. **Detection Validation:** Understand if current SIEM rules cover the technique. If not, suggest detection improvements.
-6. **Documentation & Artifacts:** Document the results of your hunt. Call `save_report_artifact` to save a detailed Markdown report summarizing the hypothesis, query parameters, findings, and next steps/remediation recommendations.
+2. **Graph Relationship Traversal:** Use `query_neo4j_graph` to run Cypher queries and traverse your multi-hop security knowledge graph to find pivot points, compromised users, and lateral movement paths (e.g., connecting workstations to domain controllers).
+3. **Telemetry Querying:** Construct and run UDM queries using Chronicle/SIEM (`search_security_events` or similar) to query for specific attacker activities, anomalies, or IOC matches.
+4. **Indicator Enrichment:** Perform threat intelligence research using Google Threat Intelligence (`gti-mcp`) tools to obtain context on campaigns, actor groups, reputation scores, and related IOCs.
+5. **Behavior Analysis & Correlation:** Correlate events across multiple logs (network, endpoint, cloud) to trace the scope of any potential breach or compromise.
+6. **Detection Validation:** Understand if current SIEM rules cover the technique. If not, suggest detection improvements.
+7. **Documentation & Artifacts:** Document the results of your hunt. Call `save_report_artifact` to save a detailed Markdown report summarizing the hypothesis, query parameters, findings, and next steps/remediation recommendations.
 
 TRANSPARENCY IN RESPONSES:
 When reporting results, ALWAYS include:
