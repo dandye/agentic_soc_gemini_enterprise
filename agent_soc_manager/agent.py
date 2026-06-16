@@ -693,7 +693,7 @@ async def search_knowledge_base(query: str, ctx: Context) -> str:
     es_url = os.environ.get("ELASTICSEARCH_URL", "http://localhost:9200")
     es_api_key = os.environ.get("ELASTICSEARCH_API_KEY")
     es_user = os.environ.get("ELASTICSEARCH_USER")
-    es_password = os.environ.get("ELASTICSEARCH_PASSWORD")
+    es_password = get_secret("ELASTICSEARCH_PASSWORD")
     index_name = os.environ.get("ELASTICSEARCH_INDEX", "agentic-soc-runbooks")
 
     try:
@@ -756,7 +756,7 @@ async def query_neo4j_graph(cypher_query: str, ctx: Context) -> str:
 
     uri = os.environ.get("NEO4J_URI", "bolt://localhost:7687")
     user = os.environ.get("NEO4J_USER", "neo4j")
-    password = os.environ.get("NEO4J_PASSWORD", "password")
+    password = get_secret("NEO4J_PASSWORD")
 
     try:
         from neo4j import GraphDatabase
@@ -1179,11 +1179,9 @@ async def delegate_to_tier2_responder(query: str, tool_context: Context) -> str:
     )
     try:
         # Retrieve Tier 2 Agent Engine resource name from environment variables
-        tier2_engine_name = os.environ.get("TIER2_AGENT_RESOURCE_NAME")
+        tier2_engine_name = get_secret("TIER2_AGENT_RESOURCE_NAME")
         if not tier2_engine_name:
-            logger.error(
-                "A2A_DELEGATION_ERROR: TIER2_AGENT_RESOURCE_NAME not set in environment."
-            )
+            logger.error("A2A_DELEGATION_ERROR: TIER2_AGENT_RESOURCE_NAME not set.")
             return "Error: Tier 2 Incident Responder is not currently configured in the environment."
         # Parse the location from the resource name dynamically
         import re
@@ -1293,7 +1291,7 @@ async def delegate_to_threat_hunter(query: str, tool_context: Context) -> str:
     """
     logger.info(f"A2A_DELEGATION: Attempting to delegate to Threat Hunter for: {query}")
     try:
-        engine_name = os.environ.get("THREAT_HUNTER_AGENT_RESOURCE_NAME")
+        engine_name = get_secret("THREAT_HUNTER_AGENT_RESOURCE_NAME")
         if not engine_name:
             logger.error(
                 "A2A_DELEGATION_ERROR: THREAT_HUNTER_AGENT_RESOURCE_NAME not set."
@@ -1377,7 +1375,7 @@ async def delegate_to_cti_researcher(query: str, tool_context: Context) -> str:
         f"A2A_DELEGATION: Attempting to delegate to CTI Researcher for: {query}"
     )
     try:
-        engine_name = os.environ.get("CTI_RESEARCHER_AGENT_RESOURCE_NAME")
+        engine_name = get_secret("CTI_RESEARCHER_AGENT_RESOURCE_NAME")
         if not engine_name:
             logger.error(
                 "A2A_DELEGATION_ERROR: CTI_RESEARCHER_AGENT_RESOURCE_NAME not set."
@@ -1459,7 +1457,7 @@ async def delegate_to_detection_engineer(query: str, tool_context: Context) -> s
         f"A2A_DELEGATION: Attempting to delegate to Detection Engineer for: {query}"
     )
     try:
-        engine_name = os.environ.get("DETECTION_ENGINEER_AGENT_RESOURCE_NAME")
+        engine_name = get_secret("DETECTION_ENGINEER_AGENT_RESOURCE_NAME")
         if not engine_name:
             logger.error(
                 "A2A_DELEGATION_ERROR: DETECTION_ENGINEER_AGENT_RESOURCE_NAME not set."
@@ -1596,6 +1594,33 @@ def create_remote_secops_toolset(region, tool_filter=None) -> McpToolset:
     )
 
 
+def get_secret(secret_name: str, project_id: str | None = None) -> str:
+    """Retrieve a secret from Google Cloud Secret Manager with local env fallback."""
+    val = os.environ.get(secret_name, "")
+    project_id = project_id or os.environ.get("GCP_PROJECT_ID")
+    if not project_id:
+        return val
+
+    try:
+        from google.cloud import secretmanager
+
+        client = secretmanager.SecretManagerServiceClient()
+        name = f"projects/{project_id}/secrets/{secret_name}/versions/latest"
+        response = client.access_secret_version(name=name)
+        secret_val = response.payload.data.decode("UTF-8").strip()
+        if secret_val:
+            logger.info(
+                f"Successfully loaded secret '{secret_name}' from Secret Manager."
+            )
+            return secret_val
+    except Exception as e:
+        logger.debug(
+            f"Secret Manager lookup failed for '{secret_name}': {e}. Using environment fallback."
+        )
+
+    return val
+
+
 def create_agent():
     """
     Create the SOC Orchestrator Agent with specialized sub-agents.
@@ -1682,10 +1707,10 @@ def create_agent():
 
     # SOAR configuration
     SOAR_URL = os.environ.get("SOAR_URL")
-    SOAR_APP_KEY = os.environ.get("SOAR_APP_KEY")
+    SOAR_APP_KEY = get_secret("SOAR_APP_KEY", GCP_PROJECT_ID)
 
     # Google Threat Intelligence configuration
-    GTI_API_KEY = os.environ.get("GTI_API_KEY")
+    GTI_API_KEY = get_secret("GTI_API_KEY", GCP_PROJECT_ID)
 
     # Build container paths statically to ensure container compatibility when pickled
     container_paths = [
