@@ -140,17 +140,35 @@ python manage.py setup  # Alternative Python CLI setup
 
 ## Architecture
 
-### Core Agent Structure
+### Core Multi-Agent Architecture
 
-The agent is defined in `soc_agent/agent.py` and exports a `root_agent` for ADK compatibility:
+The system is designed as a **Coordinated Agent-to-Agent (A2A) Network** consisting of five specialized agents, each packaged as a standalone ADK Reasoning Engine:
 
-- **Model**: `gemini-2.5-pro` (configurable in agent.py)
-- **Tools**: 4 MCP toolsets + RAG retrieval
-  - Chronicle/SIEM (secops_mcp)
-  - SOAR (secops_soar_mcp)
-  - Google Threat Intelligence (gti_mcp)
-  - Security Command Center (scc)
-  - RAG retrieval (Vertex AI RAG)
+1. **Orchestrator (`agent_soc_manager`)**
+   - **Role:** Main entry point for the user. Coordinates investigations, triages incoming alerts, and delegates complex tasks to remote specialists via gRPC.
+   - **Model:** `gemini-3.1-pro-preview`
+   - **Tools:** Integration with SOAR, Security Command Center, Neo4j Graph Database, and Elasticsearch/RAG runbook grounding.
+   - **Sub-agents:** Hosts a local, in-process **Tier 1 SOC Analyst** sub-agent for initial telemetry triaging.
+
+2. **CTI Researcher (`agent_a2a_cti_researcher`)**
+   - **Role:** Threat intelligence specialist. Researches threat actors, malware families, and profiles campaigns.
+   - **Model:** `gemini-2.5-flash`
+   - **Tools:** Direct integration with Google Threat Intelligence (VirusTotal) MCP server and Vertex AI RAG.
+
+3. **Detection Engineer (`agent_a2a_detection_engineer`)**
+   - **Role:** Detection lifecycle specialist. Translates threat behaviors into SIEM detection rules and validates coverage.
+   - **Model:** `gemini-2.5-pro`
+   - **Tools:** Chronicle SIEM rule management and validation.
+
+4. **Threat Hunter (`agent_a2a_threat_hunter`)**
+   - **Role:** Proactive hunting specialist. Hunts for active IOCs and TTPs across security telemetry.
+   - **Model:** `gemini-2.5-pro`
+   - **Tools:** Chronicle SIEM UDM search, threat intelligence caching, and Neo4j graph queries.
+
+5. **Tier 2 Responder (`agent_a2a_tier2`)**
+   - **Role:** Incident responder specialist. Performs containment actions, host isolation, and active mitigation.
+   - **Model:** `gemini-2.5-pro`
+   - **Tools:** SOAR integrations, manual actions, and playbook executions.
 
 ### MCP Integration Pattern
 
@@ -221,84 +239,85 @@ Both interfaces call the same underlying Python modules in `installation_scripts
 
 ```
 .
-├── soc_agent/              # ADK agent module
-│   └── agent.py           # Main agent definition (exports root_agent)
-├── manage.py              # Unified Typer CLI (alternative to justfile)
-├── installation_scripts/  # Management utilities
-│   ├── manage_agent_engine.py
-│   ├── manage_agentspace.py
-│   ├── manage_oauth.py
-│   ├── manage_rag.py
-│   └── manage_datastore.py
-├── mcp-security/          # Git submodule with MCP servers
-│   └── server/
-│       ├── secops/        # Chronicle SIEM MCP server
-│       ├── secops-soar/   # SOAR MCP server
-│       ├── gti/           # Threat Intelligence MCP server
-│       └── scc/           # Security Command Center MCP server
-├── justfile              # Just-based management interface
-├── .env                  # Environment configuration (not in git)
-├── .env.example          # Environment template with docs
-└── requirements.txt      # Python dependencies
+├── agent_soc_manager/          # Orchestrator & Tier 1 Analyst agent module
+│   └── agent.py                # Main orchestrator entry point (exports root_agent)
+├── agent_a2a_cti_researcher/   # CTI Researcher remote agent module
+├── agent_a2a_detection_engineer/# Detection Engineer remote agent module
+├── agent_a2a_threat_hunter/    # Threat Hunter remote agent module
+├── agent_a2a_tier2/            # Tier 2 Incident Responder remote agent module
+├── manage.py                   # Unified Typer CLI (alternative to justfile)
+├── installation_scripts/       # Management utilities
+│   ├── manage_agent_engine.py  # Packaging & deployment to Vertex AI Agent Engine
+│   ├── manage_agentspace.py    # GEAP registration and application linking
+│   ├── manage_elasticsearch.py # Elasticsearch grounding index management
+│   ├── manage_neo4j.py         # Neo4j Graph Database ingestion and tests
+│   ├── manage_oauth.py         # OAuth configuration for GEAP
+│   ├── manage_rag.py           # Vertex AI RAG corpus sync and management
+│   └── harvest_investigations.py # Chronicle SIEM telemetry and case harvesting
+├── external/                   # Git submodules for runbooks and atomic actions
+│   ├── adk_runbooks/           # ADK guidelines, atomic runbooks, and schemas
+│   └── ai-runbooks/            # Security runbooks, guidelines, and IRPs
+├── harvested_investigations/   # Local telemetry & harvested incident files
+│   └── knowledge_graph.json    # Compiled nodes/edges ready for Neo4j ingestion
+├── justfile                    # Just-based developer interface
+├── .env                        # Environment configuration (git-ignored)
+├── .env.example                # Environment template and documentation
+└── requirements.txt            # Python dependencies
 ```
 
 ## Key Implementation Details
 
 ### Agent Creation Flow
 
-1. `soc_agent/agent.py` defines `create_agent()` function
-2. Loads environment from `.env` using `python-dotenv`
-3. Initializes Vertex AI with project/location/staging bucket
-4. Configures 4 MCP toolsets + RAG retrieval
-5. Creates Agent instance with tools and instruction
-6. Exports as `root_agent` at module level
+Every agent follows a consistent ADK Reasoning Engine instantiation pattern:
+1. The agent's `agent.py` (e.g., `agent_soc_manager/agent.py`) defines a `create_agent()` function.
+2. Loads configuration from `.env` using `python-dotenv`.
+3. Initializes the Google GenAI SDK with project, location, and staging bucket settings.
+4. Dynamically registers tools (MCP servers, RAG, custom functions, or A2A gRPC stubs) based on active flags (e.g., `ELASTICSEARCH_GROUNDING_ENABLED`).
+5. Instantiates an `Agent` object with the designated model, tools, and system instructions.
+6. Exports the instantiated agent as `root_agent` at the module level for compatibility with ADK deployment commands.
 
-### MCP Server Execution
+### Agent-to-Agent (A2A) Coordinated Routing
+When the Orchestrator needs to delegate a task to a remote specialist, it calls a custom tool (e.g., `delegate_to_tier2_responder`). Under the hood, this tool:
+- Dynamically resolves the specialist's Reasoning Engine resource name from `.env`.
+- Obtains a regional gRPC client (`RoutingEngineClient`) in the correct GCP region (preventing regional gRPC mismatch).
+- Invokes the remote agent in-session, preserving context, and returns the structured result back to the Orchestrator's prompt.
 
-MCP servers run as stdio subprocesses managed by ADK:
-- Command: `uv` (universal Python package manager)
-- Pattern: `uv --directory <server_path> run server.py`
-- Environment variables passed via `env` dict in StdioServerParameters
-- Service account credentials passed as filename (SECOPS_SA_PATH)
+### Database Grounding Architecture
+- **Elasticsearch Grounding (`search_knowledge_base`):** If `ELASTICSEARCH_GROUNDING_ENABLED=True`, the Orchestrator registers the direct Elasticsearch search tool. This bypasses RAG and queries your GCE Elasticsearch VM directly over port 9200, enabling rapid searching of playbooks and harvested telemetry.
+- **Neo4j Graph Database (`query_neo4j_graph`):** Connects to your GCE Neo4j VM over Bolt protocol on port 7687 to traverse complex threat relationships, alerting paths, and entity associations.
 
-### RAG Corpus Integration
+## Modifying the Agents
 
-RAG retrieval uses Vertex AI RAG service:
-- Corpus ID format: `projects/{project}/locations/{location}/ragCorpora/{corpus_id}`
-- Configured via `VertexAiRagRetrieval` tool
-- Retrieves runbooks, IRPs, common steps, personas
-- Configurable similarity threshold and top-k results
-
-## Modifying the Agent
+To modify any agent in the A2A network, navigate to its respective directory (e.g., `agent_soc_manager/` or `agent_a2a_cti_researcher/`):
 
 ### Changing the Model
-
-Edit `soc_agent/agent.py`:
+Edit the model parameter in the agent's `agent.py`:
 ```python
 agent = Agent(
-    model="gemini-2.5-flash",  # or gemini-2.5-pro, gemini-1.5-pro, etc.
+    model="gemini-3.1-pro-preview",  # or gemini-2.5-pro, gemini-2.5-flash, etc.
     ...
 )
 ```
 
-### Adding/Removing MCP Tools
+### Adding/Removing Tools
+Edit the agent's `agent.py`:
+1. Define your new tool function or configure a new MCP server toolset in `create_agent()`.
+2. Add any required credentials or connection variables to `.env`.
+3. Add the tool to the `tools` list passed to the `Agent()` constructor.
 
-Edit `soc_agent/agent.py`:
-1. Add/remove tool configuration in `create_agent()`
-2. Add environment variables to `.env`
-3. Update `tools` list before creating Agent
-
-### Updating System Prompt
-
-Edit the `instruction` parameter in `Agent()` creation in `soc_agent/agent.py`.
+### Updating System Instructions
+Edit the `instruction` string passed to the `Agent()` constructor in the agent's `agent.py`.
 
 ## Testing Approach
 
 ### Local Testing (Fastest)
+To test any agent locally without deploying it to Google Cloud:
 ```bash
-cd soc_agent && adk web
+cd agent_soc_manager  # Or agent_a2a_cti_researcher, etc.
+adk web
 ```
-Opens web UI at http://localhost:8000 - no deployment required, instant iteration.
+Opens a local ADK Web UI at http://localhost:8000 for instant, interactive testing and rapid prompt engineering iteration.
 
 ### Integration Testing
 ```bash
@@ -388,9 +407,7 @@ python -c "from dotenv import load_dotenv; import os; load_dotenv(); print(os.ge
 
 ## Important Notes
 
-- This is a **worktree** (`rag_runbooks_testing` branch) - changes here are isolated
-- The `mcp-security/` directory is a **git submodule** - update with `git submodule update --init --recursive`
-- Edit source files in `mcp-security/`, not in `.claude/rules_bank/` or `.clinerules/rules_bank/` (those are symlinks)
-- Always validate `.env` configuration before deployment
-- MCP servers expect specific environment variable names (SOAR_APP_KEY, VT_APIKEY, SECOPS_SA_PATH)
-- Service account JSON must be accessible to both the agent and MCP servers
+- This is a **worktree** (`harvest_detection_reports` branch) - changes here are isolated.
+- The runbooks repositories under `external/` are **git submodules** - keep them updated with `git submodule update --init --recursive`.
+- Always validate your `.env` database and credentials configuration before deploying.
+- Service account JSON credentials must be accessible to both the agent and MCP servers.
