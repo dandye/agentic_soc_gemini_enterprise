@@ -18,6 +18,7 @@ from rich.console import Console
 # Import management apps from installation_scripts
 sys.path.insert(0, str(Path(__file__).parent / "installation_scripts"))
 
+from installation_scripts.harvest_investigations import app as harvest_app
 from installation_scripts.manage_agent_engine import app as agent_engine_app
 from installation_scripts.manage_agentspace import app as agentspace_app
 from installation_scripts.manage_chat_ops import app as chatops_app
@@ -65,6 +66,11 @@ app.add_typer(
 )
 app.add_typer(
     models_app, name="models", help="List and discover available Gemini models"
+)
+app.add_typer(
+    harvest_app,
+    name="harvest",
+    help="Harvest and enrich investigations and detections from Chronicle SIEM",
 )
 
 

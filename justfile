@@ -24,6 +24,7 @@ manage_gcs := "installation_scripts/manage_gcs.py"
 manage_vertex_ai := "installation_scripts/manage_vertex_ai.py"
 manage_models := "installation_scripts/manage_models.py"
 manage_secret := "installation_scripts/upload_secret.py"
+manage_harvest := "installation_scripts/harvest_investigations.py"
 
 # Global options for GCS / RAG / Data Store (override on command line)
 bucket := ""
@@ -733,3 +734,14 @@ format:
     else
         echo "No formatter available (install ruff or black)"
     fi
+
+# Harvest and enrich investigations and detections from Chronicle SIEM
+harvest: harvest-investigations harvest-detections
+
+# Harvest and enrich investigations from Chronicle SIEM
+harvest-investigations:
+    {{ python }} {{ manage_harvest }} investigations
+
+# Harvest and enrich alerting detections from Chronicle SIEM
+harvest-detections:
+    {{ python }} {{ manage_harvest }} detections
