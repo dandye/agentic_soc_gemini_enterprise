@@ -8,5 +8,5 @@ __pycache__/
 .DS_Store
 implementation_plan.md
 
-
 .env*
+.env.secops.adc

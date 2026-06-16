@@ -7,9 +7,9 @@ echo "Starting MCP server installation..."
 
 # Install MCP server packages from local directories
 # These directories are copied via extra_packages in the deployment
-pip install -e /code/mcp-security/server/gti
-pip install -e /code/mcp-security/server/secops
-pip install -e /code/mcp-security/server/secops-soar
-pip install -e /code/mcp-security/server/scc
+pip install -e /code/external/mcp-security/server/gti
+pip install -e /code/external/mcp-security/server/secops
+pip install -e /code/external/mcp-security/server/secops-soar
+pip install -e /code/external/mcp-security/server/scc
 
 echo "MCP server packages installed successfully"

@@ -800,6 +800,7 @@ class AgentEngineManager:
                 "GCP_PROJECT_ID": os.environ.get("GCP_PROJECT_ID"),
                 "GCP_LOCATION": os.environ.get("GCP_LOCATION", "us-central1"),
                 "GCP_STAGING_BUCKET": os.environ.get("GCP_STAGING_BUCKET"),
+                "GEMINI_AUTHORIZATION_ID": os.environ.get("OAUTH_AUTH_ID"),
                 "GCP_ARTIFACT_BUCKET": os.environ.get("GCP_ARTIFACT_BUCKET"),
                 "RAG_CORPUS_ID": os.environ.get("RAG_CORPUS_ID"),
                 "SOAR_URL": os.environ.get("SOAR_URL"),
@@ -915,7 +916,8 @@ class AgentEngineManager:
                 "description": description,
                 "requirements": [
                     "cloudpickle",
-                    "google-adk~=2.0.0",
+                    "google-adk~=2.2.0",
+                    # ToDo: do we REALLY need evaluation?
                     "google-cloud-aiplatform[agent-engines,evaluation]~=1.153.0",
                     "pydantic",
                     "python-dotenv",
@@ -1055,6 +1057,19 @@ class AgentEngineManager:
             typer.echo("\n" + "=" * 80)
             typer.secho("Testing Agent Engine", fg=typer.colors.CYAN, bold=True)
             typer.echo("=" * 80 + "\n")
+
+            # Check location in resource name
+            m = re.search(r"locations/([^/]+)/", resource_name)
+            if m:
+                resource_location = m.group(1)
+                if resource_location != self.location:
+                    typer.secho(
+                        f"Resource location '{resource_location}' differs from default location '{self.location}'. Re-initializing Vertex AI...",
+                        fg=typer.colors.YELLOW,
+                    )
+                    self.location = resource_location
+                    vertexai.init(project=self.project, location=self.location)
+                    aiplatform.init(project=self.project, location=self.location)
 
             # Get the agent
             remote_app = agent_engines.get(resource_name)
