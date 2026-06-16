@@ -317,8 +317,18 @@ class EvaluationRunner:
             )
             raise typer.Exit(1)
 
+        # Resolve target location from the agent resource ID path to prevent regional mismatches
+        target_location = self.location
+        if agent_resource.startswith("projects/"):
+            parts = agent_resource.split("/")
+            if len(parts) >= 4 and parts[2] == "locations":
+                target_location = parts[3]
+
+        # Dynamically re-initialize vertexai to ensure the correct regional endpoint is targeted
+        vertexai.init(project=self.project_id, location=target_location)
+
         typer.secho(
-            f"Connecting to live Agent Engine:\n  {agent_resource}\n",
+            f"Connecting to live Agent Engine ({target_location}):\n  {agent_resource}\n",
             fg=typer.colors.CYAN,
         )
         remote_app = agent_engines.get(agent_resource)
