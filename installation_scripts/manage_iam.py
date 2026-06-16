@@ -241,6 +241,12 @@ class IAMManager:
                 "roles": ["roles/aiplatform.user", "roles/aiplatform.viewer"],
                 "purpose": "Call ADK agent from Gemini Enterprise Agent Platform",
             },
+            {
+                "service": "dialogflow",
+                "name": "Dialogflow",
+                "roles": ["roles/aiplatform.user"],
+                "purpose": "Invoke Reasoning Engine from conversational runtime agent",
+            },
         ]
 
         for perm in permissions:
@@ -309,6 +315,11 @@ class IAMManager:
                 "service": "discoveryengine",
                 "name": "Discovery Engine",
                 "roles": ["roles/aiplatform.user", "roles/aiplatform.viewer"],
+            },
+            {
+                "service": "dialogflow",
+                "name": "Dialogflow",
+                "roles": ["roles/aiplatform.user"],
             },
         ]
 
@@ -515,10 +526,11 @@ def list_roles_command(
     SERVICE can be:
     - aiplatform-re: AI Platform Reasoning Engine Service Agent
     - discoveryengine: Discovery Engine Service Account
+    - dialogflow: Dialogflow Service Agent
     """
-    if service not in ["aiplatform-re", "discoveryengine"]:
+    if service not in ["aiplatform-re", "discoveryengine", "dialogflow"]:
         typer.secho(
-            "Invalid service. Must be 'aiplatform-re' or 'discoveryengine'.",
+            "Invalid service. Must be 'aiplatform-re', 'discoveryengine', or 'dialogflow'.",
             fg=typer.colors.RED,
         )
         raise typer.Exit(code=1)
@@ -531,6 +543,7 @@ def list_roles_command(
     service_names = {
         "aiplatform-re": "AI Platform Reasoning Engine Service Agent",
         "discoveryengine": "Discovery Engine Service Account",
+        "dialogflow": "Dialogflow Service Agent",
     }
 
     typer.secho("=" * 50, fg=typer.colors.CYAN)

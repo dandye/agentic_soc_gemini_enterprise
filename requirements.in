@@ -4,6 +4,5 @@ google-cloud-secret-manager
 pydantic
 python-dotenv
 google-auth-oauthlib
-mcp
+mcp[cli]>=1.4.1
 typer
-mcp

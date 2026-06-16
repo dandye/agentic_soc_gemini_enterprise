@@ -51,7 +51,7 @@ This script builds a lean container using a dedicated `requirements.txt` and onl
 
 ## Modernizing Card Templates
 
-A checklist of all modernized cards is available in [modernization_checklist.md](modernization_checklist.md). 
+A checklist of all modernized cards is available in [modernization_checklist.md](modernization_checklist.md).
 
 All card templates (`ai_*.py` and operational cards) have been refactored to use the secure signing logic. When creating new cards, ensure the `get_card` function accepts:
 
@@ -81,9 +81,9 @@ The following specialized cards have been added to support high-fidelity human-i
 
 ## Critical Notes on Session Ownership
 
-When testing in the **Google Cloud Console (Playground)**, the reasoning engine session belongs to a system user. 
+When testing in the **Google Cloud Console (Playground)**, the reasoning engine session belongs to a system user.
 - **Required User ID**: `vais-query-reasoning-engine`.
-- The `generate_test_url.py` script and all card template manual test blocks (`if __name__ == "__main__":`) are pre-configured to use this ID. 
+- The `generate_test_url.py` script and all card template manual test blocks (`if __name__ == "__main__":`) are pre-configured to use this ID.
 - In production, [chatops_tools.py](../chatops_tools.py) automatically extracts the calling user's ID from the ADK context to maintain proper session ownership.
 
 ## Debugging

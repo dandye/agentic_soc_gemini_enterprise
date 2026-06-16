@@ -114,6 +114,18 @@ agent-engine-deploy-pro: check-prereqs
 agent-engine-deploy-tier2: check-prereqs
     just -f {{ justfile() }} agent_module=agent_a2a_tier2 agent-engine-deploy
 
+# Deploy Threat Hunter agent (proactive hunting specialist)
+agent-engine-deploy-threat-hunter: check-prereqs
+    just -f {{ justfile() }} agent_module=agent_a2a_threat_hunter agent-engine-deploy
+
+# Deploy CTI Researcher agent (threat intelligence specialist)
+agent-engine-deploy-cti-researcher: check-prereqs
+    just -f {{ justfile() }} agent_module=agent_a2a_cti_researcher agent-engine-deploy
+
+# Deploy Detection Engineer agent (detection lifecycle specialist)
+agent-engine-deploy-detection-engineer: check-prereqs
+    just -f {{ justfile() }} agent_module=agent_a2a_detection_engineer agent-engine-deploy
+
 # Deploy agent engine and intelligently delete older versions
 agent-engine-deploy-and-delete description="": check-prereqs
     {{ python }} {{ manage_agent_engine }} deploy --agent-module {{ agent_module }} {{ if description != "" { "--description " + quote(description) } else { "" } }}
