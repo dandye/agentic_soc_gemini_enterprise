@@ -1,0 +1,56 @@
+{
+  "evalset_id": "threat_hunting",
+  "name": "Proactive Threat Hunting Workflows",
+  "description": "Tests proactive hunting capability, Cypher query traversal in Neo4j, and UDM event search",
+  "eval_cases": [
+    {
+      "eval_id": "hunt_c2_beaconing",
+      "name": "Hunt - C2 Network Beaconing",
+      "conversation": [
+        {
+          "role": "user",
+          "content": "Perform a threat hunt to identify if any internal workstation in our environment has established active network connections or beaconing to the malicious domain 'superstarts.top'."
+        }
+      ],
+      "reference": {
+        "expected_specialist": "threat_hunter",
+        "tool_trajectory": ["search_security_events", "query_neo4j_graph"],
+        "final_response_must_contain": [
+          "superstarts.top",
+          "connection",
+          "beacon"
+        ],
+        "success_criteria": {
+          "specialist_attribution": true,
+          "tool_name_mentioned": true,
+          "queries_siem_telemetry": true,
+          "provides_impact_assessment": true
+        }
+      }
+    },
+    {
+      "eval_id": "hunt_lateral_movement_path",
+      "name": "Hunt - AD Lateral Movement",
+      "conversation": [
+        {
+          "role": "user",
+          "content": "Conduct a proactive hunt to see if there is any evidence of lateral movement using compromised administrator accounts starting from workstation wrk-shasek."
+        }
+      ],
+      "reference": {
+        "expected_specialist": "threat_hunter",
+        "tool_trajectory": ["query_neo4j_graph", "search_security_events"],
+        "final_response_must_contain": [
+          "wrk-shasek",
+          "lateral movement",
+          "logon"
+        ],
+        "success_criteria": {
+          "specialist_attribution": true,
+          "traverses_knowledge_graph": true,
+          "identifies_pivoting_accounts": true
+        }
+      }
+    }
+  ]
+}
