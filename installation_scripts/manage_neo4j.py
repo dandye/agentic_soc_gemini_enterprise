@@ -310,5 +310,27 @@ def ingest_data(
     manager.ingest_graph()
 
 
+@app.command("recalc")
+def recalc_graph(
+    dir: Annotated[
+        str, typer.Option(help="Directory containing harvested JSONs.")
+    ] = "harvested_investigations",
+) -> None:
+    """Recalculate the SOC Threat Graph from harvested JSON telemetry."""
+    import subprocess
+
+    typer.echo(f"Recalculating graph from {dir}...")
+    script_path = Path(__file__).parent / "recalc_graph.py"
+    cmd = ["python", str(script_path), "--dir", dir]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode == 0:
+        typer.echo(result.stdout)
+        typer.echo("SUCCESS: Graph recalculated successfully!")
+    else:
+        typer.echo("FAILURE: Failed to recalculate graph.", err=True)
+        typer.echo(result.stderr, err=True)
+        raise typer.Exit(code=1)
+
+
 if __name__ == "__main__":
     app()

@@ -830,6 +830,14 @@ neo4j-test:
 neo4j-ingest:
     {{ python }} {{ manage_neo4j }} ingest --env-file {{ env_file }}
 
+# Recalculate the threat graph from harvested investigations
+neo4j-recalc:
+    {{ python }} {{ manage_neo4j }} recalc
+
+# Recalculate and ingest the threat graph into Neo4j
+neo4j-sync: neo4j-recalc neo4j-ingest
+
+
 # Clear all data in the Neo4j database (force=true to skip confirmation)
 neo4j-clear force="false":
     {{ python }} {{ manage_neo4j }} clear {{ if force == "true" { "--force" } else { "" } }} --env-file {{ env_file }}
