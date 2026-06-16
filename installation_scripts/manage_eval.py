@@ -571,6 +571,11 @@ class EvaluationRunner:
         report_path = runs_dir / f"report_{evalset_id}_{timestamp}_{commit_short}.md"
 
         md_content = f"""---
+type: "Evaluation Report"
+title: "Evaluation Report: {evalset_name}"
+description: "Systematic prompt evaluation scorecard for {evalset_name} on commit {commit_short}"
+resource: "file://{report_path.resolve()}"
+timestamp: "{datetime.utcnow().isoformat() + 'Z'}"
 provenance:
   source_type: "generative_ai"
   source_tool: "Antigravity"
@@ -698,6 +703,11 @@ def _save_compare_report(
     )
 
     md_content = f"""---
+type: "Evaluation Comparison Report"
+title: "Evaluation Comparison Report: {evalset_id}"
+description: "Delta analysis between run {base_name} and run {new_name}"
+resource: "file://{report_path.resolve()}"
+timestamp: "{datetime.utcnow().isoformat() + 'Z'}"
 provenance:
   source_type: "generative_ai"
   source_tool: "Antigravity"
