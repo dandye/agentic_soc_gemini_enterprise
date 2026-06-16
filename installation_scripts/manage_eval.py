@@ -748,7 +748,7 @@ Use this log to correlate codebase modifications directly to prompt performance 
 
 
 async def async_run_all(directory: Path, concurrency: int, verbose: bool):
-    """Run all evaluation sets in the directory concurrently with a semaphore limit."""
+    """Run all evaluation sets in the directory sequentially to guarantee stability in gcert/fork-restricted environments."""
     if not directory.exists() or not directory.is_dir():
         typer.secho(f"[ERROR] Directory not found: {directory}", fg=typer.colors.RED)
         raise typer.Exit(1)
@@ -762,7 +762,7 @@ async def async_run_all(directory: Path, concurrency: int, verbose: bool):
 
     typer.echo("\n" + "=" * 80)
     typer.secho(
-        f"LAUNCHING PARALLEL EVALUATIONS (CONCURRENCY LIMIT: {concurrency})",
+        "LAUNCHING SEQUENTIAL EVALUATIONS FOR STABILITY",
         fg=typer.colors.BLUE,
         bold=True,
     )
@@ -772,31 +772,31 @@ async def async_run_all(directory: Path, concurrency: int, verbose: bool):
     runner = EvaluationRunner(Path(".env"))
     # Pre-load git metadata once to prevent gRPC / fork conflicts
     git_meta = runner._get_git_metadata()
-    sem = asyncio.Semaphore(concurrency)
 
-    async def sem_run(file_path: Path):
-        async with sem:
-            try:
-                await runner.async_run_evaluation(
-                    evalset_path=file_path,
-                    resource_name=None,
-                    verbose=verbose,
-                    quiet=True,
-                    git_meta=git_meta,
-                )
-            except Exception as e:
-                typer.secho(
-                    f"[ERROR] Exception running suite {file_path.name}: {e}",
-                    fg=typer.colors.RED,
-                )
+    # Execute suites sequentially to prevent concurrent gRPC resolver crashes
+    for i, file_path in enumerate(evalset_files, start=1):
+        typer.secho(
+            f"\n--- [Suite {i}/{len(evalset_files)}] {file_path.name} ---",
+            fg=typer.colors.CYAN,
+            bold=True,
+        )
+        try:
+            await runner.async_run_evaluation(
+                evalset_path=file_path,
+                resource_name=None,
+                verbose=verbose,
+                quiet=False,
+                git_meta=git_meta,
+            )
+        except Exception as e:
+            typer.secho(
+                f"[ERROR] Exception running suite {file_path.name}: {e}",
+                fg=typer.colors.RED,
+            )
 
-    # Launch all tasks concurrently
-    await asyncio.gather(*(sem_run(f) for f in evalset_files))
     typer.echo("\n" + "=" * 80)
     typer.secho(
-        "ALL CONCURRENT EVALUATIONS COMPLETED SUCCESSFULLY",
-        fg=typer.colors.GREEN,
-        bold=True,
+        "ALL EVALUATIONS COMPLETED SUCCESSFULLY", fg=typer.colors.GREEN, bold=True
     )
     typer.echo("=" * 80 + "\n")
 
