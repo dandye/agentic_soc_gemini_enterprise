@@ -6,3 +6,4 @@ python-dotenv
 google-auth-oauthlib
 mcp
 typer
+mcp[cli]>=1.4.1

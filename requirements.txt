@@ -78,7 +78,7 @@ fsspec==2026.4.0
     # via huggingface-hub
 gepa==0.1.1
     # via google-adk
-google-adk==2.2.0
+google-adk==2.0.0
     # via
     #   -r requirements-dev.txt
     #   -r requirements.in
@@ -147,7 +147,7 @@ google-crc32c==1.8.0
     # via
     #   google-cloud-storage
     #   google-resumable-media
-google-genai==2.8.0
+google-genai==1.75.0
     # via
     #   google-adk
     #   google-cloud-aiplatform
@@ -372,11 +372,10 @@ python-dotenv==1.2.2
     #   -r requirements.in
     #   google-adk
     #   litellm
-    #   pydantic-settings
-python-multipart==0.0.30
-    # via
-    #   google-adk
     #   mcp
+    #   pydantic-settings
+python-multipart==0.0.32
+    # via mcp
 pyyaml==6.0.3
     # via
     #   google-adk
@@ -430,7 +429,7 @@ sniffio==1.3.1
     #   openai
 sse-starlette==3.4.4
     # via mcp
-starlette==1.2.1
+starlette==0.52.1
     # via
     #   fastapi
     #   google-adk
@@ -458,6 +457,7 @@ typer==0.23.1
     # via
     #   -r requirements.in
     #   huggingface-hub
+    #   mcp
 typing-extensions==4.15.0
     # via
     #   aiosignal

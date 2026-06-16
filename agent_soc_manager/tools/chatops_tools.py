@@ -121,7 +121,9 @@ async def dispatch_card(template_name: str, ctx: Context, **kwargs) -> str:
         if chatops_path not in sys.path:
             sys.path.insert(0, chatops_path)
 
-        module = importlib.import_module(f"agent_soc_manager.tools.chatops.{template_name}")
+        module = importlib.import_module(
+            f"agent_soc_manager.tools.chatops.{template_name}"
+        )
         if not hasattr(module, "get_card"):
             return f"Error: Template '{template_name}' does not implement get_card()."
 
