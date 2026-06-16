@@ -414,6 +414,32 @@ async def save_report_artifact(filename: str, report_content: str, ctx: Context)
         return f"Error saving report: {e}"
 
 
+def get_secret(secret_name: str, project_id: str | None) -> str:
+    """Retrieve a secret from Google Cloud Secret Manager with local env fallback."""
+    val = os.environ.get(secret_name, "")
+    if not project_id:
+        return val
+
+    try:
+        from google.cloud import secretmanager
+
+        client = secretmanager.SecretManagerServiceClient()
+        name = f"projects/{project_id}/secrets/{secret_name}/versions/latest"
+        response = client.access_secret_version(name=name)
+        secret_val = response.payload.data.decode("UTF-8").strip()
+        if secret_val:
+            logger.info(
+                f"Successfully loaded secret '{secret_name}' from Secret Manager."
+            )
+            return secret_val
+    except Exception as e:
+        logger.debug(
+            f"Secret Manager lookup failed for '{secret_name}': {e}. Using environment fallback."
+        )
+
+    return val
+
+
 def create_agent():
     """
     Create the standalone CTI Researcher Agent with GTI and threat intelligence tools.
@@ -465,10 +491,10 @@ def create_agent():
 
     # SOAR configuration
     SOAR_URL = os.environ.get("SOAR_URL")
-    SOAR_APP_KEY = os.environ.get("SOAR_APP_KEY")
+    SOAR_APP_KEY = get_secret("SOAR_APP_KEY", GCP_PROJECT_ID)
 
     # Google Threat Intelligence configuration
-    GTI_API_KEY = os.environ.get("GTI_API_KEY")
+    GTI_API_KEY = get_secret("GTI_API_KEY", GCP_PROJECT_ID)
 
     # RAG configuration
     RAG_CORPUS_ID = os.environ.get("RAG_CORPUS_ID")

@@ -628,6 +628,32 @@ async def save_report_artifact(filename: str, report_content: str, ctx: Context)
         return f"Error saving report: {e}"
 
 
+def get_secret(secret_name: str, project_id: str | None) -> str:
+    """Retrieve a secret from Google Cloud Secret Manager with local env fallback."""
+    val = os.environ.get(secret_name, "")
+    if not project_id:
+        return val
+
+    try:
+        from google.cloud import secretmanager
+
+        client = secretmanager.SecretManagerServiceClient()
+        name = f"projects/{project_id}/secrets/{secret_name}/versions/latest"
+        response = client.access_secret_version(name=name)
+        secret_val = response.payload.data.decode("UTF-8").strip()
+        if secret_val:
+            logger.info(
+                f"Successfully loaded secret '{secret_name}' from Secret Manager."
+            )
+            return secret_val
+    except Exception as e:
+        logger.debug(
+            f"Secret Manager lookup failed for '{secret_name}': {e}. Using environment fallback."
+        )
+
+    return val
+
+
 def create_agent():
     """
     Create the standalone Tier 2 Incident Responder Agent with MCP and containment tools.
@@ -656,7 +682,7 @@ def create_agent():
     )
     ELASTICSEARCH_URL = os.environ.get("ELASTICSEARCH_URL", "http://localhost:9200")
     ELASTICSEARCH_USER = os.environ.get("ELASTICSEARCH_USER", "elastic")
-    ELASTICSEARCH_PASSWORD = os.environ.get("ELASTICSEARCH_PASSWORD", "password")
+    ELASTICSEARCH_PASSWORD = get_secret("ELASTICSEARCH_PASSWORD", GCP_PROJECT_ID)
     ELASTICSEARCH_INDEX = os.environ.get("ELASTICSEARCH_INDEX", "agentic-soc-runbooks")
 
     if not CHRONICLE_PROJECT_ID:
@@ -733,10 +759,10 @@ def create_agent():
 
     # SOAR configuration
     SOAR_URL = os.environ.get("SOAR_URL")
-    SOAR_APP_KEY = os.environ.get("SOAR_APP_KEY")
+    SOAR_APP_KEY = get_secret("SOAR_APP_KEY", GCP_PROJECT_ID)
 
     # Google Threat Intelligence configuration
-    GTI_API_KEY = os.environ.get("GTI_API_KEY")
+    GTI_API_KEY = get_secret("GTI_API_KEY", GCP_PROJECT_ID)
 
     try:
         RAG_SIMILARITY_TOP_K = int(os.environ.get("RAG_SIMILARITY_TOP_K", "10"))
@@ -764,7 +790,7 @@ def create_agent():
 
         uri = os.environ.get("NEO4J_URI", "bolt://localhost:7687")
         user = os.environ.get("NEO4J_USER", "neo4j")
-        password = os.environ.get("NEO4J_PASSWORD", "password")
+        password = get_secret("NEO4J_PASSWORD", GCP_PROJECT_ID)
 
         try:
             from neo4j import GraphDatabase
