@@ -5,6 +5,7 @@ Evaluation Management CLI for Security Operations Agents
 This script handles systematic evaluation runs against deployed cloud agents
 using the structured evaluation sets in evalsets/, logs each run in a structured
 local ledger under eval_runs/, and provides regression and trajectory diffing tools.
+All outputs are strictly plain text (no emojis or unicode symbols).
 """
 
 import asyncio
@@ -289,7 +290,7 @@ class EvaluationRunner:
         """Load the evalset and execute all cases against the agent."""
         if not evalset_path.exists():
             typer.secho(
-                f"✗ Evalset file not found: {evalset_path}", fg=typer.colors.RED
+                f"[ERROR] Evalset file not found: {evalset_path}", fg=typer.colors.RED
             )
             raise typer.Exit(1)
 
@@ -310,7 +311,7 @@ class EvaluationRunner:
         agent_resource = resource_name or self._get_agent_resource(evalset_id)
         if not agent_resource:
             typer.secho(
-                f"✗ Could not resolve agent resource name for evalset '{evalset_id}'. "
+                f"[ERROR] Could not resolve agent resource name for evalset '{evalset_id}'. "
                 "Please make sure it is set in .env or passed via --resource.",
                 fg=typer.colors.RED,
             )
@@ -369,7 +370,13 @@ class EvaluationRunner:
         total_score = 0.0
         for eval_id, case_name, res in case_results:
             score_pct = res["score"] * 100
-            status_char = "✓" if score_pct >= 80 else "⚠" if score_pct >= 50 else "✗"
+            status_char = (
+                "[PASS]"
+                if score_pct >= 80
+                else "[WARN]"
+                if score_pct >= 50
+                else "[FAIL]"
+            )
             status_color = (
                 typer.colors.GREEN
                 if score_pct >= 80
@@ -380,7 +387,7 @@ class EvaluationRunner:
 
             typer.echo("  ")
             typer.secho(
-                f"{status_char}  {case_name:<45} {score_pct:>5.1f}%", fg=status_color
+                f"{status_char:<8} {case_name:<45} {score_pct:>5.1f}%", fg=status_color
             )
             total_score += res["score"]
 
@@ -493,7 +500,8 @@ class EvaluationRunner:
             json.dump(run_data, f, indent=2)
 
         typer.secho(
-            f"✓ Saved structured run ledger to:\n  {run_file}\n", fg=typer.colors.GREEN
+            f"[SUCCESS] Saved structured run ledger to:\n  {run_file}\n",
+            fg=typer.colors.GREEN,
         )
 
     def _save_report_artifact(
@@ -537,11 +545,11 @@ provenance:
 """
         for eval_id, case_name, res in case_results:
             status = (
-                "🟢 Pass"
+                "[PASS]"
                 if res["score"] >= 0.8
-                else "🟡 Warning"
+                else "[WARNING]"
                 if res["score"] >= 0.5
-                else "🔴 Fail"
+                else "[FAIL]"
             )
             tools_called = ", ".join([f"`{t}`" for t in res["tool_calls"]]) or "*None*"
             assertions_passed = []
@@ -571,9 +579,9 @@ provenance:
             for k, v in res["assertions"].items():
                 if k == "success_criteria":
                     for ck, cv in v.items():
-                        md_content += f"* {'✅' if cv else '❌'} **{ck}**\n"
+                        md_content += f"* {'[X]' if cv else '[ ]'} **{ck}**\n"
                 else:
-                    md_content += f"* {'✅' if v else '❌'} **{k}**\n"
+                    md_content += f"* {'[X]' if v else '[ ]'} **{k}**\n"
 
             md_content += f"""
 #### Model Final Response
@@ -588,7 +596,7 @@ provenance:
             f.write(md_content)
 
         typer.secho(
-            f"✓ Saved detailed evaluation report to:\n  {report_path}\n",
+            f"[SUCCESS] Saved detailed evaluation report to:\n  {report_path}\n",
             fg=typer.colors.GREEN,
         )
 
@@ -647,7 +655,7 @@ def _save_compare_report(
 provenance:
   source_type: "generative_ai"
   source_tool: "Antigravity"
-  timestamp: "2026-06-16T16:53:00Z"
+  timestamp: "{datetime.utcnow().isoformat() + 'Z'}"
 ---
 # Evaluation Comparison Report: {evalset_id}
 
@@ -688,7 +696,7 @@ Use this log to correlate codebase modifications directly to prompt performance 
         f.write(md_content)
 
     typer.secho(
-        f"✓ Saved detailed comparison report to:\n  {report_path}\n",
+        f"[SUCCESS] Saved detailed comparison report to:\n  {report_path}\n",
         fg=typer.colors.GREEN,
     )
 
@@ -730,7 +738,7 @@ def compare(
     runs_dir = Path("evalsets/eval_runs")
     if not runs_dir.exists() or not list(runs_dir.glob(f"run_{evalset_id}_*.json")):
         typer.secho(
-            f"✗ No evaluation runs found for evalset '{evalset_id}' in eval_runs/",
+            f"[ERROR] No evaluation runs found for evalset '{evalset_id}' in evalsets/eval_runs/",
             fg=typer.colors.RED,
         )
         raise typer.Exit(1)
@@ -742,7 +750,7 @@ def compare(
         matching_runs = sorted(runs_dir.glob(f"run_{evalset_id}_*.json"))
         if len(matching_runs) < 2:
             typer.secho(
-                f"✗ Need at least 2 runs to compare. Only found 1: {matching_runs[0].name}",
+                f"[ERROR] Need at least 2 runs to compare. Only found 1: {matching_runs[0].name}",
                 fg=typer.colors.RED,
             )
             raise typer.Exit(1)
@@ -818,11 +826,11 @@ def compare(
 
         if added_tools:
             trajectory_changes.append(
-                f"  ▲ {case_name}: Added tool calls: {', '.join([f'`{t}`' for t in added_tools])}"
+                f"  [ADDED] {case_name}: Added tool calls: {', '.join([f'`{t}`' for t in added_tools])}"
             )
         if removed_tools:
             trajectory_changes.append(
-                f"  ▼ {case_name}: Stopped calling: {', '.join([f'`{t}`' for t in removed_tools])}"
+                f"  [REMOVED] {case_name}: Stopped calling: {', '.join([f'`{t}`' for t in removed_tools])}"
             )
 
     if trajectory_changes:
@@ -840,7 +848,7 @@ def compare(
         base_commit_hash = base_subs.get(path, "unknown")
         if base_commit_hash != new_commit_hash:
             sub_changes.append(
-                f"  ⚡ Grounding Runbooks (`{path}`): {base_commit_hash[:7]} -> {new_commit_hash[:7]}"
+                f"  [CHANGED] Grounding Runbooks (`{path}`): {base_commit_hash[:7]} -> {new_commit_hash[:7]}"
             )
 
     base_kg = base_data["metadata"]["environment"].get(
@@ -849,7 +857,7 @@ def compare(
     new_kg = new_data["metadata"]["environment"].get("knowledge_graph_hash", "unknown")
     if base_kg != new_kg:
         sub_changes.append(
-            "  ⚡ Threat Graph telemetry (`knowledge_graph.json`) was modified."
+            "  [CHANGED] Threat Graph telemetry (`knowledge_graph.json`) was modified."
         )
 
     if sub_changes:
