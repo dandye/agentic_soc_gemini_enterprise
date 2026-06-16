@@ -88,6 +88,7 @@ INCLUDE_DIRECTORIES = [
     "adk_runbooks/rules-bank/ai",
     "adk_runbooks/rules-bank/multi_agent",
     "adk_runbooks/rules-bank/tools",
+    "harvested_investigations",
 ]
 
 
@@ -253,7 +254,7 @@ class RAGManager:
     def categorize_files(self) -> tuple[list[Path], list[Path]]:
         """Categorize files into keep and remove lists."""
         files = []
-        for source_dir in ["ai-runbooks", "adk_runbooks"]:
+        for source_dir in ["ai-runbooks", "adk_runbooks", "harvested_investigations"]:
             source_path = self.project_root / source_dir
             if source_path.exists():
                 files.extend(source_path.rglob("*.md"))
