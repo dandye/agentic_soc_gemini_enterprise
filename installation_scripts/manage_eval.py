@@ -176,30 +176,47 @@ class EvaluationRunner:
         tool_calls = []
         final_response = ""
 
-        # Stream query execution
-        async for event in remote_app.async_stream_query(
+        # Stream query execution with timeout per chunk/turn
+        generator = remote_app.async_stream_query(
             user_id=user_id, session_id=session_id, message=query
-        ):
-            events.append(event)
+        )
 
-            # Check for tool calls or sub-agent events
-            if "content" in event and "parts" in event["content"]:
-                for part in event["content"]["parts"]:
-                    if "function_call" in part:
-                        tool_name = part["function_call"]["name"]
-                        tool_calls.append(tool_name)
-                        if not quiet:
-                            typer.secho(
-                                f"    [Tool Call] {tool_name}", fg=typer.colors.YELLOW
-                            )
-                    elif "text" in part and verbose and not quiet:
-                        typer.echo(f"    [Thought] {part['text']}")
+        has_timeout = False
+        try:
+            while True:
+                # Wait for the next event with a 300-second (5-minute) timeout
+                event = await asyncio.wait_for(generator.__anext__(), timeout=300.0)
+                events.append(event)
 
-            # Capture final response text
-            if event.get("role") == "model" and "content" in event:
-                for part in event["content"].get("parts", []):
-                    if "text" in part:
-                        final_response += part["text"]
+                # Check for tool calls or sub-agent events
+                if "content" in event and "parts" in event["content"]:
+                    for part in event["content"]["parts"]:
+                        if "function_call" in part:
+                            tool_name = part["function_call"]["name"]
+                            tool_calls.append(tool_name)
+                            if not quiet:
+                                typer.secho(
+                                    f"    [Tool Call] {tool_name}",
+                                    fg=typer.colors.YELLOW,
+                                )
+                        elif "text" in part and verbose and not quiet:
+                            typer.echo(f"    [Thought] {part['text']}")
+
+                # Capture final response text
+                if event.get("role") == "model" and "content" in event:
+                    for part in event["content"].get("parts", []):
+                        if "text" in part:
+                            final_response += part["text"]
+        except StopAsyncIteration:
+            pass
+        except TimeoutError:
+            if not quiet:
+                typer.secho(
+                    "    [TIMEOUT] Case execution timed out after 5 minutes of inactivity.",
+                    fg=typer.colors.RED,
+                    bold=True,
+                )
+            has_timeout = True
 
         # If final_response is still empty, look in the last few event payloads
         if not final_response and events:
@@ -222,6 +239,8 @@ class EvaluationRunner:
             "assertions": {},
             "score": 0.0,
         }
+        if has_timeout:
+            results["error"] = "TIMEOUT"
 
         # Assertion 1: Specialist Attribution
         if expected_specialist:
