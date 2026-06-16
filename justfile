@@ -23,9 +23,10 @@ manage_rag := "installation_scripts/manage_rag.py"
 manage_gcs := "installation_scripts/manage_gcs.py"
 manage_vertex_ai := "installation_scripts/manage_vertex_ai.py"
 manage_models := "installation_scripts/manage_models.py"
-manage_secret := "installation_scripts/upload_secret.py"
+manage_secret := "installation_scripts/manage_secret.py"
 manage_harvest := "installation_scripts/harvest_investigations.py"
 manage_elastic := "installation_scripts/manage_elasticsearch.py"
+manage_eval := "installation_scripts/manage_eval.py"
 manage_neo4j := "installation_scripts/manage_neo4j.py"
 
 # Global options for GCS / RAG / Data Store (override on command line)
@@ -582,6 +583,24 @@ secret-verify:
     fi
     {{ python }} {{ manage_secret }} verify --env-file {{ env_file }} $ARGS
 
+# Sync all agent secrets (SOAR, GTI, DBs) from .env to Secret Manager (use creds=/path/to/sa.json for different account)
+secret-sync:
+    #!/usr/bin/env bash
+    ARGS=""
+    if [ -n "{{ creds }}" ]; then
+        ARGS="--credentials {{ quote(creds) }}"
+    fi
+    {{ python }} {{ manage_secret }} sync --env-file {{ env_file }} $ARGS
+
+# Sync all agent secrets from .env to Secret Manager (skip confirmation, use creds=/path/to/sa.json)
+secret-sync-force:
+    #!/usr/bin/env bash
+    ARGS="--force"
+    if [ -n "{{ creds }}" ]; then
+        ARGS="$ARGS --credentials {{ quote(creds) }}"
+    fi
+    {{ python }} {{ manage_secret }} sync --env-file {{ env_file }} $ARGS
+
 # List all Agent Engine instances
 agent-engine-list:
     {{ python }} {{ manage_agent_engine }} list {{ verbose }}
@@ -680,13 +699,43 @@ eval-basic:
 eval-cti:
     {{ python }} -m google.adk.cli eval {{ agent_module }} evalsets/cti_research.evalset.json
 
+# Run custom CTI Researcher evaluation against the deployed cloud agent
+test-eval-cti:
+    {{ python }} {{ manage_eval }} run -f evalsets/cti_research.evalset.json
+
+# Run custom Detection Engineer evaluation against the deployed cloud agent
+test-eval-detection:
+    {{ python }} {{ manage_eval }} run -f evalsets/detection_engineering.evalset.json
+
+# Run custom Threat Hunter evaluation against the deployed cloud agent
+test-eval-hunt:
+    {{ python }} {{ manage_eval }} run -f evalsets/threat_hunting.evalset.json
+
+# Run custom Tier 2 Responder evaluation against the deployed cloud agent
+test-eval-response:
+    {{ python }} {{ manage_eval }} run -f evalsets/incident_response.evalset.json
+
+# Run custom evaluation for a specific evalset file against its deployed cloud agent (use file=path/to/file)
+test-eval file:
+    {{ python }} {{ manage_eval }} run -f {{ file }}
+
 # Run Tier 1 triage evalset
 eval-tier1:
     {{ python }} -m google.adk.cli eval {{ agent_module }} evalsets/tier1_triage.evalset.json
 
 # Run multi-specialist evalset
-eval-multi:
+eval-tier2:  # alias
     {{ python }} -m google.adk.cli eval {{ agent_module }} evalsets/multi_specialist.evalset.json
+
+# Run custom evaluation on all 7 evalsets
+test-eval-all:
+    {{ python }} {{ manage_eval }} run -f evalsets/soc_basic.evalset.json
+    {{ python }} {{ manage_eval }} run -f evalsets/cti_research.evalset.json
+    {{ python }} {{ manage_eval }} run -f evalsets/detection_engineering.evalset.json
+    {{ python }} {{ manage_eval }} run -f evalsets/threat_hunting.evalset.json
+    {{ python }} {{ manage_eval }} run -f evalsets/incident_response.evalset.json
+    {{ python }} {{ manage_eval }} run -f evalsets/tier1_triage.evalset.json
+    {{ python }} {{ manage_eval }} run -f evalsets/multi_specialist.evalset.json
 
 # Profile agent latency (single run per query)
 profile-latency:
@@ -815,8 +864,9 @@ neo4j-gce-deploy:
     @echo "Deploying GCE VM instance: neo4j-soc-db..."
     gcloud compute instances create neo4j-soc-db \
         --project=$GCP_PROJECT_ID \
-        --zone=$GCP_LOCATION-a \
+        --zone=$NEO4J_VM_ZONE \
         --machine-type=e2-medium \
         --network-interface=network-tier=PREMIUM,subnet=default \
         --tags=neo4j-server \
-        --metadata-from-file=startup-script=installation_scripts/startup_neo4j.sh
+        --metadata=neo4j-password=$NEO4J_PASSWORD \
+        --metadata-from-file=startup-script=gce/startup_neo4j.sh

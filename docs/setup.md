@@ -2,7 +2,7 @@
 provenance:
   source_type: "generative_ai"
   source_tool: "Antigravity"
-  timestamp: "2026-06-16T14:45:00Z"
+  timestamp: "2026-06-16T15:30:00Z"
 ---
 # Getting Started & Setup Guide
 
@@ -56,8 +56,16 @@ These variables are required to connect the Orchestrator and Threat Hunter to yo
 - `NEO4J_URI`: Neo4j Bolt connection URI (e.g. `bolt://${NEO4J_VM_IP}:7687`).
 - `NEO4J_USER` / `NEO4J_PASSWORD`: Neo4j credentials.
 
-### Stage 3: Deployment Outputs
-These variables are auto-populated after running deployment scripts:
+### Stage 3: Deployment & Integration Outputs
+These variables are auto-populated after running deployment and registration scripts:
 - `AGENT_ENGINE_RESOURCE_NAME`: The deployed Orchestrator reasoning engine path.
 - `AGENTSPACE_AGENT_ID`: The registered Gemini Enterprise Agent Platform ID.
 - `AGENTSPACE_APP_ID`: The target Gemini Enterprise application ID.
+
+### Stage 4: OAuth Outputs
+These variables are required to link your agent with the Gemini Enterprise Agent Platform using secure user authentication:
+- `OAUTH_AUTH_ID`: The generated OAuth authorization ID from Discovery Engine.
+- `OAUTH_CLIENT_ID`: The Google Cloud OAuth client ID.
+- `OAUTH_CLIENT_SECRET`: The Google Cloud OAuth client secret.
+- `OAUTH_AUTH_URI`: The OAuth authorization URI.
+- `OAUTH_TOKEN_URI`: The OAuth token exchange URI.

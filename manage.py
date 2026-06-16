@@ -24,12 +24,14 @@ from installation_scripts.manage_agentspace import app as agentspace_app
 from installation_scripts.manage_chat_ops import app as chatops_app
 from installation_scripts.manage_datastore import app as datastore_app
 from installation_scripts.manage_elasticsearch import app as elastic_app
+from installation_scripts.manage_eval import app as eval_app
 from installation_scripts.manage_iam import app as iam_app
 from installation_scripts.manage_memories import app as memories_app
 from installation_scripts.manage_models import app as models_app
 from installation_scripts.manage_neo4j import app as neo4j_app
 from installation_scripts.manage_oauth import app as oauth_app
 from installation_scripts.manage_rag import app as rag_app
+from installation_scripts.manage_secret import app as secret_app
 from installation_scripts.manage_vertex_ai import app as vertex_app
 
 
@@ -54,6 +56,7 @@ app.add_typer(
     help="Manage Gemini Enterprise Agent Platform apps and agents",
 )
 app.add_typer(oauth_app, name="oauth", help="Manage OAuth authorizations")
+app.add_typer(secret_app, name="secret", help="Manage Secret Manager keys")
 app.add_typer(datastore_app, name="datastore", help="Manage data stores")
 app.add_typer(rag_app, name="rag", help="Manage RAG corpora")
 app.add_typer(memories_app, name="memories", help="Manage Agent Engine memories")
@@ -70,6 +73,7 @@ app.add_typer(
     models_app, name="models", help="List and discover available Gemini models"
 )
 app.add_typer(elastic_app, name="elastic", help="Manage Elasticsearch runbook index")
+app.add_typer(eval_app, name="eval", help="Run agent evaluations")
 app.add_typer(
     harvest_app,
     name="harvest",
