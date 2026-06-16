@@ -1,0 +1,72 @@
+{
+  "metadata": {
+    "evalset_id": "incident_response",
+    "timestamp": "2026-06-16T21:25:28.787384Z",
+    "git": {
+      "commit": "1e2a914d3646230f5049e6f661587133cea9a794",
+      "branch": "harvest_detection_reports",
+      "dirty": true,
+      "submodules": {
+        "external/adk_runbooks": "d4ccf85d393eacae34bc006689601f013a03479b",
+        "external/ai-runbooks": "fca5f8eba3fff9964680ae035915c87a74e2f767",
+        "external/mcp-security": "a59f348efe6e71dbc4ae85e959d35b899ca9e1f8"
+      }
+    },
+    "environment": {
+      "project_id": "secops-demo-env",
+      "location": "us-central1",
+      "orchestrator_model": "gemini-3.1-pro-preview",
+      "agent_resource": "projects/813924125873/locations/us-east4/reasoningEngines/5237765531469086720",
+      "knowledge_graph_hash": "f302b2ed2b1665779f40a3e3653a2428"
+    }
+  },
+  "summary": {
+    "total_cases": 2,
+    "average_score": 58.33333333333333,
+    "status": "FAIL"
+  },
+  "cases": {
+    "contain_compromised_host": {
+      "name": "Containment - Isolate Host",
+      "score": 0.5,
+      "tool_calls": [
+        "request_human_confirmation"
+      ],
+      "assertions_passed": [
+        "tool_trajectory"
+      ],
+      "assertions_failed": [
+        "specialist_attribution",
+        "keyword_matching"
+      ],
+      "success_criteria_passed": [
+        "initiates_containment_action",
+        "requests_human_approval"
+      ],
+      "success_criteria_failed": [
+        "specialist_attribution"
+      ]
+    },
+    "mitigate_compromised_user": {
+      "name": "Mitigation - Disable User",
+      "score": 0.6666666666666666,
+      "tool_calls": [
+        "request_human_confirmation"
+      ],
+      "assertions_passed": [
+        "tool_trajectory",
+        "keyword_matching"
+      ],
+      "assertions_failed": [
+        "specialist_attribution"
+      ],
+      "success_criteria_passed": [
+        "initiates_mitigation_action",
+        "requests_human_approval"
+      ],
+      "success_criteria_failed": [
+        "specialist_attribution"
+      ]
+    }
+  }
+}
