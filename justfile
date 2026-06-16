@@ -727,15 +727,9 @@ eval-tier1:
 eval-tier2:  # alias
     {{ python }} -m google.adk.cli eval {{ agent_module }} evalsets/multi_specialist.evalset.json
 
-# Run custom evaluation on all 7 evalsets
+# Run all 7 evaluation sets concurrently (concurrency limit = 3)
 test-eval-all:
-    {{ python }} {{ manage_eval }} run -f evalsets/soc_basic.evalset.json
-    {{ python }} {{ manage_eval }} run -f evalsets/cti_research.evalset.json
-    {{ python }} {{ manage_eval }} run -f evalsets/detection_engineering.evalset.json
-    {{ python }} {{ manage_eval }} run -f evalsets/threat_hunting.evalset.json
-    {{ python }} {{ manage_eval }} run -f evalsets/incident_response.evalset.json
-    {{ python }} {{ manage_eval }} run -f evalsets/tier1_triage.evalset.json
-    {{ python }} {{ manage_eval }} run -f evalsets/multi_specialist.evalset.json
+    {{ python }} {{ manage_eval }} run-all --dir evalsets --concurrency 3
 
 # Compare evaluation runs and view deltas (use evalset=id)
 test-compare evalset:

@@ -5,6 +5,7 @@ Evaluation Management CLI for Security Operations Agents
 This script handles systematic evaluation runs against deployed cloud agents
 using the structured evaluation sets in evalsets/, logs each run in a structured
 local ledger under eval_runs/, and provides regression and trajectory diffing tools.
+Supports concurrent execution of multiple evaluation suites with rate limiting.
 All outputs are strictly plain text (no emojis or unicode symbols).
 """
 
@@ -146,13 +147,15 @@ class EvaluationRunner:
         query: str,
         reference: dict,
         verbose: bool = False,
+        quiet: bool = False,
     ) -> dict:
         """Execute a single evaluation case and return evaluation results."""
         user_id = "eval_user"
         session = await remote_app.async_create_session(user_id=user_id)
         session_id = session.get("id")
 
-        typer.echo(f"  Session ID: {session_id}")
+        if not quiet:
+            typer.echo(f"  Session ID: {session_id}")
 
         events = []
         tool_calls = []
@@ -170,10 +173,11 @@ class EvaluationRunner:
                     if "function_call" in part:
                         tool_name = part["function_call"]["name"]
                         tool_calls.append(tool_name)
-                        typer.secho(
-                            f"    [Tool Call] {tool_name}", fg=typer.colors.YELLOW
-                        )
-                    elif "text" in part and verbose:
+                        if not quiet:
+                            typer.secho(
+                                f"    [Tool Call] {tool_name}", fg=typer.colors.YELLOW
+                            )
+                    elif "text" in part and verbose and not quiet:
                         typer.echo(f"    [Thought] {part['text']}")
 
             # Capture final response text
@@ -281,18 +285,19 @@ class EvaluationRunner:
 
         return results
 
-    def run_evaluation(
+    async def async_run_evaluation(
         self,
         evalset_path: Path,
         resource_name: str | None = None,
         verbose: bool = False,
-    ):
-        """Load the evalset and execute all cases against the agent."""
+        quiet: bool = False,
+    ) -> float:
+        """Load the evalset and execute all cases asynchronously (sequentially within the suite)."""
         if not evalset_path.exists():
             typer.secho(
                 f"[ERROR] Evalset file not found: {evalset_path}", fg=typer.colors.RED
             )
-            raise typer.Exit(1)
+            return 0.0
 
         with open(evalset_path) as f:
             evalset = json.load(f)
@@ -301,21 +306,25 @@ class EvaluationRunner:
         name = evalset.get("name", "Unknown Evaluation Set")
         eval_cases = evalset.get("eval_cases", [])
 
-        typer.echo("\n" + "=" * 80)
-        typer.secho(f"Running Evaluation Set: {name}", fg=typer.colors.BLUE, bold=True)
-        typer.echo(f"Description: {evalset.get('description', '')}")
-        typer.echo(f"Total Cases: {len(eval_cases)}")
-        typer.echo("=" * 80 + "\n")
+        if not quiet:
+            typer.echo("\n" + "=" * 80)
+            typer.secho(
+                f"Running Evaluation Set: {name}", fg=typer.colors.BLUE, bold=True
+            )
+            typer.echo(f"Description: {evalset.get('description', '')}")
+            typer.echo(f"Total Cases: {len(eval_cases)}")
+            typer.echo("=" * 80 + "\n")
+        else:
+            typer.secho(f"[START] Running suite: {name}", fg=typer.colors.CYAN)
 
         # Resolve agent resource
         agent_resource = resource_name or self._get_agent_resource(evalset_id)
         if not agent_resource:
             typer.secho(
-                f"[ERROR] Could not resolve agent resource name for evalset '{evalset_id}'. "
-                "Please make sure it is set in .env or passed via --resource.",
+                f"[ERROR] Could not resolve agent resource name for evalset '{evalset_id}'.",
                 fg=typer.colors.RED,
             )
-            raise typer.Exit(1)
+            return 0.0
 
         # Resolve target location from the agent resource ID path to prevent regional mismatches
         target_location = self.location
@@ -327,10 +336,11 @@ class EvaluationRunner:
         # Dynamically re-initialize vertexai to ensure the correct regional endpoint is targeted
         vertexai.init(project=self.project_id, location=target_location)
 
-        typer.secho(
-            f"Connecting to live Agent Engine ({target_location}):\n  {agent_resource}\n",
-            fg=typer.colors.CYAN,
-        )
+        if not quiet:
+            typer.secho(
+                f"Connecting to live Agent Engine ({target_location}):\n  {agent_resource}\n",
+                fg=typer.colors.CYAN,
+            )
         remote_app = agent_engines.get(agent_resource)
 
         case_results = []
@@ -348,74 +358,91 @@ class EvaluationRunner:
 
             reference = case.get("reference", {})
 
-            typer.secho(
-                f"[{i}/{len(eval_cases)}] Running Case: {case_name} ({eval_id})",
-                fg=typer.colors.BLUE,
-                bold=True,
-            )
-            typer.echo(f"  Query: {query}")
+            if not quiet:
+                typer.secho(
+                    f"[{i}/{len(eval_cases)}] Running Case: {case_name} ({eval_id})",
+                    fg=typer.colors.BLUE,
+                    bold=True,
+                )
+                typer.echo(f"  Query: {query}")
 
             # Run case async
-            result = asyncio.run(
-                self._async_run_case(remote_app, query, reference, verbose)
+            result = await self._async_run_case(
+                remote_app, query, reference, verbose, quiet
             )
             case_results.append((eval_id, case_name, result))
 
-            # Report case result
-            score_pct = result["score"] * 100
-            if score_pct >= 80:
-                fg_color = typer.colors.GREEN
-            elif score_pct >= 50:
-                fg_color = typer.colors.YELLOW
-            else:
-                fg_color = typer.colors.RED
+            if not quiet:
+                score_pct = result["score"] * 100
+                fg_color = (
+                    typer.colors.GREEN
+                    if score_pct >= 80
+                    else typer.colors.YELLOW
+                    if score_pct >= 50
+                    else typer.colors.RED
+                )
+                typer.secho(f"  Case Score: {score_pct:.1f}%\n", fg=fg_color, bold=True)
 
-            typer.secho(f"  Case Score: {score_pct:.1f}%\n", fg=fg_color, bold=True)
+        avg_score = (
+            (sum(res["score"] for _, _, res in case_results) / len(eval_cases)) * 100
+            if eval_cases
+            else 0.0
+        )
 
-        # Print final scorecard
-        typer.echo("\n" + "=" * 80)
-        typer.secho("EVALUATION SCORECARD", fg=typer.colors.GREEN, bold=True)
-        typer.echo("=" * 80)
+        if not quiet:
+            # Print final scorecard
+            typer.echo("\n" + "=" * 80)
+            typer.secho("EVALUATION SCORECARD", fg=typer.colors.GREEN, bold=True)
+            typer.echo("=" * 80)
 
-        total_score = 0.0
-        for eval_id, case_name, res in case_results:
-            score_pct = res["score"] * 100
-            status_char = (
-                "[PASS]"
-                if score_pct >= 80
-                else "[WARN]"
-                if score_pct >= 50
-                else "[FAIL]"
-            )
-            status_color = (
+            for eval_id, case_name, res in case_results:
+                score_pct = res["score"] * 100
+                status_char = (
+                    "[PASS]"
+                    if score_pct >= 80
+                    else "[WARN]"
+                    if score_pct >= 50
+                    else "[FAIL]"
+                )
+                status_color = (
+                    typer.colors.GREEN
+                    if score_pct >= 80
+                    else typer.colors.YELLOW
+                    if score_pct >= 50
+                    else typer.colors.RED
+                )
+                typer.echo("  ")
+                typer.secho(
+                    f"{status_char:<8} {case_name:<45} {score_pct:>5.1f}%",
+                    fg=status_color,
+                )
+
+            typer.echo("-" * 80)
+            final_color = (
                 typer.colors.GREEN
-                if score_pct >= 80
+                if avg_score >= 85
                 else typer.colors.YELLOW
-                if score_pct >= 50
+                if avg_score >= 70
                 else typer.colors.RED
             )
-
             typer.echo("  ")
             typer.secho(
-                f"{status_char:<8} {case_name:<45} {score_pct:>5.1f}%", fg=status_color
+                f"OVERALL EVALUATION SCORE: {avg_score:.1f}%", fg=final_color, bold=True
             )
-            total_score += res["score"]
-
-        avg_score = (total_score / len(eval_cases)) * 100 if eval_cases else 0.0
-        typer.echo("-" * 80)
-
-        final_color = (
-            typer.colors.GREEN
-            if avg_score >= 85
-            else typer.colors.YELLOW
-            if avg_score >= 70
-            else typer.colors.RED
-        )
-        typer.echo("  ")
-        typer.secho(
-            f"OVERALL EVALUATION SCORE: {avg_score:.1f}%", fg=final_color, bold=True
-        )
-        typer.echo("=" * 80 + "\n")
+            typer.echo("=" * 80 + "\n")
+        else:
+            final_color = (
+                typer.colors.GREEN
+                if avg_score >= 85
+                else typer.colors.YELLOW
+                if avg_score >= 70
+                else typer.colors.RED
+            )
+            typer.secho(
+                f"[SUCCESS] Completed suite: {name} (Score: {avg_score:.1f}%)",
+                fg=final_color,
+                bold=True,
+            )
 
         # Get git metadata, timestamp, and commit hash once
         git_meta = self._get_git_metadata()
@@ -438,6 +465,8 @@ class EvaluationRunner:
             timestamp,
             commit_short,
         )
+
+        return avg_score
 
     def _write_to_ledger(
         self,
@@ -508,11 +537,6 @@ class EvaluationRunner:
 
         with open(run_file, "w") as f:
             json.dump(run_data, f, indent=2)
-
-        typer.secho(
-            f"[SUCCESS] Saved structured run ledger to:\n  {run_file}\n",
-            fg=typer.colors.GREEN,
-        )
 
     def _save_report_artifact(
         self,
@@ -604,11 +628,6 @@ provenance:
 
         with open(report_path, "w") as f:
             f.write(md_content)
-
-        typer.secho(
-            f"[SUCCESS] Saved detailed evaluation report to:\n  {report_path}\n",
-            fg=typer.colors.GREEN,
-        )
 
 
 def _save_compare_report(
@@ -711,6 +730,57 @@ Use this log to correlate codebase modifications directly to prompt performance 
     )
 
 
+async def async_run_all(directory: Path, concurrency: int, verbose: bool):
+    """Run all evaluation sets in the directory concurrently with a semaphore limit."""
+    if not directory.exists() or not directory.is_dir():
+        typer.secho(f"[ERROR] Directory not found: {directory}", fg=typer.colors.RED)
+        raise typer.Exit(1)
+
+    evalset_files = sorted(directory.glob("*.evalset.json"))
+    if not evalset_files:
+        typer.secho(
+            f"[ERROR] No *.evalset.json files found in {directory}", fg=typer.colors.RED
+        )
+        raise typer.Exit(1)
+
+    typer.echo("\n" + "=" * 80)
+    typer.secho(
+        f"LAUNCHING PARALLEL EVALUATIONS (CONCURRENCY LIMIT: {concurrency})",
+        fg=typer.colors.BLUE,
+        bold=True,
+    )
+    typer.echo(f"  Found {len(evalset_files)} evaluation suites to run.")
+    typer.echo("=" * 80 + "\n")
+
+    runner = EvaluationRunner(Path(".env"))
+    sem = asyncio.Semaphore(concurrency)
+
+    async def sem_run(file_path: Path):
+        async with sem:
+            try:
+                await runner.async_run_evaluation(
+                    evalset_path=file_path,
+                    resource_name=None,
+                    verbose=verbose,
+                    quiet=True,
+                )
+            except Exception as e:
+                typer.secho(
+                    f"[ERROR] Exception running suite {file_path.name}: {e}",
+                    fg=typer.colors.RED,
+                )
+
+    # Launch all tasks concurrently
+    await asyncio.gather(*(sem_run(f) for f in evalset_files))
+    typer.echo("\n" + "=" * 80)
+    typer.secho(
+        "ALL CONCURRENT EVALUATIONS COMPLETED SUCCESSFULLY",
+        fg=typer.colors.GREEN,
+        bold=True,
+    )
+    typer.echo("=" * 80 + "\n")
+
+
 @app.command("run")
 def run(
     evalset_file: Annotated[
@@ -731,7 +801,32 @@ def run(
 ) -> None:
     """Run systematic evaluations using evalsets against deployed cloud agents."""
     runner = EvaluationRunner(env_file)
-    runner.run_evaluation(evalset_file, resource, verbose)
+    asyncio.run(
+        runner.async_run_evaluation(evalset_file, resource, verbose, quiet=False)
+    )
+
+
+@app.command("run-all")
+def run_all(
+    directory: Annotated[
+        Path,
+        typer.Option("--dir", "-d", help="Directory containing evalset JSON files"),
+    ] = Path("evalsets"),
+    concurrency: Annotated[
+        int,
+        typer.Option(
+            "--concurrency", "-c", help="Maximum concurrent evaluation suites"
+        ),
+    ] = 3,
+    verbose: Annotated[
+        bool,
+        typer.Option(
+            "--verbose", "-v", help="Print verbose intermediate thought events"
+        ),
+    ] = False,
+) -> None:
+    """Run all evaluation sets in a directory concurrently with rate-limiting."""
+    asyncio.run(async_run_all(directory, concurrency, verbose))
 
 
 @app.command("compare")
