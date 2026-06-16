@@ -39,10 +39,10 @@ and printing the exact list of code changes (the changelog) alongside the evalua
 
 ## 2. Evaluation Ledger Directory Structure
 
-All evaluation runs are recorded in structured JSON format under the `eval_runs/` directory.
+All evaluation runs are recorded in structured JSON format under the `evalsets/eval_runs/` directory.
 
 ```text
-eval_runs/
+evalsets/eval_runs/
 ├── run_cti_research_20260616T164245_5f98630.json
 ├── run_threat_hunting_20260616T164512_ae57e3e.json
 └── ...
@@ -75,7 +75,7 @@ python manage.py eval compare cti_research
 
 To compare two specific evaluation runs directly:
 ```bash
-python manage.py eval compare cti_research --base eval_runs/run_base.json --new eval_runs/run_new.json
+python manage.py eval compare cti_research --base evalsets/eval_runs/run_base.json --new evalsets/eval_runs/run_new.json
 ```
 
 ### Output Features:
