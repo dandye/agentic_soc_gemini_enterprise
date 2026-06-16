@@ -69,5 +69,8 @@ graph TD
 
 ## 4. Related Technical Research
 
-As Google Cloud's metadata and data governance tooling evolves, we need to actively research and align our metadata architecture with upcoming platform capabilities:
-* **Dataplex Catalog to Knowledge Catalog transition:** Research how Google Cloud's transition from Dataplex Catalog to **Knowledge Catalog** impacts our metadata indexing, RAG grounding, and ontology representation, particularly regarding how our OKF metadata schema can be mapped or ingested directly.
+As Google Cloud's metadata and data governance tooling evolves, we must actively research and align our metadata architecture with upcoming platform capabilities:
+* **Dataplex Catalog to Knowledge Catalog transition:**
+  * **Core Concept:** Google Cloud's **Knowledge Catalog** (the AI-powered successor to Dataplex Catalog) acts as an enterprise-grade metadata management platform. It provides a **dynamic knowledge graph** of both structured and unstructured data, delivering deep semantics and business context to AI agents.
+  * **OKF Integration:** Research how our newly adopted **Open Knowledge Format (OKF)** bundles (which standardize human-and-agent-friendly markdown metadata) can be directly ingested, mapped, and queried within the Knowledge Catalog to serve as the unified grounding layer for our multi-agent SOC network.
+  * **Semantic Traversal:** Study how the Knowledge Catalog's dynamic graph model can be correlated with our Neo4j Security Operations Knowledge Graph to enable cross-system entity traversal and threat prevalence mapping.
