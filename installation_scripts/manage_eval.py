@@ -291,6 +291,7 @@ class EvaluationRunner:
         resource_name: str | None = None,
         verbose: bool = False,
         quiet: bool = False,
+        git_meta: dict | None = None,
     ) -> float:
         """Load the evalset and execute all cases asynchronously (sequentially within the suite)."""
         if not evalset_path.exists():
@@ -445,7 +446,8 @@ class EvaluationRunner:
             )
 
         # Get git metadata, timestamp, and commit hash once
-        git_meta = self._get_git_metadata()
+        if not git_meta:
+            git_meta = self._get_git_metadata()
         timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
         commit_short = git_meta["commit"][:7]
 
@@ -753,6 +755,8 @@ async def async_run_all(directory: Path, concurrency: int, verbose: bool):
     typer.echo("=" * 80 + "\n")
 
     runner = EvaluationRunner(Path(".env"))
+    # Pre-load git metadata once to prevent gRPC / fork conflicts
+    git_meta = runner._get_git_metadata()
     sem = asyncio.Semaphore(concurrency)
 
     async def sem_run(file_path: Path):
@@ -763,6 +767,7 @@ async def async_run_all(directory: Path, concurrency: int, verbose: bool):
                     resource_name=None,
                     verbose=verbose,
                     quiet=True,
+                    git_meta=git_meta,
                 )
             except Exception as e:
                 typer.secho(
