@@ -449,10 +449,18 @@ class AgentEngineManager:
 
     def get_agents_by_display_name(self, display_name: str) -> list[dict]:
         """
-        Find all Agent Engine instances with a specific display name.
+        Find all Agent Engine instances with a specific display name (supporting exact match or prefix with timestamp).
         """
         agents = self.list_agents(verbose=False)
-        return [a for a in agents if a.get("display_name") == display_name]
+        return [
+            a
+            for a in agents
+            if a.get("display_name") == display_name
+            or (
+                a.get("display_name")
+                and a.get("display_name").startswith(f"{display_name} - ")
+            )
+        ]
 
     def delete_agent(self, resource_name: str, force: bool = False) -> bool:
         """
@@ -879,18 +887,22 @@ class AgentEngineManager:
 
             # Determine display name based on agent module
             if agent_module == "agent_a2a_tier2":
-                display_name = "SecOps Security Agent - Tier 2"
+                base_name = "SecOps Security Agent - Tier 2"
             elif agent_module == "agent_a2a_threat_hunter":
-                display_name = "SecOps Security Agent - Threat Hunter"
+                base_name = "SecOps Security Agent - Threat Hunter"
             elif agent_module == "agent_a2a_cti_researcher":
-                display_name = "SecOps Security Agent - CTI Researcher"
+                base_name = "SecOps Security Agent - CTI Researcher"
             elif agent_module == "agent_a2a_detection_engineer":
-                display_name = "SecOps Security Agent - Detection Engineer"
+                base_name = "SecOps Security Agent - Detection Engineer"
             elif agent_module == "agent_soc_manager":
-                display_name = "SecOps Security Agent - Orchestrator"
+                base_name = "SecOps Security Agent - Orchestrator"
             else:
                 # For any future agent modules, use the module name as-is
-                display_name = f"SecOps Security Agent - {agent_module}"
+                base_name = f"SecOps Security Agent - {agent_module}"
+
+            # Append timestamp to display name
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            display_name = f"{base_name} - {timestamp}"
 
             # Ensure we do not break Gemini Enterprise Proxy UI Schemas natively generating '500 Server Errors'
             typer.echo("Configuring Workspace Endpoint Schema Compatibility Profile...")
