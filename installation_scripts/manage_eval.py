@@ -38,9 +38,17 @@ class EvaluationRunner:
         self.env_vars = self._load_env_vars()
         self.project_id = self.env_vars.get("GCP_PROJECT_ID")
         self.location = self.env_vars.get("GCP_LOCATION", "us-central1")
+        self._client_lock = None
 
         if self.project_id:
             vertexai.init(project=self.project_id, location=self.location)
+
+    @property
+    def client_lock(self) -> asyncio.Lock:
+        """Lazy-loaded lock to serialize regional client creation."""
+        if self._client_lock is None:
+            self._client_lock = asyncio.Lock()
+        return self._client_lock
 
     def _load_env_vars(self) -> dict[str, str]:
         """Load environment variables from .env."""
@@ -334,15 +342,15 @@ class EvaluationRunner:
             if len(parts) >= 4 and parts[2] == "locations":
                 target_location = parts[3]
 
-        # Dynamically re-initialize vertexai to ensure the correct regional endpoint is targeted
-        vertexai.init(project=self.project_id, location=target_location)
-
-        if not quiet:
-            typer.secho(
-                f"Connecting to live Agent Engine ({target_location}):\n  {agent_resource}\n",
-                fg=typer.colors.CYAN,
-            )
-        remote_app = agent_engines.get(agent_resource)
+        # Serialize regional client instantiation to prevent global config races
+        async with self.client_lock:
+            vertexai.init(project=self.project_id, location=target_location)
+            if not quiet:
+                typer.secho(
+                    f"Connecting to live Agent Engine ({target_location}):\n  {agent_resource}\n",
+                    fg=typer.colors.CYAN,
+                )
+            remote_app = agent_engines.get(agent_resource)
 
         case_results = []
         for i, case in enumerate(eval_cases, start=1):
