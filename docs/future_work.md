@@ -64,3 +64,10 @@ graph TD
 * **Phase 1: Structured Write Tools:** Develop the parameterized Python helper functions for Neo4j CRUD operations, ensuring zero raw Cypher generation by the LLM.
 * **Phase 2: Agent Integration:** Equip the Orchestrator and Threat Hunter with the new tools, updating their system instructions to explain *when* and *how* to log new findings to the graph.
 * **Phase 3: Test Isolation & Regression Runs:** Integrate the isolated Neo4j re-seeding script into `manage_eval.py`, running regression tests to verify that dynamic writes improve overall threat correlation without introducing hallucinations.
+
+---
+
+## 4. Related Technical Research
+
+As Google Cloud's metadata and data governance tooling evolves, we need to actively research and align our metadata architecture with upcoming platform capabilities:
+* **Dataplex Catalog to Knowledge Catalog transition:** Research how Google Cloud's transition from Dataplex Catalog to **Knowledge Catalog** impacts our metadata indexing, RAG grounding, and ontology representation, particularly regarding how our OKF metadata schema can be mapped or ingested directly.
