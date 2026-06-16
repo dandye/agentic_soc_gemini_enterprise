@@ -182,6 +182,8 @@ class EvaluationRunner:
         )
 
         has_timeout = False
+        has_error = False
+        error_msg = ""
         try:
             while True:
                 # Wait for the next event with a 300-second (5-minute) timeout
@@ -217,6 +219,15 @@ class EvaluationRunner:
                     bold=True,
                 )
             has_timeout = True
+        except Exception as e:
+            if not quiet:
+                typer.secho(
+                    f"    [ERROR] Exception occurred during stream execution: {str(e)}",
+                    fg=typer.colors.RED,
+                    bold=True,
+                )
+            has_error = True
+            error_msg = str(e)
 
         # If final_response is still empty, look in the last few event payloads
         if not final_response and events:
@@ -241,6 +252,8 @@ class EvaluationRunner:
         }
         if has_timeout:
             results["error"] = "TIMEOUT"
+        elif has_error:
+            results["error"] = f"ERROR: {error_msg}"
 
         # Assertion 1: Specialist Attribution
         if expected_specialist:
