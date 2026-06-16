@@ -361,7 +361,7 @@ pygments==2.20.0
     # via rich
 pyjwt==2.13.0
     # via mcp
-pyopenssl==26.2.0
+pyopenssl>=24.0.0
     # via google-auth
 python-dateutil==2.9.0.post0
     # via
