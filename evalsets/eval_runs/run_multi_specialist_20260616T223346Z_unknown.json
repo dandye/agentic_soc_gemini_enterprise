@@ -1,0 +1,215 @@
+{
+  "metadata": {
+    "evalset_id": "multi_specialist",
+    "timestamp": "2026-06-16T22:33:46.205265Z",
+    "git": {
+      "commit": "unknown",
+      "branch": "unknown",
+      "dirty": false,
+      "submodules": {}
+    },
+    "environment": {
+      "project_id": "secops-demo-env",
+      "location": "us-central1",
+      "orchestrator_model": "gemini-3.1-pro-preview",
+      "agent_resource": "projects/813924125873/locations/us-east4/reasoningEngines/427921129437396992",
+      "knowledge_graph_hash": "f302b2ed2b1665779f40a3e3653a2428"
+    }
+  },
+  "summary": {
+    "total_cases": 5,
+    "average_score": 70.47619047619047,
+    "status": "WARNING"
+  },
+  "cases": {
+    "runbook_then_investigate": {
+      "name": "Multi-Step: Runbook + Investigation",
+      "score": 0.7142857142857143,
+      "tool_calls": [
+        "search_knowledge_base",
+        "search_knowledge_base",
+        "search_knowledge_base",
+        "load_memory",
+        "delegate_to_threat_hunter",
+        "query_neo4j_graph"
+      ],
+      "assertions_passed": [
+        "keyword_matching"
+      ],
+      "assertions_failed": [
+        "tool_trajectory"
+      ],
+      "success_criteria_passed": [
+        "mentions_runbook_retrieval",
+        "mentions_cti_specialist",
+        "combines_both_outputs",
+        "clear_workflow_structure"
+      ],
+      "success_criteria_failed": [
+        "has_grounding_citation"
+      ]
+    },
+    "threat_actor_local_correlation": {
+      "name": "Threat Intel + Local Correlation",
+      "score": 0.8333333333333334,
+      "tool_calls": [
+        "delegate_to_cti_researcher",
+        "delegate_to_threat_hunter",
+        "deliver_report"
+      ],
+      "assertions_passed": [
+        "specialist_attribution",
+        "keyword_matching"
+      ],
+      "assertions_failed": [
+        "tool_trajectory"
+      ],
+      "success_criteria_passed": [
+        "specialist_attribution",
+        "combines_external_and_internal",
+        "final_response_must_contain"
+      ],
+      "success_criteria_failed": []
+    },
+    "lateral_movement_hunt": {
+      "name": "Complex Threat Hunting - Lateral Movement",
+      "score": 0.5714285714285714,
+      "tool_calls": [
+        "delegate_to_threat_hunter"
+      ],
+      "assertions_passed": [
+        "keyword_matching"
+      ],
+      "assertions_failed": [
+        "specialist_attribution",
+        "tool_trajectory"
+      ],
+      "success_criteria_passed": [
+        "includes_udm_query",
+        "maps_to_mitre_attack",
+        "final_response_must_contain"
+      ],
+      "success_criteria_failed": [
+        "specialist_attribution"
+      ]
+    },
+    "incident_workflow_phishing_to_compromise": {
+      "name": "Incident Workflow - Phishing to Compromise",
+      "score": 0.8333333333333334,
+      "tool_calls": [
+        "search_knowledge_base",
+        "search_knowledge_base",
+        "search_knowledge_base",
+        "transfer_to_agent",
+        "list_skills",
+        "search_knowledge_base",
+        "list_cases",
+        "load_memory",
+        "query_neo4j_graph",
+        "query_neo4j_graph",
+        "query_neo4j_graph",
+        "query_neo4j_graph",
+        "query_neo4j_graph",
+        "query_neo4j_graph",
+        "query_neo4j_graph",
+        "load_skill",
+        "load_skill_resource",
+        "search_knowledge_base",
+        "query_neo4j_graph",
+        "query_neo4j_graph",
+        "query_neo4j_graph",
+        "query_neo4j_graph",
+        "load_skill",
+        "list_chatops_capabilities",
+        "query_neo4j_graph",
+        "query_neo4j_graph",
+        "query_neo4j_graph",
+        "query_neo4j_graph",
+        "search_knowledge_base",
+        "query_neo4j_graph",
+        "query_neo4j_graph",
+        "query_neo4j_graph",
+        "query_neo4j_graph",
+        "query_neo4j_graph",
+        "query_neo4j_graph",
+        "query_neo4j_graph",
+        "query_neo4j_graph",
+        "list_rules",
+        "search_knowledge_base",
+        "search_knowledge_base",
+        "load_skill_resource",
+        "load_skill_resource",
+        "query_neo4j_graph",
+        "query_neo4j_graph",
+        "query_neo4j_graph",
+        "udm_search",
+        "summarize_entity",
+        "get_domain_report",
+        "query_neo4j_graph",
+        "get_file_report",
+        "search_knowledge_base",
+        "load_skill_resource",
+        "query_neo4j_graph",
+        "query_neo4j_graph",
+        "query_neo4j_graph",
+        "query_neo4j_graph",
+        "query_neo4j_graph",
+        "query_neo4j_graph",
+        "query_neo4j_graph",
+        "query_neo4j_graph",
+        "query_neo4j_graph",
+        "query_neo4j_graph",
+        "query_neo4j_graph",
+        "query_neo4j_graph",
+        "query_neo4j_graph",
+        "query_neo4j_graph",
+        "query_neo4j_graph",
+        "query_neo4j_graph",
+        "search_knowledge_base",
+        "query_neo4j_graph",
+        "query_neo4j_graph",
+        "query_neo4j_graph",
+        "notify_human_incident",
+        "request_triage_approval",
+        "save_report_artifact",
+        "deliver_report"
+      ],
+      "assertions_passed": [
+        "keyword_matching"
+      ],
+      "assertions_failed": [
+        "tool_trajectory"
+      ],
+      "success_criteria_passed": [
+        "mentions_runbook_retrieval",
+        "mentions_tier1_or_cti",
+        "provides_workflow",
+        "has_grounding_citation"
+      ],
+      "success_criteria_failed": []
+    },
+    "conflicting_intel": {
+      "name": "Conflicting Intelligence Sources",
+      "score": 0.5714285714285714,
+      "tool_calls": [
+        "delegate_to_threat_hunter",
+        "deliver_report"
+      ],
+      "assertions_passed": [
+        "keyword_matching"
+      ],
+      "assertions_failed": [
+        "specialist_attribution",
+        "tool_trajectory"
+      ],
+      "success_criteria_passed": [
+        "presents_both_findings",
+        "acknowledges_discrepancy",
+        "provides_interpretation"
+      ],
+      "success_criteria_failed": [
+        "specialist_attribution"
+      ]
+    }
+  }
+}
