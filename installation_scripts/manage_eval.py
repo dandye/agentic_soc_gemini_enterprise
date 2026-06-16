@@ -40,6 +40,13 @@ class EvaluationRunner:
         self.location = self.env_vars.get("GCP_LOCATION", "us-central1")
         self._client_lock = None
 
+        # Enforce GOOGLE_APPLICATION_CREDENTIALS to use Service Account to prevent gcloud fork conflicts
+        sa_path = self.env_vars.get("SECOPS_SA_PATH") or self.env_vars.get(
+            "CHRONICLE_SERVICE_ACCOUNT_PATH"
+        )
+        if sa_path and Path(sa_path).exists():
+            os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = str(sa_path)
+
         if self.project_id:
             vertexai.init(project=self.project_id, location=self.location)
 
