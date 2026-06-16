@@ -737,6 +737,10 @@ test-eval-all:
     {{ python }} {{ manage_eval }} run -f evalsets/tier1_triage.evalset.json
     {{ python }} {{ manage_eval }} run -f evalsets/multi_specialist.evalset.json
 
+# Compare evaluation runs and view deltas (use evalset=id)
+test-compare evalset:
+    {{ python }} {{ manage_eval }} compare {{ evalset }}
+
 # Profile agent latency (single run per query)
 profile-latency:
     {{ python }} test_scripts/profile_latency.py
