@@ -4,6 +4,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-06-16
+
+### Added
+- **Remote Specialist Agents (A2A)**: Transitioned from nested local sub-agents to a standalone, remote Agent-to-Agent (A2A) architecture. Added three new specialist agents:
+  - **Threat Hunter (`agent_a2a_threat_hunter`)**: Specialized in proactive hunting, log query development (UDM), and prevalence checks.
+  - **CTI Researcher (`agent_a2a_cti_researcher`)**: Focused on in-depth threat intelligence profiling, actor/campaign tracking, and malware behavior using Google Threat Intelligence.
+  - **Detection Engineer (`agent_a2a_detection_engineer`)**: Dedicated to SIEM rule (YARA-L) writing, syntax validation, rule testing, and alert tuning.
+- **Orchestrator A2A Tools**: Integrated remote delegation tools (`delegate_to_threat_hunter`, `delegate_to_cti_researcher`, `delegate_to_detection_engineer`) within the main SOC Manager Orchestrator.
+- **Dialogflow Role Management**: Added support in `manage_iam.py` for Dialogflow service agent role bindings (`roles/aiplatform.user`), allowing conversational runtime agents to seamlessly invoke Reasoning Engines.
+
+### Changed
+- **Build System Migration**: Replaced the legacy `Makefile` with a modern, cross-platform `justfile` and rebranded the system to **Gemini Enterprise Agent Platform**.
+- **Remote OneMCP Schema Flattening**: Resolved `500 INTERNAL` Vertex AI platform API failures caused by excessively complex OneMCP nested schemas. Implemented clean, flat Python wrapper functions (`list_rules`, `get_rule`, `create_rule`, `validate_rule`, `udm_search`) to present highly optimized schemas to the LLM.
+- **Dependencies Upgrade**: Upgraded core project dependencies, including `google-adk` to version `2.2.0` and `google-genai` to `2.8.0`, ensuring compatibility with the new remote A2A APIs.
+
+### Removed
+- **Makefile**: Deleted the legacy `Makefile` from the repository.
+- **Local Sub-agent**: Removed the local in-process `cti_subagent` from the Orchestrator, dramatically reducing packaging overhead and cold start latency.
+- **Gemini Code Review Workflow**: Deleted the `.github/workflows/gemini-code-review.yml` workflow.
+
 ## [0.2.0] - 2026-05-22
 
 ### Added
