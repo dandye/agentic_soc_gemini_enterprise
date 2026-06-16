@@ -27,7 +27,7 @@ document.addEventListener('DOMContentLoaded', () => {
     engineer: {
       title: "Detection Engineer Specialist",
       model: "gemini-2.5-pro",
-      role: "Detection lifecycle manager. Translates discovered threat actor TTPs into SIEM detection rules and validates rules against telemetry.",
+      role: "Detection lifecycle manager. Translates discovered threat timelines and TTPs directly into YARA-L SIEM detection rules and validates rules against telemetry.",
       tools: ["Chronicle Rules Engine", "YARA-L Rule Validators"],
       targets: ["orchestrator"]
     },
@@ -135,8 +135,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // CRITICAL: beforematch event delegation
-    // When the browser's Find-in-Page matches text inside a hidden panel,
-    // the browser fires 'beforematch' on the matched panel.
     container.addEventListener('beforematch', (e) => {
       const matchedPanel = e.target.closest('.code-tab-panel');
       if (matchedPanel) {
@@ -146,7 +144,6 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // Fallback for browsers that do NOT support hidden="until-found" (beforematch)
-  // In unsupported browsers, we remove the hidden attribute so all panels are searchable.
   if (!('onbeforematch' in HTMLElement.prototype)) {
     document.querySelectorAll('.code-tab-panel[hidden="until-found"]').forEach(panel => {
       panel.removeAttribute('hidden');
@@ -162,7 +159,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const observerOptions = {
     root: null,
-    rootMargin: '-20% 0px -60% 0px', // Trigger when section is in upper-middle viewport
+    rootMargin: '-20% 0px -60% 0px',
     threshold: 0
   };
 
@@ -202,7 +199,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       });
 
-      // Filter groups: hide titles if all items under it are hidden
+      // Filter groups
       const groups = document.querySelectorAll('.nav-group');
       groups.forEach(group => {
         const visibleItems = group.querySelectorAll('.nav-item[style="display: block;"]').length ||

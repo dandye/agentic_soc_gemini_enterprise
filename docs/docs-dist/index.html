@@ -326,7 +326,7 @@ pip install --index-url https://pypi.org/simple -r requirements.txt</code></pre>
         <pre><code># Run the Neo4j connection test
 just neo4j-test
 
-# Upload the local knowledge graph to the live Neo4j VM
+# Ingest the flat knowledge graph JSON into Neo4j
 just neo4j-ingest</code></pre>
       </section>
 
@@ -352,7 +352,7 @@ just neo4j-ingest</code></pre>
             <pre><code># ---- AGENT ENGINE DEPLOYMENTS ----
 just agent-engine-deploy               # Deploy Orchestrator agent
 just agent-engine-update               # In-place update of agent code (retains session)
-just agent-engine-test query="T1003"   # Send test query to deployed agent
+just agent-engine-test query="T1003"   # Test deployed agent with a natural language query
 
 # ---- ELASTICSEARCH GROUNDING ----
 just elastic-info                      # Show statistics about the Elasticsearch grounding index
@@ -362,7 +362,7 @@ just elastic-search query="ransomware" # Query the Elasticsearch index directly
 # ---- NEO4J GRAPH DATABASE ----
 just neo4j-test                        # Test Bolt connection to Neo4j VM
 just neo4j-ingest                      # Upload knowledge_graph.json to Neo4j
-just neo4j-clear                       # Delete all nodes and edges from Neo4j</code></pre>
+just neo4j-clear                       # Delete all data (nodes & edges) from Neo4j</code></pre>
           </div>
 
           <!-- Tab 2: Python manage.py -->
@@ -374,12 +374,12 @@ python manage.py agent-engine test     # Send test query to deployed agent
 
 # ---- ELASTICSEARCH GROUNDING ----
 python manage.py elastic info          # Show stats about the Elasticsearch index
-python manage.py elastic sync          # Sync local runbooks into Elasticsearch
-python manage.py elastic search        # Query the Elasticsearch index directly
+python manage.py elastic sync          # Sync runbooks
+python manage.py elastic search         # Query the index
 
 # ---- NEO4J GRAPH DATABASE ----
 python manage.py neo4j test-connection # Test connection to Neo4j VM
-python manage.py neo4j ingest          # Ingest nodes and edges into Neo4j
+python manage.py neo4j ingest          # Ingest knowledge graph
 python manage.py neo4j clear           # Delete all data in Neo4j database</code></pre>
           </div>
         </div>
@@ -411,7 +411,7 @@ python manage.py neo4j clear           # Delete all data in Neo4j database</code
               </p>
               <ol>
                 <li>Check that the GCE VM external IP matches the <code>NEO4J_URI</code> in your <code>.env</code> file.</li>
-                <li>Verify that your GCP Firewall rule <code>allow-neo4j-bolt</code> is active and allows incoming TCP traffic on port <code>7687</code> from your source range.</li>
+                <li>Verify that your GCP Firewall rule <code>allow-neo4j-bolt</code> is active and allows incoming TCP traffic on ports <code>7687</code> (Bolt) and <code>7474</code> (Web Console).</li>
               </ol>
             </div>
           </details>
