@@ -7,3 +7,5 @@ GEMINI.md
 __pycache__/
 .DS_Store
 implementation_plan.md
+
+.env.secops.adc

@@ -1,7 +1,8 @@
-google-adk~=2.0.0
+google-adk~=2.2.0
 google-cloud-aiplatform[agent-engines]~=1.153.0
 google-cloud-secret-manager
 pydantic
 python-dotenv
 google-auth-oauthlib
+mcp
 typer
