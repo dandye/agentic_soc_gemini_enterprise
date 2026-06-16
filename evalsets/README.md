@@ -1,6 +1,6 @@
 # SOC Agent Evaluation Sets
 
-This directory contains evaluation sets (evalsets) for validating the Agentic SOC AgentSpace agent quality.
+This directory contains evaluation sets (evalsets) for validating the Agentic SOC Gemini Enterprise Agent Platform agent quality.
 
 ## Evalset Files
 

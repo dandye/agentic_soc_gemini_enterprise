@@ -15,7 +15,11 @@ mimetypes.add_type("text/markdown", ".md")
 # This workaround routes model API calls to global while keeping Reasoning Engine regional
 # See: https://github.com/google/adk-python/issues/3628#issuecomment-3595215761
 os.environ["GOOGLE_CLOUD_LOCATION"] = "global"
-os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "TRUE"
+if "GOOGLE_GENAI_USE_VERTEXAI" not in os.environ:
+    if os.environ.get("REASONING_ENGINE_DEPLOYMENT") == "True":
+        os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "TRUE"
+    else:
+        os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "FALSE"
 
 """
 SOC Agent Module - Orchestrator with Sub-Agent Delegation
@@ -60,22 +64,212 @@ See PR #25 discussion for additional context on this architectural decision.
 # -------------------------------------------------------------------------
 # Framework Monkey-Patches
 # -------------------------------------------------------------------------
+from collections.abc import AsyncGenerator  # noqa: E402
+
 import google.adk.sessions.in_memory_session_service as im_session  # noqa: E402
-import google.cloud.logging  # noqa: E402
 import vertexai  # noqa: E402
 from dotenv import load_dotenv  # noqa: E402
 from google.adk.agents import Agent  # noqa: E402
 from google.adk.agents.callback_context import CallbackContext  # noqa: E402
 from google.adk.agents.context import Context  # noqa: E402
+from google.adk.agents.invocation_context import InvocationContext  # noqa: E402
+from google.adk.agents.sequential_agent import Event  # noqa: E402
 from google.adk.models import LlmRequest, LlmResponse  # noqa: E402
 from google.adk.skills import load_skill_from_dir  # noqa: E402
 from google.adk.tools import skill_toolset  # noqa: E402
 from google.adk.tools.agent_tool import AgentTool  # noqa: E402
 from google.adk.tools.mcp_tool.mcp_session_manager import (  # noqa: E402
     StdioConnectionParams,  # noqa: E402
+    StreamableHTTPConnectionParams,  # noqa: E402
 )
 from google.adk.tools.mcp_tool.mcp_toolset import McpToolset  # noqa: E402
 from mcp import StdioServerParameters  # noqa: E402
+
+
+_runtime_patches_applied = False
+
+
+def _apply_runtime_patches():
+    global _runtime_patches_applied
+    if _runtime_patches_applied:
+        return
+
+    import logging
+
+    logger = logging.getLogger(__name__)
+    logger.warning(
+        "[RUNTIME_PATCH_DEBUG] Applying runtime framework monkeypatches inside Reasoning Engine process..."
+    )
+
+    # 1. Monkeypatch validation function to prevent 400 INVALID_ARGUMENT when removing function call IDs
+    try:
+        import google.adk.flows.llm_flows.contents as adk_contents
+        import google.adk.flows.llm_flows.functions as adk_funcs
+
+        def _patched_remove_client_function_call_id(content) -> None:
+            pass
+
+        adk_funcs.remove_client_function_call_id = (
+            _patched_remove_client_function_call_id
+        )
+        adk_contents.remove_client_function_call_id = (
+            _patched_remove_client_function_call_id
+        )
+        logger.warning(
+            "[RUNTIME_PATCH_DEBUG] Successfully patched remove_client_function_call_id"
+        )
+    except Exception as e:
+        logger.warning(
+            f"[RUNTIME_PATCH_DEBUG] Failed to patch remove_client_function_call_id: {e}"
+        )
+
+    # 2. Monkeypatch McpTool._get_declaration to strip response_json_schema
+    try:
+        from google.adk.tools.mcp_tool.mcp_tool import McpTool
+        from google.genai.types import FunctionDeclaration
+
+        def _patched_get_declaration(self) -> FunctionDeclaration:
+            input_schema = self._mcp_tool.inputSchema
+            return FunctionDeclaration(
+                name=self.name,
+                description=self.description,
+                parameters_json_schema=input_schema,
+                response_json_schema=None,
+            )
+
+        McpTool._get_declaration = _patched_get_declaration
+        logger.warning(
+            "[RUNTIME_PATCH_DEBUG] Successfully patched McpTool._get_declaration"
+        )
+    except Exception as e:
+        logger.warning(
+            f"[RUNTIME_PATCH_DEBUG] Failed to patch McpTool._get_declaration: {e}"
+        )
+
+    # 3. Monkeypatch encode_unserializable_types to preserve standard base64 encoding for thought_signature bytes
+    try:
+        import base64
+
+        import google.genai._common as genai_common
+
+        original_encode = genai_common.encode_unserializable_types
+
+        def _patched_encode_unserializable_types(data):
+            if isinstance(data, dict):
+                processed = {}
+                for k, v in data.items():
+                    if k in ("thought_signature", "thoughtSignature") and isinstance(
+                        v, bytes
+                    ):
+                        processed[k] = base64.b64encode(v).decode("ascii")
+                    elif isinstance(v, dict):
+                        processed[k] = _patched_encode_unserializable_types(v)
+                    elif isinstance(v, list):
+                        processed[k] = [
+                            _patched_encode_unserializable_types(item)
+                            if isinstance(item, dict)
+                            else item
+                            for item in v
+                        ]
+                    else:
+                        processed[k] = v
+                return original_encode(processed)
+            return original_encode(data)
+
+        genai_common.encode_unserializable_types = _patched_encode_unserializable_types
+        logger.warning(
+            "[RUNTIME_PATCH_DEBUG] Successfully patched encode_unserializable_types"
+        )
+    except Exception as e:
+        logger.warning(
+            f"[RUNTIME_PATCH_DEBUG] Failed to patch encode_unserializable_types: {e}"
+        )
+
+    # 4. Monkeypatch lite_llm._decode_thought_signature to normalize URL-safe base64 strings
+    try:
+        import google.adk.models.lite_llm as adk_lite_llm
+
+        def _patched_decode_thought_signature(value):
+            if isinstance(value, bytes):
+                return value
+            if isinstance(value, str):
+                normalized = value.replace("-", "+").replace("_", "/")
+                padding_needed = (4 - len(normalized) % 4) % 4
+                normalized += "=" * padding_needed
+                try:
+                    return base64.b64decode(normalized, validate=True)
+                except Exception as e:
+                    logger.debug("Failed to decode thought signature in patch: %s", e)
+            return None
+
+        adk_lite_llm._decode_thought_signature = _patched_decode_thought_signature
+        logger.warning(
+            "[RUNTIME_PATCH_DEBUG] Successfully patched lite_llm._decode_thought_signature"
+        )
+    except Exception as e:
+        logger.warning(
+            f"[RUNTIME_PATCH_DEBUG] Failed to patch lite_llm._decode_thought_signature: {e}"
+        )
+
+    # 5. Monkeypatch part_converter base64.b64decode to normalize URL-safe base64 strings
+    try:
+        import google.adk.a2a.converters.part_converter as part_converter
+
+        original_part_b64decode = part_converter.base64.b64decode
+
+        def _patched_part_b64decode(s, *args, **kwargs):
+            if isinstance(s, str):
+                normalized = s.replace("-", "+").replace("_", "/")
+                padding_needed = (4 - len(normalized) % 4) % 4
+                normalized += "=" * padding_needed
+                return original_part_b64decode(normalized, *args, **kwargs)
+            return original_part_b64decode(s, *args, **kwargs)
+
+        part_converter.base64.b64decode = _patched_part_b64decode
+        logger.warning(
+            "[RUNTIME_PATCH_DEBUG] Successfully patched part_converter base64.b64decode"
+        )
+    except Exception as e:
+        logger.warning(
+            f"[RUNTIME_PATCH_DEBUG] Failed to patch part_converter base64.b64decode: {e}"
+        )
+
+    # 6. Monkeypatch interactions_utils base64.b64decode to normalize URL-safe base64 strings
+    try:
+        import google.adk.models.interactions_utils as interactions_utils
+
+        original_utils_b64decode = interactions_utils.base64.b64decode
+
+        def _patched_utils_b64decode(s, *args, **kwargs):
+            if isinstance(s, str):
+                normalized = s.replace("-", "+").replace("_", "/")
+                padding_needed = (4 - len(normalized) % 4) % 4
+                normalized += "=" * padding_needed
+                return original_utils_b64decode(normalized, *args, **kwargs)
+            return original_utils_b64decode(s, *args, **kwargs)
+
+        interactions_utils.base64.b64decode = _patched_utils_b64decode
+        logger.warning(
+            "[RUNTIME_PATCH_DEBUG] Successfully patched interactions_utils base64.b64decode"
+        )
+    except Exception as e:
+        logger.warning(
+            f"[RUNTIME_PATCH_DEBUG] Failed to patch interactions_utils base64.b64decode: {e}"
+        )
+
+    _runtime_patches_applied = True
+    logger.warning("[RUNTIME_PATCH_DEBUG] All runtime patches applied successfully!")
+
+
+class PatchedAgent(Agent):
+
+    async def run_async(
+        self,
+        parent_context: InvocationContext,
+    ) -> AsyncGenerator[Event, None]:
+        _apply_runtime_patches()
+        async for event in super().run_async(parent_context):
+            yield event
 
 
 # Silence the harmless but noisy InMemorySessionService warning inside sub-agents
@@ -106,6 +300,60 @@ async def _patched_append_event(self, session, event):
 
 im_session.InMemorySessionService.append_event = _patched_append_event
 
+
+import google.adk.sessions.vertex_ai_session_service as vertex_session  # noqa: E402
+
+
+def _clean_session_id(session_id: str | None) -> str | None:
+    if isinstance(session_id, str) and "/" in session_id:
+        return session_id.split("/")[-1]
+    return session_id
+
+
+original_get_session = vertex_session.VertexAiSessionService.get_session
+
+
+async def patched_get_session(self, *, app_name, user_id, session_id, config=None):
+    session_id = _clean_session_id(session_id)
+    return await original_get_session(
+        self, app_name=app_name, user_id=user_id, session_id=session_id, config=config
+    )
+
+
+vertex_session.VertexAiSessionService.get_session = patched_get_session
+
+original_create_session = vertex_session.VertexAiSessionService.create_session
+
+
+async def patched_create_session(
+    self, *, app_name, user_id, state=None, session_id=None, **kwargs
+):
+    session_id = _clean_session_id(session_id)
+    return await original_create_session(
+        self,
+        app_name=app_name,
+        user_id=user_id,
+        state=state,
+        session_id=session_id,
+        **kwargs,
+    )
+
+
+vertex_session.VertexAiSessionService.create_session = patched_create_session
+
+original_delete_session = vertex_session.VertexAiSessionService.delete_session
+
+
+async def patched_delete_session(self, *, app_name, user_id, session_id):
+    session_id = _clean_session_id(session_id)
+    return await original_delete_session(
+        self, app_name=app_name, user_id=user_id, session_id=session_id
+    )
+
+
+vertex_session.VertexAiSessionService.delete_session = patched_delete_session
+
+
 import re  # noqa: E402
 
 import google.adk.apps.app as adk_app  # noqa: E402
@@ -124,6 +372,33 @@ def _patched_validate_app_name(name: str) -> None:
 
 
 adk_app.validate_app_name = _patched_validate_app_name
+
+# Monkey-patch remove_client_function_call_id to preserve function call/response IDs on Vertex Reasoning Engine.
+# Stripping these IDs causes 400 INVALID_ARGUMENT on multi-turn/tool-response queries.
+import google.adk.flows.llm_flows.contents as adk_contents  # noqa: E402
+import google.adk.flows.llm_flows.functions as adk_funcs  # noqa: E402
+
+
+def _patched_remove_client_function_call_id(content) -> None:
+    pass
+
+
+adk_funcs.remove_client_function_call_id = _patched_remove_client_function_call_id
+adk_contents.remove_client_function_call_id = _patched_remove_client_function_call_id
+
+# Redirect LLM model request debug logs to warning level to guarantee they are logged line-by-line
+llm_logger = logging.getLogger("google_adk.google.adk.models.google_llm")
+
+
+def _patched_debug(msg, *args, **kwargs):
+    for line in str(msg).splitlines():
+        if line.strip():
+            llm_logger.warning(f"[DEBUG OVERRIDE] {line}", *args, **kwargs)
+
+
+llm_logger.debug = _patched_debug
+
+
 # -------------------------------------------------------------------------
 
 
@@ -285,22 +560,22 @@ strict_config = GenerateContentConfig(
 )
 
 # Determine Python executable based on environment
-# In deployed Vertex AI environment, use container's Python
+# In deployed Vertex AI environment, use container's virtual env Python
 # In local development, use sys.executable (respects venv)
 PYTHON_EXECUTABLE = (
-    "python3"
+    "/code/.venv/bin/python"
     if os.environ.get("REASONING_ENGINE_DEPLOYMENT") == "True"
     else sys.executable
 )
 
-# Configure logging
-
-
-try:
-    logging_client = google.cloud.logging.Client()
-    logging_client.setup_logging()
-except Exception as e:
-    print(f"Warning: Cloud logging initialization failed: {e}")
+# Configure logging to write to stdout/stderr so that Vertex AI automatically
+# captures and associates them with the ReasoningEngine resource.
+# Avoids direct Cloud Logging API handler setup to prevent resource tag mismatches.
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    stream=sys.stdout,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -809,11 +1084,23 @@ async def delegate_to_tier2_responder(query: str, tool_context: Context) -> str:
                 "A2A_DELEGATION_ERROR: TIER2_AGENT_RESOURCE_NAME not set in environment."
             )
             return "Error: Tier 2 Incident Responder is not currently configured in the environment."
+        # Parse the location from the resource name dynamically
+        import re
 
-        # Get the remote Reasoning Engine client
-        from vertexai import agent_engines
+        m = re.search(r"locations/([^/]+)/", tier2_engine_name)
+        target_location = m.group(1) if m else "us-east4"
 
-        remote_engine = agent_engines.get(tier2_engine_name)
+        # Clean Regional Routing:
+        # Instead of using the global 'vertexai.agent_engines.get' shortcut (which
+        # is bound to the global client pool and impacted by the GOOGLE_CLOUD_LOCATION="global"
+        # LLM workaround), we explicitly construct a regional 'vertexai.Client' instance.
+        # This guarantees an isolated, correct regional gRPC pathway for A2A.
+        import vertexai
+
+        client = vertexai.Client(
+            project=os.environ.get("GCP_PROJECT_ID"), location=target_location
+        )
+        remote_engine = client.agent_engines.get(name=tier2_engine_name)
 
         # Retrieve session context parameters
         session_id = None  # Let remote specialist auto-create its own session to prevent SessionNotFoundError
@@ -1143,6 +1430,71 @@ async def delegate_to_detection_engineer(query: str, tool_context: Context) -> s
         return f"Failed to communicate with the remote Detection Engineer specialist agent: {e}"
 
 
+def _find_mcp_paths() -> list[str]:
+    root_dir = Path(__file__).parent.parent.absolute()
+
+    paths = []
+    target_names = {"secops", "secops-soar", "gti", "scc"}
+
+    # Check directly under root_dir (container flat packaging)
+    for name in target_names:
+        dir_path = root_dir / name
+        if dir_path.exists() and dir_path.is_dir():
+            paths.append(str(dir_path))
+
+    # Check under root_dir / "external/mcp-security/server" (local directory layout)
+    local_mcp_dir = root_dir / "external/mcp-security/server"
+    if local_mcp_dir.exists() and local_mcp_dir.is_dir():
+        for name in target_names:
+            dir_path = local_mcp_dir / name
+            if dir_path.exists() and dir_path.is_dir():
+                paths.append(str(dir_path))
+
+    return list(set(paths))
+
+
+def get_secops_headers(context) -> dict[str, str]:
+    # Read from environment AT RUNTIME
+    chronicle_project_id = os.environ.get("CHRONICLE_PROJECT_ID")
+    gemini_auth_id = os.environ.get("GEMINI_AUTHORIZATION_ID") or os.environ.get(
+        "OAUTH_AUTH_ID"
+    )
+
+    headers = {"Accept": "text/event-stream", "Content-Type": "application/json"}
+
+    # Only add the project header if we actually have a value
+    if chronicle_project_id:
+        headers["x-goog-user-project"] = chronicle_project_id
+    else:
+        # Critical for tool execution, though list_tools might still work
+        logger.critical(
+            "CHRONICLE_PROJECT_ID is missing from environment! OneMCP tool calls *will* fail without a routing context."
+        )
+
+    if context and context.state and gemini_auth_id:
+        user_token = context.state.get(gemini_auth_id)
+        if user_token:
+            headers["Authorization"] = f"Bearer {user_token}"
+            # Log first few chars for debugging without leaking full sensitive token in recap
+            logger.info(
+                f"DEBUG: Tool Call Auth Header present (starts with: {user_token[:10]}...)"
+            )
+
+    return headers
+
+
+def create_remote_secops_toolset(region, tool_filter=None) -> McpToolset:
+    # Remote OneMCP pattern: https://chronicle.{region}.rep.googleapis.com/mcp
+    secops_mcp_url = f"https://chronicle.{region}.rep.googleapis.com/mcp"
+    logger.info(f"Initializing Remote MCP Toolset with URL: {secops_mcp_url}")
+    return McpToolset(
+        connection_params=StreamableHTTPConnectionParams(url=secops_mcp_url),
+        header_provider=get_secops_headers,
+        tool_filter=tool_filter,
+        errlog=None,  # explicitly None to prevent sys.stderr capturing (which cannot be pickled)
+    )
+
+
 def create_agent():
     """
     Create the SOC Orchestrator Agent with specialized sub-agents.
@@ -1234,8 +1586,20 @@ def create_agent():
     # Google Threat Intelligence configuration
     GTI_API_KEY = os.environ.get("GTI_API_KEY")
 
-    # Build environment dict for MCP servers
-    # These credentials are passed to each MCP server process
+    # Build container paths statically to ensure container compatibility when pickled
+    container_paths = [
+        "/code/external/mcp-security/server/secops",
+        "/code/external/mcp-security/server/secops-soar",
+        "/code/external/mcp-security/server/gti",
+        "/code/external/mcp-security/server/scc",
+    ]
+    mcp_paths = _find_mcp_paths()
+    all_paths = list(set(container_paths + mcp_paths))
+    current_pythonpath = os.environ.get("PYTHONPATH", "")
+    new_pythonpath = os.pathsep.join(
+        all_paths + [current_pythonpath] if current_pythonpath else all_paths
+    )
+
     mcp_env = os.environ.copy()
     mcp_env.update(
         {
@@ -1246,6 +1610,7 @@ def create_agent():
             "SOAR_APP_KEY": SOAR_APP_KEY or "",
             "VT_APIKEY": GTI_API_KEY or "",  # GTI uses VT_APIKEY
             "GCP_PROJECT_ID": GCP_PROJECT_ID or "",
+            "PYTHONPATH": new_pythonpath,
             # GTI caching configuration (latency optimization)
             "GTI_CACHE_ENABLED": os.environ.get("GTI_CACHE_ENABLED", "True"),
             "GTI_CACHE_FILE_TTL": os.environ.get("GTI_CACHE_FILE_TTL", "86400"),
@@ -1285,6 +1650,7 @@ def create_agent():
     RAG_CORPUS_ID = os.environ.get("RAG_CORPUS_ID")
     RAG_SIMILARITY_TOP_K = int(os.environ.get("RAG_SIMILARITY_TOP_K", "10"))
     RAG_DISTANCE_THRESHOLD = float(os.environ.get("RAG_DISTANCE_THRESHOLD", "0.6"))
+    RAG_GCP_LOCATION = os.environ.get("RAG_GCP_LOCATION")
 
     # Debug mode
     DEBUG = os.environ.get("DEBUG", "False") == "True"
@@ -1300,14 +1666,42 @@ def create_agent():
     skip_vertexai_init = os.environ.get("SKIP_VERTEXAI_INIT", "False") == "True"
 
     # Always initialize Vertex AI when enabled, using appropriate location
-    if not skip_vertexai_init and GCP_PROJECT_ID and GCP_VERTEXAI_ENABLED == "True":
+    if (
+        not skip_vertexai_init
+        and GCP_PROJECT_ID
+        and GCP_VERTEXAI_ENABLED
+        and GCP_VERTEXAI_ENABLED.upper() == "TRUE"
+    ):
         # Determine location: use RAG location if RAG is configured, otherwise deployment location
         if RAG_CORPUS_ID:
-            # Parse RAG location from corpus resource name
+            # Parse project and location from corpus resource name
             # Format: projects/PROJECT_ID/locations/LOCATION/ragCorpora/CORPUS_ID
-            rag_location = (
-                RAG_CORPUS_ID.split("/")[3] if "/" in RAG_CORPUS_ID else "us-east4"
-            )
+            if "/" in RAG_CORPUS_ID:
+                parts = RAG_CORPUS_ID.split("/")
+                if len(parts) >= 4:
+                    rag_project_id = parts[1]
+                    rag_location = parts[3]
+
+                    # Fail fast and noisy on project mismatch
+                    if rag_project_id != GCP_PROJECT_ID:
+                        raise ValueError(
+                            f"PROJECT MISMATCH: The GCP_PROJECT_ID in your environment ({GCP_PROJECT_ID}) "
+                            f"does not match the project ID embedded in your RAG_CORPUS_ID ({rag_project_id}). "
+                            f"Please align them in your .env file."
+                        )
+
+                    # Fail fast and noisy on location mismatch if explicitly configured
+                    if RAG_GCP_LOCATION and RAG_GCP_LOCATION != rag_location:
+                        raise ValueError(
+                            f"LOCATION MISMATCH: The RAG_GCP_LOCATION in your environment ({RAG_GCP_LOCATION}) "
+                            f"does not match the location embedded in your RAG_CORPUS_ID ({rag_location}). "
+                            f"Please align them in your .env file."
+                        )
+                else:
+                    rag_location = "us-east4"
+            else:
+                rag_location = "us-east4"
+
             init_location = rag_location
             logger.info("Initializing Vertex AI for RAG corpus access")
             logger.info(f"  Project: {GCP_PROJECT_ID}")
@@ -1362,33 +1756,26 @@ def create_agent():
         send_all_example_cards,
     ]
 
-    # Chronicle for basic entity lookups
     tier1_tools.append(
-        McpToolset(
-            connection_params=StdioConnectionParams(
-                server_params=StdioServerParameters(
-                    command=PYTHON_EXECUTABLE,
-                    args=["-m", "secops_mcp.server"],
-                    env=mcp_env,
-                ),
-                timeout=90000,  # 90 seconds (balanced timeout)
-            ),
-            errlog=None,  # Suppress errlog to permit serialization
-        )
-    )
-
-    # SOAR for case management
-    tier1_tools.append(
-        McpToolset(
-            connection_params=StdioConnectionParams(
-                server_params=StdioServerParameters(
-                    command=PYTHON_EXECUTABLE,
-                    args=["-m", "secops_soar_mcp.server"],
-                    env=mcp_env,
-                ),
-                timeout=90000,  # 90 seconds (balanced timeout)
-            ),
-            errlog=None,  # Suppress errlog to permit serialization
+        create_remote_secops_toolset(
+            CHRONICLE_REGION,
+            tool_filter=[
+                "list_rules",
+                "get_rule",
+                "list_rule_detections",
+                "list_rule_errors",
+                "search_entity",
+                "summarize_entity",
+                "get_involved_entity",
+                "list_involved_entities",
+                "udm_search",
+                "list_cases",
+                "get_case",
+                "update_case",
+                "create_case_comment",
+                "list_case_alerts",
+                "get_case_alert",
+            ],
         )
     )
 
@@ -1403,11 +1790,17 @@ def create_agent():
                 ),
                 timeout=90000,  # 90 seconds (balanced timeout)
             ),
+            tool_filter=[
+                "get_ip_address_report",
+                "get_domain_report",
+                "get_file_report",
+                "get_url_report",
+            ],
             errlog=None,  # Suppress errlog to permit serialization
         )
     )
 
-    tier1_subagent = Agent(
+    tier1_subagent = PatchedAgent(
         name="tier1_analyst",
         model=TIER1_ANALYST_MODEL,
         description=TIER1_PERSONA,
@@ -1476,7 +1869,6 @@ CRITICAL: Summarize procedures and ask for user permission before executing stat
         after_tool_callback=after_tool_cache,
         after_agent_callback=generate_memory,
         generate_content_config=strict_config,
-        mode="task",
         disallow_transfer_to_peers=True,
     )
 
@@ -1723,7 +2115,7 @@ Query: "Investigate suspicious activity from user john.doe - get the runbook fir
 Remember: Your role is to be an intelligent orchestrator that makes security operations more efficient through smart delegation and synthesis. Transfer control to specialists when their expertise is needed."""
 
     # Create orchestrator with LLM delegation to specialists (as sub_agents or AgentTool wrappers)
-    orchestrator = Agent(
+    orchestrator = PatchedAgent(
         name="secops_assistant",
         model=ORCHESTRATOR_MODEL,
         description="SecOps Security Agent - An intelligent SOC orchestrator for Google SecOps that delegates security operations to specialized persona-based agents.",
@@ -1734,7 +2126,6 @@ Remember: Your role is to be an intelligent orchestrator that makes security ope
         after_tool_callback=after_tool_cache,
         after_agent_callback=generate_memory,
         generate_content_config=strict_config,
-        mode="chat",
     )
 
     tools_description = []

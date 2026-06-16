@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Vertex AI Setup and Verification Manager
+Gemini Enterprise Agent Platform Setup and Verification Manager
 
-This script helps verify and manage Vertex AI setup requirements including
+This script helps verify and manage Gemini Enterprise Agent Platform setup requirements including
 API enablement, authentication, permissions, and quota status.
 """
 
@@ -22,12 +22,12 @@ from installation_scripts.env_validation import is_placeholder_value
 
 app = typer.Typer(
     add_completion=False,
-    help="Manage and verify Vertex AI setup for the Google MCP Security Agent.",
+    help="Manage and verify Gemini Enterprise Agent Platform setup for the Google MCP Security Agent.",
 )
 
 
 class VertexAIManager:
-    """Manages Vertex AI setup verification and configuration."""
+    """Manages Gemini Enterprise Agent Platform setup verification and configuration."""
 
     # Required APIs for the project
     REQUIRED_APIS = [
@@ -39,7 +39,7 @@ class VertexAIManager:
 
     # Optional APIs depending on features used
     OPTIONAL_APIS = [
-        "discoveryengine.googleapis.com",  # For AgentSpace
+        "discoveryengine.googleapis.com",  # For Gemini Enterprise Agent Platform
         "securitycenter.googleapis.com",  # For SCC tools
     ]
 
@@ -73,7 +73,7 @@ class VertexAIManager:
         self, skip_apis: bool = False, skip_permissions: bool = False
     ) -> bool:
         """
-        Run complete verification of Vertex AI setup.
+        Run complete verification of Gemini Enterprise Agent Platform setup.
 
         Args:
             skip_apis: Skip API enablement checks
@@ -84,7 +84,11 @@ class VertexAIManager:
         """
         typer.echo()
         typer.secho("=" * 80, fg=typer.colors.BLUE)
-        typer.secho("Vertex AI Setup Verification", fg=typer.colors.BLUE, bold=True)
+        typer.secho(
+            "Gemini Enterprise Agent Platform Setup Verification",
+            fg=typer.colors.BLUE,
+            bold=True,
+        )
         typer.secho("=" * 80, fg=typer.colors.BLUE)
         typer.echo()
 
@@ -120,9 +124,11 @@ class VertexAIManager:
                 all_passed = False
             typer.echo()
 
-        # Check 5: Vertex AI initialization
+        # Check 5: Gemini Enterprise Agent Platform initialization
         typer.secho(
-            "5. Testing Vertex AI initialization...", fg=typer.colors.CYAN, bold=True
+            "5. Testing Gemini Enterprise Agent Platform initialization...",
+            fg=typer.colors.CYAN,
+            bold=True,
         )
         if not self._check_vertex_ai_init():
             all_passed = False
@@ -140,7 +146,10 @@ class VertexAIManager:
         typer.secho("=" * 80, fg=typer.colors.BLUE)
         if all_passed:
             typer.secho("✓ All checks passed!", fg=typer.colors.GREEN, bold=True)
-            typer.secho("Vertex AI is properly configured.", fg=typer.colors.GREEN)
+            typer.secho(
+                "Gemini Enterprise Agent Platform is properly configured.",
+                fg=typer.colors.GREEN,
+            )
         else:
             typer.secho("✗ Some checks failed", fg=typer.colors.RED, bold=True)
             typer.secho(
@@ -322,7 +331,7 @@ class VertexAIManager:
             return False
 
     def _check_vertex_ai_init(self) -> bool:
-        """Test Vertex AI initialization."""
+        """Test Gemini Enterprise Agent Platform initialization."""
         try:
             # Use RAG location if set, otherwise use GCP_LOCATION
             location = self.env_vars.get("RAG_GCP_LOCATION") or self.location
@@ -330,13 +339,17 @@ class VertexAIManager:
             vertexai.init(
                 project=self.project_id, location=location, credentials=self.credentials
             )
-            typer.secho("  ✓ Vertex AI initialized successfully", fg=typer.colors.GREEN)
+            typer.secho(
+                "  ✓ Gemini Enterprise Agent Platform initialized successfully",
+                fg=typer.colors.GREEN,
+            )
             typer.secho(f"    Project: {self.project_id}", fg=typer.colors.GREEN)
             typer.secho(f"    Location: {location}", fg=typer.colors.GREEN)
             return True
         except Exception as e:
             typer.secho(
-                f"  ✗ Vertex AI initialization failed: {e}", fg=typer.colors.RED
+                f"  ✗ Gemini Enterprise Agent Platform initialization failed: {e}",
+                fg=typer.colors.RED,
             )
             return False
 
@@ -480,7 +493,7 @@ def verify(
         Path, typer.Option(help="Path to the environment file.")
     ] = Path(".env"),
 ) -> None:
-    """Verify complete Vertex AI setup including APIs, auth, and permissions."""
+    """Verify complete Gemini Enterprise Agent Platform setup including APIs, auth, and permissions."""
     manager = VertexAIManager(env_file)
     if not manager.verify_setup(skip_apis=skip_apis, skip_permissions=skip_permissions):
         raise typer.Exit(code=1)
@@ -492,7 +505,7 @@ def enable_apis(
         Path, typer.Option(help="Path to the environment file.")
     ] = Path(".env"),
 ) -> None:
-    """Enable all required APIs for Vertex AI."""
+    """Enable all required APIs for Gemini Enterprise Agent Platform."""
     manager = VertexAIManager(env_file)
 
     # Load environment first
@@ -508,12 +521,16 @@ def check_quota(
         Path, typer.Option(help="Path to the environment file.")
     ] = Path(".env"),
 ) -> None:
-    """Display quota information for Vertex AI services."""
+    """Display quota information for Gemini Enterprise Agent Platform services."""
     manager = VertexAIManager(env_file)
     manager._load_env_vars()
 
     typer.echo()
-    typer.secho("Vertex AI Quota Information", fg=typer.colors.CYAN, bold=True)
+    typer.secho(
+        "Gemini Enterprise Agent Platform Quota Information",
+        fg=typer.colors.CYAN,
+        bold=True,
+    )
     typer.secho("=" * 80, fg=typer.colors.CYAN)
     typer.echo()
 

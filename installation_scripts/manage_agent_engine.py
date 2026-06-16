@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Agent Engine Manager for Google Vertex AI
+Agent Engine Manager for Gemini Enterprise Agent Platform
 
 This script manages Agent Engine (Reasoning Engine) operations including creating,
 listing, testing, and deleting deployed agent engines.
@@ -60,7 +60,7 @@ from installation_scripts.env_validation import (
 
 app = typer.Typer(
     add_completion=False,
-    help="Manage Agent Engine instances in Vertex AI for the Google MCP Security Agent.",
+    help="Manage Agent Engine instances in Gemini Enterprise Agent Platform for the Google MCP Security Agent.",
 )
 
 # Debug mode configuration
@@ -76,7 +76,7 @@ if DEBUG:
 
 
 class AgentEngineManager:
-    """Manages Agent Engine operations in Vertex AI."""
+    """Manages Agent Engine operations in Gemini Enterprise Agent Platform."""
 
     def __init__(self, env_file: Path):
         """
@@ -99,7 +99,7 @@ class AgentEngineManager:
         return env_vars
 
     def _initialize_vertex_ai(self) -> None:
-        """Initialize Vertex AI with project and location from environment."""
+        """Initialize Gemini Enterprise Agent Platform SDK with project and location from environment."""
         self.project = self.env_vars.get("GCP_PROJECT_ID")
         self.location = self.env_vars.get("GCP_LOCATION", "us-central1")
 
@@ -113,11 +113,14 @@ class AgentEngineManager:
             vertexai.init(project=self.project, location=self.location)
             aiplatform.init(project=self.project, location=self.location)
             typer.secho(
-                f"Initialized Vertex AI - Project: {self.project}, Location: {self.location}",
+                f"Initialized Gemini Enterprise Agent Platform - Project: {self.project}, Location: {self.location}",
                 fg=typer.colors.GREEN,
             )
         except Exception as e:
-            typer.secho(f" Failed to initialize Vertex AI: {e}", fg=typer.colors.RED)
+            typer.secho(
+                f" Failed to initialize Gemini Enterprise Agent Platform: {e}",
+                fg=typer.colors.RED,
+            )
             raise typer.Exit(code=1)
 
     def _format_timestamp(self, timestamp) -> str:
@@ -668,8 +671,8 @@ class AgentEngineManager:
                 )
                 return None
 
-            # Initialize Vertex AI
-            typer.echo("Initializing Vertex AI...")
+            # Initialize Gemini Enterprise Agent Platform
+            typer.echo("Initializing Gemini Enterprise Agent Platform...")
             GCP_PROJECT_ID = os.environ.get("GCP_PROJECT_ID")
             GCP_LOCATION = os.environ.get("GCP_LOCATION", "us-central1")
             GCP_STAGING_BUCKET = os.environ.get("GCP_STAGING_BUCKET")
@@ -797,6 +800,7 @@ class AgentEngineManager:
                 "GCP_PROJECT_ID": os.environ.get("GCP_PROJECT_ID"),
                 "GCP_LOCATION": os.environ.get("GCP_LOCATION", "us-central1"),
                 "GCP_STAGING_BUCKET": os.environ.get("GCP_STAGING_BUCKET"),
+                "GEMINI_AUTHORIZATION_ID": os.environ.get("OAUTH_AUTH_ID"),
                 "GCP_ARTIFACT_BUCKET": os.environ.get("GCP_ARTIFACT_BUCKET"),
                 "RAG_CORPUS_ID": os.environ.get("RAG_CORPUS_ID"),
                 "SOAR_URL": os.environ.get("SOAR_URL"),
@@ -898,7 +902,7 @@ class AgentEngineManager:
             # Deploy or Update the agent engine
             action_verb = "Updating" if is_update else "Deploying"
             typer.echo(
-                f"{action_verb} agent engine to Vertex AI as '{display_name}'..."
+                f"{action_verb} agent engine to Gemini Enterprise Agent Platform as '{display_name}'..."
             )
 
             extra_packages = [
@@ -921,7 +925,8 @@ class AgentEngineManager:
                 "description": description,
                 "requirements": [
                     "cloudpickle",
-                    "google-adk~=2.0.0",
+                    "google-adk~=2.2.0",
+                    # ToDo: do we REALLY need evaluation?
                     "google-cloud-aiplatform[agent-engines,evaluation]~=1.153.0",
                     "pydantic",
                     "python-dotenv",
@@ -1061,6 +1066,19 @@ class AgentEngineManager:
             typer.echo("\n" + "=" * 80)
             typer.secho("Testing Agent Engine", fg=typer.colors.CYAN, bold=True)
             typer.echo("=" * 80 + "\n")
+
+            # Check location in resource name
+            m = re.search(r"locations/([^/]+)/", resource_name)
+            if m:
+                resource_location = m.group(1)
+                if resource_location != self.location:
+                    typer.secho(
+                        f"Resource location '{resource_location}' differs from default location '{self.location}'. Re-initializing Vertex AI...",
+                        fg=typer.colors.YELLOW,
+                    )
+                    self.location = resource_location
+                    vertexai.init(project=self.project, location=self.location)
+                    aiplatform.init(project=self.project, location=self.location)
 
             # Get the agent
             remote_app = agent_engines.get(resource_name)
@@ -1377,7 +1395,7 @@ class AgentEngineManager:
             # Show recommendations
             typer.secho("\nRecommendations:", fg=typer.colors.YELLOW, bold=True)
             typer.echo(
-                "1. Reasoning Engines typically use the Vertex AI service agent:"
+                "1. Reasoning Engines typically use the Gemini Enterprise Agent Platform service agent:"
             )
             typer.echo(
                 f"   service-{self.project.split('/')[-1] if '/' not in self.project else 'PROJECT_NUMBER'}@gcp-sa-aiplatform.iam.gserviceaccount.com"
@@ -1753,7 +1771,7 @@ def deploy(
                 ui_manager = AgentSpaceManager(env_file)
                 proxy_agents = ui_manager.list_agents(show_raw=False)
 
-                # AgentSpace uses a different display name than Vertex AI natively
+                # Gemini Enterprise Agent Platform uses a different display name than GEAP natively
                 proxy_display_name = ui_manager.env_vars.get(
                     "AGENT_DISPLAY_NAME", "SecOps Security Agent"
                 )
