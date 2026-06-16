@@ -253,22 +253,31 @@ def generate_markdown(inv, alerts_data, entities_data):
 
     md = []
     md.append("---")
-    md.append(f"id: {inv_id}")
-    md.append(f"status: {status}")
-    md.append(f"verdict: {verdict}")
-    md.append(f"confidence: {confidence}")
-    md.append(f"created_time: {created_time}")
-    md.append(f"updated_time: {updated_time}")
+    md.append('type: "Chronicle Investigation"')
+    md.append(f'title: "Investigation Report: {inv_id}"')
+    md.append(
+        f'description: "Chronicle SecOps SIEM harvested investigation {inv_id} (Verdict: {verdict}, Status: {status})"'
+    )
+    md.append(
+        f"timestamp: \"{updated_time if updated_time != 'N/A' else created_time}\""
+    )
+    md.append("provenance:")
+    md.append('  source_type: "api_response"')
+    md.append('  source_tool: "harvest_investigations"')
+    md.append(f"  timestamp: \"{datetime.utcnow().isoformat() + 'Z'}\"")
+    md.append(f'status: "{status}"')
+    md.append(f'verdict: "{verdict}"')
+    md.append(f'confidence: "{confidence}"')
     if alerts:
         md.append("alerts:")
         for a in alerts:
-            md.append(f"  - {a}")
+            md.append(f'  - "{a}"')
     else:
         md.append("alerts: []")
     if cases:
         md.append("cases:")
         for c in cases:
-            md.append(f"  - {c}")
+            md.append(f'  - "{c}"')
     else:
         md.append("cases: []")
     md.append("---")
@@ -716,12 +725,21 @@ def generate_alert_markdown(alert, associated_case_id=None):
 
     md = []
     md.append("---")
-    md.append(f"id: {alert_id}")
-    md.append(f"rule_name: {rule_name}")
-    md.append(f"severity: {severity}")
-    md.append(f"status: {status}")
-    md.append(f"detection_time: {det_time}")
-    md.append(f"case_name: {case_name}")
+    md.append('type: "Chronicle Alert"')
+    md.append(f'title: "Alert: {rule_name}"')
+    md.append(
+        f'description: "Chronicle SecOps SIEM harvested alert for rule {rule_name} (Severity: {severity}, Status: {status})"'
+    )
+    md.append(f'timestamp: "{det_time}"')
+    md.append("provenance:")
+    md.append('  source_type: "api_response"')
+    md.append('  source_tool: "harvest_investigations"')
+    md.append(f"  timestamp: \"{datetime.utcnow().isoformat() + 'Z'}\"")
+    md.append(f'alert_id: "{alert_id}"')
+    md.append(f'rule_name: "{rule_name}"')
+    md.append(f'severity: "{severity}"')
+    md.append(f'status: "{status}"')
+    md.append(f'case_name: "{case_name}"')
     md.append("---")
     md.append("")
     md.append(f"# Alert: {rule_name}")
@@ -771,12 +789,20 @@ def generate_case_markdown(case):
 
     md = []
     md.append("---")
-    md.append(f"id: {case_id}")
-    md.append(f"display_name: {display_name}")
-    md.append(f"priority: {priority}")
-    md.append(f"status: {status}")
-    md.append(f"assignee: {assignee}")
-    md.append(f"create_time: {create_time_str}")
+    md.append('type: "SOAR Case"')
+    md.append(f'title: "SOAR Case: {display_name}"')
+    md.append(
+        f'description: "Chronicle SOAR harvested case {case_id} (Priority: {priority}, Status: {status})"'
+    )
+    md.append(f'timestamp: "{create_time_str}"')
+    md.append("provenance:")
+    md.append('  source_type: "api_response"')
+    md.append('  source_tool: "harvest_investigations"')
+    md.append(f"  timestamp: \"{datetime.utcnow().isoformat() + 'Z'}\"")
+    md.append(f'case_id: "{case_id}"')
+    md.append(f'priority: "{priority}"')
+    md.append(f'status: "{status}"')
+    md.append(f'assignee: "{assignee}"')
     md.append("---")
     md.append("")
     md.append(f"# SOAR Case: {display_name}")
@@ -828,12 +854,20 @@ def generate_rich_case_markdown(case, alerts, output_dir):
 
     md = []
     md.append("---")
-    md.append(f"id: {case_id}")
-    md.append(f"display_name: {display_name}")
-    md.append(f"priority: {priority}")
-    md.append(f"status: {status}")
-    md.append(f"assignee: {assignee}")
-    md.append(f"create_time: {create_time_str}")
+    md.append('type: "SOAR Case"')
+    md.append(f'title: "SOAR Case: {display_name}"')
+    md.append(
+        f'description: "Chronicle SOAR harvested case {case_id} (Priority: {priority}, Status: {status}) with {len(alerts)} enriched alerts"'
+    )
+    md.append(f'timestamp: "{create_time_str}"')
+    md.append("provenance:")
+    md.append('  source_type: "api_response"')
+    md.append('  source_tool: "harvest_investigations"')
+    md.append(f"  timestamp: \"{datetime.utcnow().isoformat() + 'Z'}\"")
+    md.append(f'case_id: "{case_id}"')
+    md.append(f'priority: "{priority}"')
+    md.append(f'status: "{status}"')
+    md.append(f'assignee: "{assignee}"')
     md.append("---")
     md.append("")
     md.append(f"# SOAR Case: {display_name}")
