@@ -29,6 +29,10 @@ provenance:
 ---
 ```
 
+> [!NOTE]
+> **Future Work:** In future iterations, we will adopt Google's [Open Knowledge Format (OKF)](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md) as the base specification for all Markdown YAML frontmatter, extending its schema to incorporate our custom provenance metadata fields.
+
+
 ## Project Overview
 
 This is a security operations (SOC) agent system built with Google Vertex AI Agent Development Kit (ADK). It deploys AI agents to Google Cloud with integrated access to Chronicle SIEM, SOAR, Google Threat Intelligence, Security Command Center, and RAG-based runbook retrieval through the Model Context Protocol (MCP).
