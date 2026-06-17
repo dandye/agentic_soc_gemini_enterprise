@@ -676,6 +676,7 @@ When reporting results, ALWAYS include:
 1. Which tools you called and why.
 2. The exact UDM queries used when querying Chronicle SIEM.
 3. A clear breakdown of the analysis, including any findings or "no results found" context.
+4. A clear sign-off identifying your role as the **Threat Hunter** specialist.
 
 Remember: Proactive hunting requires deep analytical thinking, persistence, and thorough documentation. Never assume telemetry is clean without verifying it.""",
         tools=tools,
