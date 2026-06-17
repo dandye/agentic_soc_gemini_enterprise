@@ -1128,6 +1128,114 @@ class AgentEngineManager:
             typer.secho(f" Error testing agent: {e}", fg=typer.colors.RED)
             return False
 
+    def dump_session_history(
+        self,
+        session_id: str,
+        user_id: str = "eval_user",
+        agent_module: str = "agent_a2a_threat_hunter",
+    ) -> bool:
+        """
+        Retrieve and print the raw conversation events for a given session ID from the cloud agent.
+        """
+        try:
+            typer.echo("\n" + "=" * 80)
+            typer.secho(
+                f"Dumping Session History for Session: {session_id}",
+                fg=typer.colors.CYAN,
+                bold=True,
+            )
+            typer.echo("=" * 80 + "\n")
+
+            # Map the agent module/persona to its env var name
+            if agent_module == "agent_a2a_tier2":
+                resource_var = "TIER2_AGENT_RESOURCE_NAME"
+            elif agent_module == "agent_a2a_threat_hunter":
+                resource_var = "THREAT_HUNTER_AGENT_RESOURCE_NAME"
+            elif agent_module == "agent_a2a_cti_researcher":
+                resource_var = "CTI_RESEARCHER_AGENT_RESOURCE_NAME"
+            elif agent_module == "agent_a2a_detection_engineer":
+                resource_var = "DETECTION_ENGINEER_AGENT_RESOURCE_NAME"
+            else:
+                resource_var = "AGENT_ENGINE_RESOURCE_NAME"
+
+            resource_name = self.env_vars.get(resource_var)
+            if not resource_name:
+                typer.secho(
+                    f" Error: Could not resolve resource name for agent module '{agent_module}' (variable '{resource_var}') from environment.",
+                    fg=typer.colors.RED,
+                )
+                return False
+
+            typer.echo(f"Resolving resource: {resource_name}")
+
+            # Check location in resource name
+            m = re.search(r"locations/([^/]+)/", resource_name)
+            if m:
+                resource_location = m.group(1)
+                if resource_location != self.location:
+                    typer.secho(
+                        f"Resource location '{resource_location}' differs from default location '{self.location}'. Re-initializing Vertex AI...",
+                        fg=typer.colors.YELLOW,
+                    )
+                    self.location = resource_location
+                    vertexai.init(project=self.project, location=self.location)
+                    aiplatform.init(project=self.project, location=self.location)
+
+            # Connect to the remote agent
+            remote_app = agent_engines.get(resource_name)
+
+            # Retrieve the session
+            typer.echo(f"Fetching session data (User: {user_id})...")
+            session = remote_app.get_session(session_id=session_id, user_id=user_id)
+
+            history = session.get("history", [])
+            typer.echo(f"Total history entries: {len(history)}")
+
+            if not history:
+                typer.secho(
+                    "\n No history entries returned.",
+                    fg=typer.colors.YELLOW,
+                )
+                typer.echo(
+                    "Note: If this is a transient agent session without a persistent database backend configured (like Cloud Firestore), the history may have been discarded after the stream query completed."
+                )
+                return True
+
+            for idx, entry in enumerate(history):
+                typer.echo(f"\n--- Entry {idx+1} ---")
+                author = entry.get("author", "unknown")
+                role = entry.get("role", "unknown")
+                typer.secho(
+                    f"Author: {author} | Role: {role}", fg=typer.colors.CYAN, bold=True
+                )
+
+                content = entry.get("content", {})
+                parts = content.get("parts", [])
+                for p_idx, part in enumerate(parts):
+                    if "text" in part:
+                        typer.secho(f"Part {p_idx+1} [Text]:", fg=typer.colors.YELLOW)
+                        typer.echo(part["text"])
+                    elif "function_call" in part:
+                        typer.secho(
+                            f"Part {p_idx+1} [Function Call]:", fg=typer.colors.YELLOW
+                        )
+                        typer.echo(f"  Tool: {part['function_call'].get('name')}")
+                        typer.echo(f"  Args: {part['function_call'].get('args')}")
+                    elif "function_response" in part:
+                        typer.secho(
+                            f"Part {p_idx+1} [Function Response]:",
+                            fg=typer.colors.YELLOW,
+                        )
+                        typer.echo(f"  Tool: {part['function_response'].get('name')}")
+                    else:
+                        typer.echo(f"Part {p_idx+1} [Other]: {list(part.keys())}")
+
+            return True
+
+        except Exception as e:
+            typer.secho(f" Error retrieving session history: {e}", fg=typer.colors.RED)
+            return False
+
     async def _async_test_agent(
         self, remote_app, agent_module: str = "soc_agent", query: str | None = None
     ):
@@ -2163,6 +2271,46 @@ def list_engines(
         typer.echo(
             "  python manage_agent_engine.py list-assistants --engine <ENGINE_ID>"
         )
+
+
+@app.command("session-dump")
+def session_dump(
+    session_id: Annotated[
+        str,
+        typer.Argument(help="The unique session ID to dump."),
+    ],
+    user_id: Annotated[
+        str,
+        typer.Option(
+            "--user-id", "-u", help="The user ID associated with the session."
+        ),
+    ] = "eval_user",
+    agent_module: Annotated[
+        str,
+        typer.Option(
+            "--agent-module",
+            "-m",
+            help="The agent module/persona to connect to (e.g. agent_a2a_threat_hunter, agent_soc_manager).",
+        ),
+    ] = "agent_a2a_threat_hunter",
+    env_file: Annotated[
+        Path, typer.Option(help="Path to the environment file.")
+    ] = Path(".env"),
+) -> None:
+    """
+    Retrieve and dump the raw conversational event history for a live cloud agent session.
+
+    This connects to the live deployed Reasoning Engine in the cloud, pulls its session history,
+    and formats the turn-by-turn thoughts, tool calls, and responses.
+    """
+    manager = AgentEngineManager(env_file)
+    success = manager.dump_session_history(
+        session_id=session_id,
+        user_id=user_id,
+        agent_module=agent_module,
+    )
+    if not success:
+        raise typer.Exit(code=1)
 
 
 if __name__ == "__main__":
