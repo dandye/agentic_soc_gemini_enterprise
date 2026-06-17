@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-06-17
+
+### Added
+- **MLOps Experimentation Registry**: Established a standardized experimentation framework under `evalsets/experiments/` to log hypotheses, code deltas, scorecard metrics, and conclusions for prompt and parameter tuning campaigns.
+- **GEAP Playground Session Tracking**: Integrated automatic generation of live, clickable Gemini Enterprise Agent Platform Playground URLs inside both the raw evaluation ledger and the generated markdown scorecards, enabling one-click console debugging of individual test runs.
+- **Google OKF Frontmatter Standard**: Mandated Google Open Knowledge Format (OKF) YAML frontmatter and custom provenance tracking metadata at the top of all Markdown files in the repository.
+
+### Changed
+- **Token-Compacted SIEM Event Searches (Submodule)**: Optimized `search_security_events` in the `mcp-security` submodule to automatically strip out verbose nested fields and empty keys from UDM logs, and reduced the default `max_events` from 100 to 15, yielding a 90%+ token footprint reduction.
+- **Token-Compacted GTI File Reports (Submodule)**: Optimized `get_file_report` in the `mcp-security` submodule to extract high-density threat signals and summarize relationship arrays, shrinking the returned VirusTotal payload size by 98% to prevent token pressure.
+- **Continuous Optimization Reframing**: Renamed the evaluations guide to **Agent Evaluation, Experimentation, and Optimization Framework**, reframing the pipeline around continuous hyperparameter adaptation and active behavioral tuning.
+- **Headless Credentials Fallback**: Enabled permanent service account credentials in `.env` to prevent local deployment disruptions caused by expired browser-default Application Default Credentials (ADC).
+
 ## [0.3.0] - 2026-06-16
 
 ### Added
