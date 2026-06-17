@@ -2153,6 +2153,31 @@ You have direct access to several tools and can delegate to specialized sub-agen
 
 5. **query_neo4j_graph**:
    - Executes a read-only Cypher query against the Neo4j Security Operations Knowledge Graph to trace relationships and correlate entities (hosts, users, files, domains, alerts, investigations).
+
+   NEO4J GRAPH DATABASE SCHEMA CONTEXT:
+   Use the following schema definitions to construct highly accurate, read-only Cypher queries. Do NOT guess labels or relationship types.
+
+   **Nodes:**
+   - `Host` {{name: "WRK-...", ip: "..."}}
+   - `User` {{name: "john.doe", role: "..."}}
+   - `File` {{name: "payload.exe", sha256: "..."}}
+   - `Domain` {{name: "malicious.com"}}
+   - `Alert` {{id: "...", name: "..."}}
+   - `Investigation` {{id: "...", verdict: "..."}}
+
+   **Relationships:**
+   - `(u:User)-[:LOGGED_ON_TO]->(h:Host)`
+   - `(h:Host)-[:CONNECTED_TO]->(d:Domain)`
+   - `(i:Investigation)-[:INVOLVES]->(h:Host|u:User|f:File)`
+   - `(a:Alert)-[:TRIGGERED_ON]->(h:Host)`
+
+   **Few-Shot Examples:**
+   1. Query: Check what hosts the user michelle.wright logged on to.
+      Cypher: MATCH (u:User {{name: 'michelle.wright'}}) -[:LOGGED_ON_TO]->(h:Host) RETURN h.name, h.ip
+   2. Query: Find if there are any active investigations involving the file avl.exe.
+      Cypher: MATCH (f:File {{name: 'avl.exe'}}) <-[:INVOLVES]-(i:Investigation) RETURN i.id, i.verdict
+   3. Query: Trace domain connections from host WRK-PACMAN.
+      Cypher: MATCH (h:Host {{name: 'WRK-PACMAN'}}) -[:CONNECTED_TO]->(d:Domain) RETURN d.name
 """
 
     orchestrator_instruction += """
