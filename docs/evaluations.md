@@ -56,7 +56,29 @@ Each ledger entry contains three primary blocks:
 
 ---
 
-## 3. CLI Commands Reference
+## 3. The Experimentation Log Registry
+
+To treat prompt engineering and agent optimization as a rigorous science, the repository maintains an **Experimentation Log Registry** under `evalsets/experiments/`.
+
+### A. Purpose & Value
+* **Historical Auditability:** Keeps a permanent record of *why* specific prompts, tool constraints, or grounding structures were chosen, protecting the codebase from regression-inducing "re-tweaking".
+* **Empirical Validation:** Every prompt/parameter change is tied directly to a hypothesis and its empirical scorecard results.
+* **PR-Based Reviews:** Because experiment logs are structured Markdown files, changes can be reviewed and discussed by other engineers inside Pull Requests on GitHub before the code is merged.
+
+### B. Standardized Schema (OKF Compliant)
+Every experiment log must conform to Google's **Open Knowledge Format (OKF)** and use the standardized template:
+👉 **[evalsets/experiments/template.md](file:///Users/dandye/Projects/agentic_soc_agentspace__worktrees/harvest_detection_reports/evalsets/experiments/template.md)**
+
+It documents five key blocks:
+1. **Metadata:** Target agent, evaluation set, baseline Git commit, and baseline score.
+2. **Hypothesis & Goals:** The scientific rationale and targeted score delta.
+3. **Implementation Plan:** Links to modified files and a clean Git diff code delta.
+4. **Empirical Results & Scorecard:** The new Git commit, score delta (e.g., `▲ +31.0%`), newly passed assertions, and trajectory differences.
+5. **Conclusion & Verdict:** The final decision (`MERGED`, `REJECTED`, or `ITERATING`) and key findings/next steps.
+
+---
+
+## 4. CLI Commands Reference
 
 The evaluation engine is fully integrated into the master CLI (`manage.py`) under the `eval` subcommand namespace, and mapped to developer recipes in the `justfile`.
 
@@ -85,13 +107,23 @@ python manage.py eval compare cti_research --base evalsets/eval_runs/run_base.js
 
 ---
 
-## 4. Why This Matters for Prompt Engineering
+## 5. The Unified Git-MLOps Workflow
 
-By coupling **Git history** directly with **Agent evaluation trajectories**, you establish a rigorous engineering loop:
-1. **Establish Baseline:** Run `just test-eval-all` on your master branch.
-2. **Make Changes:** Modify agent prompts, add new tools, or adjust system instructions on a feature branch.
-3. **Run Evaluation:** Run the tests on your new branch to write to the ledger.
-4. **Run Comparison:** Run `python manage.py eval compare` to immediately see:
-   * Did your changes improve or regress performance?
-   * Did the agent's tool-use trajectory change?
-   * Exactly which commits in your feature branch are associated with these changes?
+By coupling **Git history**, **live Vertex AI deployments**, and **evaluation ledger data**, you establish a rigorous, industry-grade MLOps loop:
+
+```mermaid
+graph TD
+    A["1. Formulate Hypothesis"] --> B["2. Modify Code & Commit"]
+    B --> C["3. Deploy Cloud Agent with Commit Metadata"]
+    C --> D["4. Run Eval Set to Ledger"]
+    D --> E["5. Compare Runs & Record Log"]
+```
+
+1. **Formulate Hypothesis:** Determine the optimization target (e.g., "Enforcing Threat Hunter role sign-off will satisfy specialist attribution").
+2. **Modify Code & Commit:** Implement the prompt/tool modification and commit the change to record its unique Git fingerprint (e.g., `git commit -m "..."`).
+3. **Deploy Cloud Agent with Commit Metadata:** Push the update to Vertex AI in-place, and **stamp the Git commit directly onto the live cloud resource description** to create a perfect 1:1 mapping:
+   ```bash
+   just agent_module=agent_a2a_threat_hunter agent-engine-update description="Commit [hash]: Enforce Threat Hunter sign-off"
+   ```
+4. **Run Eval Set to Ledger:** Execute the evaluation suite (`just test-eval-hunt`) to record the run's tool trajectories and scores under the new Git commit.
+5. **Compare Runs & Record Log:** Run the comparison engine to calculate score and trajectory deltas (`python manage.py eval compare threat_hunting`), and document the findings in a new experiment log (e.g., `evalsets/experiments/001_xxx.md`).
