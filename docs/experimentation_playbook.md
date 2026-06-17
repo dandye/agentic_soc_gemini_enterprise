@@ -1,11 +1,16 @@
-# Playbook for Systematic Agent Experimentation
-
 ---
+type: "Playbook"
+title: "Playbook for Systematic Agent Experimentation"
+description: "Strategic playbook cataloging experimental variables, structured workflow, and high-priority optimization designs for Advanced Agentic SOC"
+resource: "file:///Users/dandye/Projects/agentic_soc_agentspace__worktrees/harvest_detection_reports/docs/experimentation_playbook.md"
+timestamp: "2026-06-17T07:45:00Z"
 provenance:
   source_type: "generative_ai"
   source_tool: "Antigravity"
   timestamp: "2026-06-17T07:45:00Z"
 ---
+# Playbook for Systematic Agent Experimentation
+
 
 With a fully functioning **Local Evaluation Ledger & Regression Engine** and verified live database integrations, the Advanced Agentic SOC platform is primed for systematic engineering optimization.
 

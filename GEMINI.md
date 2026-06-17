@@ -18,10 +18,15 @@ This file provides guidance to Gemini Code Assist when working with code in this
 - No emojis in documentation
 - Emojis are unprofessional and must not be used in any context
 
-### Markdown Provenance Metadata
-All Markdown (`.md`) files created or modified in the workspace must include a standard YAML frontmatter block containing provenance tracking information:
+### Markdown Open Knowledge Format (OKF) & Provenance Metadata
+All Markdown (`.md`) files created or modified in the workspace must include a standard YAML frontmatter block at the absolute top of the file conforming to Google's **Open Knowledge Format (OKF)** extended with our custom provenance tracking schema:
 ```yaml
 ---
+type: "Playbook" | "Evaluation Report" | "Glossary" | "Architecture" | "Troubleshooting" | "Documentation" | "other"
+title: "Descriptive Document Title"
+description: "A concise summary of the document's purpose and contents"
+resource: "file:///absolute/path/to/file.md"
+timestamp: "ISO-8601-UTC-timestamp-of-creation-or-last-update"
 provenance:
   source_type: "api_response" | "python_generated" | "generative_ai" | "manual" | "mcp_tool"
   source_tool: "name_of_script_tool_or_model"
@@ -29,8 +34,6 @@ provenance:
 ---
 ```
 
-> [!NOTE]
-> **Future Work:** In future iterations, we will adopt Google's [Open Knowledge Format (OKF)](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md) as the base specification for all Markdown YAML frontmatter, extending its schema to incorporate our custom provenance metadata fields.
 
 
 ## Project Overview
