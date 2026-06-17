@@ -136,6 +136,10 @@ agent-engine-deploy-and-delete description="": check-prereqs
 agent-engine-test query="":
     {{ python }} {{ manage_agent_engine }} test --agent-module {{ agent_module }} {{ if query != "" { "--query " + quote(query) } else { "" } }}
 
+# Dump raw conversation history for a cloud session
+agent-engine-session-dump session_id user_id="eval_user":
+    {{ python }} {{ manage_agent_engine }} session-dump --agent-module {{ agent_module }} --user-id {{ user_id }} {{ session_id }}
+
 # Pre-warm MCP server connections to reduce cold start latency
 agent-engine-warmup: check-deploy
     {{ python }} {{ manage_agent_engine }} warmup

@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **MLOps Experimentation Registry**: Established a standardized experimentation framework under `evalsets/experiments/` to log hypotheses, code deltas, scorecard metrics, and conclusions for prompt and parameter tuning campaigns.
 - **GEAP Playground Session Tracking**: Integrated automatic generation of live, clickable Gemini Enterprise Agent Platform Playground URLs inside both the raw evaluation ledger and the generated markdown scorecards, enabling one-click console debugging of individual test runs.
+- **Session-Dump Tracking Utility**: Formalized the ad-hoc session history retrieval script into a robust CLI subcommand `session-dump` (accessible via `python manage.py agent-engine session-dump` and `just agent-engine-session-dump`). It connects to the live deployed Reasoning Engine in the cloud, pulls its raw history, and beautifully prints the turn-by-turn thoughts, tool calls, and response payloads in a color-coded console format.
 - **Google OKF Frontmatter Standard**: Mandated Google Open Knowledge Format (OKF) YAML frontmatter and custom provenance tracking metadata at the top of all Markdown files in the repository.
 
 ### Changed

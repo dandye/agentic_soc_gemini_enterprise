@@ -10,20 +10,22 @@ This project implements a **Dual CLI Interface** with identical capabilities. De
 
 ## 1. Deployments & Updates
 
-Manage Reasoning Engine containers in Vertex AI:
+Manage Reasoning Engine containers in Vertex AI and retrieve session tracing history:
 
 ### using justfile:
 ```bash
-just agent-engine-deploy                # Deploys the Orchestrator agent
-just agent-engine-update                # In-place update of agent code (retains memory)
-just agent-engine-test query="T1003"    # Test deployed agent with a natural language query
+just agent-engine-deploy                         # Deploys the Orchestrator agent
+just agent-engine-update                         # In-place update of agent code (retains memory)
+just agent-engine-test query="T1003"             # Test deployed agent with a natural language query
+just agent-engine-session-dump session_id="ID"   # Dump raw conversation history for a cloud session
 ```
 
 ### using Python CLI:
 ```bash
-python manage.py agent-engine deploy    # Deploys the Orchestrator agent
-python manage.py agent-engine update    # In-place update of agent code
-python manage.py agent-engine test      # Test deployed agent
+python manage.py agent-engine deploy             # Deploys the Orchestrator agent
+python manage.py agent-engine update             # In-place update of agent code
+python manage.py agent-engine test               # Test deployed agent
+python manage.py agent-engine session-dump <ID>  # Dump raw conversation history for a session
 ```
 
 ---
