@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - **Token-Compacted SIEM Event Searches (Submodule)**: Optimized `search_security_events` in the `mcp-security` submodule to automatically strip out verbose nested fields and empty keys from UDM logs, and reduced the default `max_events` from 100 to 15, yielding a 90%+ token footprint reduction.
 - **Token-Compacted GTI File Reports (Submodule)**: Optimized `get_file_report` in the `mcp-security` submodule to extract high-density threat signals and summarize relationship arrays, shrinking the returned VirusTotal payload size by 98% to prevent token pressure.
+- **Cognitive Tool-Call Budgeting (Threat Hunter)**: Enforced a strict budget of 2-3 knowledge graph queries (`query_neo4j_graph`) and mandated early pivoting to SIEM event searches in the Threat Hunter's system prompt. This completely eliminated runaway exploration loops and prevented cloud step-limit cutoffs, allowing the agent to successfully compile and write its final report, lifting the overall scorecard to a **perfect 100.0%**.
 - **Continuous Optimization Reframing**: Renamed the evaluations guide to **Agent Evaluation, Experimentation, and Optimization Framework**, reframing the pipeline around continuous hyperparameter adaptation and active behavioral tuning.
 - **Headless Credentials Fallback**: Enabled permanent service account credentials in `.env` to prevent local deployment disruptions caused by expired browser-default Application Default Credentials (ADC).
 
