@@ -1,21 +1,26 @@
 ---
+type: "Documentation"
+title: "Agent Evaluation, Experimentation, and Optimization Framework"
+description: "Comprehensive guide to the repository-backed agent evaluation ledger, trajectory diffing, and hyperparameter optimization framework"
+resource: "file:///Users/dandye/Projects/agentic_soc_agentspace__worktrees/harvest_detection_reports/docs/evaluations.md"
+timestamp: "2026-06-17T08:05:00Z"
 provenance:
   source_type: "generative_ai"
   source_tool: "Antigravity"
-  timestamp: "2026-06-16T16:53:00Z"
+  timestamp: "2026-06-17T08:05:00Z"
 ---
-# Evaluation Ledger & Regression Testing
+# Agent Evaluation, Experimentation, and Optimization Framework
 
-This document outlines the architecture, design principles, and operational guide for the **Local Evaluation Ledger & Regression Engine** implemented in this repository.
+This document outlines the architecture, design principles, and operational guide for the **Evaluation, Experimentation, and Optimization Framework** implemented in this repository.
 
 > [!NOTE]
-> This framework is designed to provide professional-grade LLM/Agent evaluation tracking, trajectory diffing, and regression isolation directly in the local developer workspace, without requiring external SaaS platform integrations.
+> This framework is designed to provide professional-grade LLM/Agent evaluation tracking, trajectory diffing, and active optimization directly in the developer workspace. While ledger records are checked into Git to enable seamless versioning and review, the evaluation suites execute against **live cloud environments** (Vertex AI Reasoning Engines, live Neo4j databases, live Chronicle SIEM, and GTI) to validate real-world behavior, prompt tuning, and hyperparameter changes.
 
 ---
 
 ## 1. Architectural Ancestry & Core Concepts
 
-The Local Evaluation Ledger & Regression Engine is synthesized from industry-standard best practices across MLOps, LLM Observability, and Software Engineering CI/CD:
+The Evaluation & Optimization Framework is synthesized from industry-standard best practices across MLOps, LLM Observability, and Software Engineering CI/CD:
 
 ### A. MLOps Experiment Tracking (Inspired by MLflow & Weights & Biases)
 Traditional machine learning relies on "Experiment Ledgers" to log every training run with its exact hyperparameters, model parameters, dataset versions, and the Git commit hash of the code. This project applies this discipline to Agentic systems by tying every evaluation run to:
@@ -26,10 +31,10 @@ Traditional machine learning relies on "Experiment Ledgers" to log every trainin
 ### B. Trajectory Diffing (Inspired by LangSmith & Arize Phoenix)
 For multi-agent systems, evaluating the final response text is insufficient; we must evaluate *how* the agent arrived at its answer.
 * **Tool Trajectories:** The sequence of tool calls and specialist delegations.
-* **Trajectory Diffing:** When a score regresses, the comparison engine diffs the tool calls of the baseline and new runs to identify exactly where the agent's reasoning path deviated.
+* **Trajectory Diffing:** When a score regresses or improves, the comparison engine diffs the tool calls of the baseline and new runs to identify exactly where the agent's reasoning path deviated.
 
-### C. Prompt GitOps & CI/CD Regression Isolation
-In traditional software engineering, when a test suite regresses, developers run `git log` or `git bisect` between the last passing commit and the current commit to isolate the breaking code changes. This engine automates this process by executing:
+### C. Prompt GitOps & Continuous Adaptation
+In software engineering, when a test suite regresses, developers run `git log` or `git bisect` to isolate the breaking code changes. This engine automates this process by executing:
 ```bash
 git log [baseline_commit]..[new_commit] --oneline
 ```
