@@ -3,11 +3,11 @@ type: "Architecture"
 title: "SecOps AI Multi-Agent Grounding Architecture"
 description: "A comprehensive guide and high-fidelity schematic of the grounding data stores, ingestion pipelines, and multi-agent retrieval mechanisms within the Gemini Enterprise Agent Platform."
 resource: "file:///Users/dandye/Projects/agentic_soc_agentspace__worktrees/harvest_detection_reports/docs/grounding_architecture.md"
-timestamp: "2026-06-17T11:25:00Z"
+timestamp: "2026-06-17T11:40:00Z"
 provenance:
   source_type: "generative_ai"
   source_tool: "Antigravity"
-  timestamp: "2026-06-17T11:25:00Z"
+  timestamp: "2026-06-17T11:40:00Z"
 ---
 
 # SecOps AI Multi-Agent Grounding Architecture
@@ -67,7 +67,28 @@ graph TD
 
 ---
 
-## 4. Ingestion & Synchronization Pipelines
+## 4. Synchronization & Update Frequency Spectrum
+
+To maintain high-fidelity operations, the grounding sources are updated at different intervals matching their core cognitive function:
+
+![Grounding Update Frequency Spectrum](/Users/dandye/Projects/agentic_soc_agentspace__worktrees/harvest_detection_reports/docs/sync_frequency_spectrum.png)
+
+1.  **Session Memory (Instantaneous / Per-Turn):**
+    *   *Interval:* Sub-second, continuous.
+    *   *Cognitive Value:* Retains active dialog turns, tool call arguments, and thoughts for the current in-process execution. Discarded or archived upon session teardown.
+2.  **Neo4j Graph Database (Near Real-time / Event-Driven):**
+    *   *Interval:* Dynamic, triggered on alert ingestion or telemetry harvesting.
+    *   *Cognitive Value:* Maps and updates entity-relationship linkages as soon as a new security alert or telemetry file is ingested.
+3.  **Elasticsearch (On-Demand / Scheduled Sync):**
+    *   *Interval:* Daily or scheduled.
+    *   *Cognitive Value:* Indexes new threat reports, past case summaries, and raw UDM logs to ensure fast search retrieval.
+4.  **Vertex AI RAG (Static / Release-Driven):**
+    *   *Interval:* Infrequent, triggered only by git commits or major playbooks releases.
+    *   *Cognitive Value:* Houses official corporate Incident Response Plans (IRPs), compliance checklists, and static operating guidelines that require formal authorization before modification.
+
+---
+
+## 5. Ingestion & Synchronization Pipelines
 
 To ensure that grounding databases never become stale, the platform implements unified CLI pipelines for continuous synchronization:
 
