@@ -1445,6 +1445,44 @@ async def delegate_to_cti_researcher(query: str, tool_context: Context) -> str:
         return f"Failed to communicate with the remote CTI Researcher specialist agent: {e}"
 
 
+async def delegate_concurrently(
+    cti_query: str, hunt_query: str, tool_context: Context
+) -> str:
+    """
+    Delegates to the CTI Researcher agent (for threat intelligence research) and the
+    Threat Hunter agent (for internal log threat hunting) CONCURRENTLY, running both
+    investigations in parallel to save time.
+
+    Args:
+        cti_query: The specific threat intelligence query for the CTI Researcher (e.g., 'Research active campaign aliases and IOCs for Ursnif').
+        hunt_query: The specific threat hunt query or hypothesis for the Threat Hunter (e.g., 'Search for active beacons or DNS connections to superstarts.top').
+    """
+    import asyncio
+
+    logger.info(
+        f"A2A_DELEGATION: Attempting concurrent delegation to CTI Researcher ('{cti_query}') and Threat Hunter ('{hunt_query}')"
+    )
+
+    cti_task = delegate_to_cti_researcher(cti_query, tool_context)
+    hunt_task = delegate_to_threat_hunter(hunt_query, tool_context)
+
+    try:
+        cti_result, hunt_result = await asyncio.gather(cti_task, hunt_task)
+        logger.info(
+            "A2A_DELEGATION_SUCCESS: Successfully completed concurrent delegation tasks."
+        )
+        return f"""=== CTI Researcher Specialist Results ===
+{cti_result}
+
+=== Threat Hunter Specialist Results ===
+{hunt_result}"""
+    except Exception as e:
+        logger.error(
+            f"A2A_DELEGATION_ERROR: Concurrent delegation failed: {e}", exc_info=True
+        )
+        return f"Error executing concurrent delegation: {e}"
+
+
 async def delegate_to_detection_engineer(query: str, tool_context: Context) -> str:
     """
     Delegates detection rule development (YARA-L), rule verification, validation, tuning, and rule lifecycle audits
@@ -2091,6 +2129,7 @@ CRITICAL: Summarize procedures and ask for user permission before executing stat
         delegate_to_threat_hunter,
         delegate_to_cti_researcher,
         delegate_to_detection_engineer,
+        delegate_concurrently,
     ]
 
     # Add grounding/retrieval tool based on configuration
@@ -2213,6 +2252,10 @@ You have direct access to several tools and can delegate to specialized sub-agen
 4. **delegate_to_detection_engineer**:
    - SIEM rules (YARA-L) design, rule auditing, rule testing against historical events, syntax validation, and alert tuning/exclusions.
 
+5. **delegate_concurrently**:
+   - Triggers the CTI Researcher (for external threat intelligence) and the Threat Hunter (for internal SIEM log hunting) CONCURRENTLY, running both investigations in parallel.
+   - **CRITICAL:** Whenever an investigation requires both external actor/campaign profiling AND internal environment log hunting, you MUST call this tool to execute them in parallel, rather than calling them sequentially. This dramatically reduces investigation latency.
+
 DELEGATION STRATEGY:
 1. Analyze the user's request to determine the type of work required.
 2. For runbook/procedure queries: Use the RAG knowledge base directly via `retrieve_agentic_soc_runbooks`.
@@ -2224,6 +2267,7 @@ DELEGATION STRATEGY:
 8. For proactive hunting, query development, or searching log prevalence for a specific domain/IP: Call `delegate_to_threat_hunter`.
 9. For researching a threat actor, campaign context, vulnerability (CVE) details, or malware family behavior: Call `delegate_to_cti_researcher`.
 10. For writing YARA-L rules, listing rules, analyzing rule performance/errors, or tuning alerts/exclusions: Call `delegate_to_detection_engineer`.
+11. **CONCURRENT DELEGATION RULE:** If a user request or runbook requires both external threat intelligence (profiling threat actors, malware behavior, or campaigns) AND internal log hunting (checking DNS logs, process execution, or file activity), you **MUST** call `delegate_concurrently` rather than calling `delegate_to_cti_researcher` and `delegate_to_threat_hunter` sequentially.
 """
 
     orchestrator_instruction += """
