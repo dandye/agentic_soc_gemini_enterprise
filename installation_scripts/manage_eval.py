@@ -161,6 +161,7 @@ class EvaluationRunner:
         remote_app,
         query: str,
         reference: dict,
+        agent_resource: str | None = None,
         verbose: bool = False,
         quiet: bool = False,
     ) -> dict:
@@ -243,10 +244,20 @@ class EvaluationRunner:
         must_contain = reference.get("final_response_must_contain", [])
         success_criteria = reference.get("success_criteria", {})
 
+        # Construct GEAP Playground URL
+        playground_url = ""
+        if agent_resource and agent_resource.startswith("projects/"):
+            parts = agent_resource.split("/")
+            if len(parts) >= 6:
+                location = parts[3]
+                engine_id = parts[5]
+                playground_url = f"https://console.cloud.google.com/agent-platform/runtimes/locations/{location}/agent-engines/{engine_id}/playground?session={session_id}&project={self.project_id}&userId={user_id}"
+
         results = {
             "query": query,
             "response": final_response,
             "tool_calls": tool_calls,
+            "playground_url": playground_url,
             "assertions": {},
             "score": 0.0,
         }
@@ -416,7 +427,7 @@ class EvaluationRunner:
 
             # Run case async
             result = await self._async_run_case(
-                remote_app, query, reference, verbose, quiet
+                remote_app, query, reference, agent_resource, verbose, quiet
             )
             case_results.append((eval_id, case_name, result))
 
@@ -654,10 +665,17 @@ provenance:
         md_content += "\n---\n\n## Detailed Case Runs\n\n"
 
         for i, (eval_id, case_name, res) in enumerate(case_results, start=1):
+            playground_url = res.get("playground_url")
+            playground_link = (
+                f"[Open Interactive Session in GCP Console]({playground_url})"
+                if playground_url
+                else "*N/A*"
+            )
             md_content += f"""### Case {i}: {case_name} ({eval_id})
 
 * **User Query:** "{res['query']}"
 * **Score:** **{res['score']*100:.1f}%**
+* **GEAP Playground:** {playground_link}
 
 #### Tool Trajectory
 {chr(10).join([f'* Called tool: `{t}`' for t in res['tool_calls']]) or '*No tools called.*'}
