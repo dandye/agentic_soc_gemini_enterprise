@@ -59,6 +59,9 @@ provenance:
     *   **Case 1:** Stopped calling `get_file_report`, `get_security_alerts`, `search_security_rules`, `get_rule_detections`, `get_ip_address_report`, `get_reference_list`, and `save_report_artifact`. Made 10 consecutive `query_neo4j_graph` calls.
     *   **Case 2:** Stopped calling `get_security_alerts`, and `search_security_events`. Made 9 consecutive `query_neo4j_graph` calls.
 *   **Raw Run Ledger:** [evalsets/eval_runs/run_threat_hunting_20260617T080621Z_525607b.json](file:///Users/dandye/Projects/agentic_soc_agentspace__worktrees/harvest_detection_reports/evalsets/eval_runs/run_threat_hunting_20260617T080621Z_525607b.json)
+*   **GEAP Playground Sessions:**
+    *   [Open Case 1 Interactive Session in GCP Console](https://console.cloud.google.com/agent-platform/runtimes/locations/us-central1/agent-engines/2164796008335147008/playground?session=4099322739574177792&project=secops-demo-env&userId=eval_user)
+    *   [Open Case 2 Interactive Session in GCP Console](https://console.cloud.google.com/agent-platform/runtimes/locations/us-central1/agent-engines/2164796008335147008/playground?session=256626357520302080&project=secops-demo-env&userId=eval_user)
 
 ---
 

@@ -47,6 +47,8 @@ provenance:
     *   [X] [Assertion Name e.g., specialist_attribution]
 *   **Trajectory Diff:** [List any tool calls added, removed, or reordered]
 *   **Raw Run Ledger:** [Link to the raw JSON run log e.g. `evalsets/eval_runs/run_xxx.json`]
+*   **GEAP Playground Sessions:**
+    *   [Open Case 1 Interactive Session in GCP Console](https://console.cloud.google.com/agent-platform/runtimes/locations/[location]/agent-engines/[engine_id]/playground?session=[session_id]&project=[project_id]&userId=eval_user)
 
 ---
 
