@@ -13,7 +13,7 @@ provenance:
 # SecOps Threat Hunting: Bulk Domain Hunting via Reference Lists & Retrohunt
 
 > [!NOTE]
-> This document establishes the standard operational procedure for hunting large lists of domain names or network indicators (100+ IOCs) in Google SecOps. Executing individual queries or massive `OR` chains for large sets is highly inefficient, hits query complexity limits, and degrades search performance.
+> This document establishes the standard operational procedure for hunting large lists of domain names or network indicators (dozens of IOCs) in Google SecOps. Executing individual queries or massive `OR` chains for large sets is highly inefficient, hits query complexity limits, and degrades search performance.
 
 ---
 
@@ -41,7 +41,7 @@ presents three severe problems:
 
 ```mermaid
 graph TD
-    A["Receive Domain IOC List (100+ Domains)"] --> B["Create Reference List (e.g., %apt29_c2_domains)"]
+    A["Receive Domain IOC List (Dozens of Domains)"] --> B["Create Reference List (e.g., %apt29_c2_domains)"]
     B --> C["Deploy YARA-L Detection Rule using 'in' operator"]
     C --> D["Trigger Retrohunt (Historical Log Scan, e.g., 14-90 days)"]
     D --> E["Evaluate Retrohunt Detections & Alert Triage"]
