@@ -22,7 +22,7 @@ If `ELASTICSEARCH_GROUNDING_ENABLED=True` is set in your `.env` file, the Orches
 
 When the Threat Hunter or Orchestrator needs to map out lateral movement, identify all active alerts associated with a compromised user, or list all processes executed by a malicious file hash, it queries your GCE Neo4j Graph Database VM over the **Bolt protocol (port 7687)**.
 
-- **Data Source:** Sourced and compiled from historical Chronicle SIEM telemetry and case files in `harvested_investigations/knowledge_graph.json`.
+- **Data Source:** Sourced and compiled from historical Chronicle SIEM telemetry and case files in `investigations/knowledge_graph.json`.
 - **Ingested Graph Scale:** **1,148 nodes** (representing Cases, Alerts, Users, Hosts, Files, Domains) and **7,789 edges** (representing relationships like `LOGGED_INTO`, `EXECUTED`, `TRIGGERED`, `COMMUNICATED_WITH`).
 
 The Threat Hunter registers the `query_neo4j_graph` tool, allowing it to traverse complex multi-hop entities in milliseconds.

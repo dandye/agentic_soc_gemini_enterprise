@@ -27,7 +27,7 @@ sa_path = os.path.expanduser(
 project_id = os.getenv("CHRONICLE_PROJECT_ID", "secops-demo-env")
 location = os.getenv("CHRONICLE_REGION", "us")
 instance_id = os.getenv("CHRONICLE_CUSTOMER_ID", "a13f6726-efed-452e-9008-8fe0d3cb0f75")
-output_dir = "/Users/dandye/Projects/agentic_soc_agentspace__worktrees/harvest_detection_reports/harvested_investigations"
+output_dir = "/Users/dandye/Projects/agentic_soc_agentspace__worktrees/harvest_detection_reports/investigations"
 
 # VirusTotal API configuration
 vt_api_key = os.getenv("GTI_API_KEY")

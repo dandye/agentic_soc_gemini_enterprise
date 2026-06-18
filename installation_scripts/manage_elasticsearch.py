@@ -192,11 +192,11 @@ class ElasticsearchManager:
         return False
 
     def get_runbook_files(self) -> list[Path]:
-        """Scan harvested_investigations/ and return files to index."""
+        """Scan investigations/ and return files to index."""
         files = []
 
-        # Scan harvested_investigations/
-        harvested_path = self.project_root / "harvested_investigations"
+        # Scan investigations/
+        harvested_path = self.project_root / "investigations"
         if harvested_path.exists():
             for file_path in harvested_path.rglob("*.md"):
                 if not self._should_exclude(file_path):

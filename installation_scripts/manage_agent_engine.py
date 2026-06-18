@@ -98,6 +98,13 @@ class AgentEngineManager:
         env_vars = dict(os.environ)
         return env_vars
 
+    def get_module_location(self, agent_module: str) -> str:
+        """Resolve the regional location for a specific agent module from configuration."""
+        env_var_name = f"{agent_module.upper()}_LOCATION"
+        return self.env_vars.get(
+            env_var_name, self.env_vars.get("GCP_LOCATION", "us-central1")
+        )
+
     def _initialize_vertex_ai(self) -> None:
         """Initialize Gemini Enterprise Agent Platform SDK with project and location from environment."""
         self.project = self.env_vars.get("GCP_PROJECT_ID")
@@ -684,7 +691,7 @@ class AgentEngineManager:
             # Initialize Gemini Enterprise Agent Platform
             typer.echo("Initializing Gemini Enterprise Agent Platform...")
             GCP_PROJECT_ID = os.environ.get("GCP_PROJECT_ID")
-            GCP_LOCATION = os.environ.get("GCP_LOCATION", "us-central1")
+            GCP_LOCATION = self.get_module_location(agent_module)
             GCP_STAGING_BUCKET = os.environ.get("GCP_STAGING_BUCKET")
 
             vertexai.init(
@@ -808,7 +815,7 @@ class AgentEngineManager:
                 "GCP_VERTEXAI_ENABLED": os.environ.get("GCP_VERTEXAI_ENABLED", "TRUE"),
                 "PROJECT_ID": os.environ.get("GCP_PROJECT_ID"),
                 "GCP_PROJECT_ID": os.environ.get("GCP_PROJECT_ID"),
-                "GCP_LOCATION": os.environ.get("GCP_LOCATION", "us-central1"),
+                "GCP_LOCATION": self.get_module_location(agent_module),
                 "GCP_STAGING_BUCKET": os.environ.get("GCP_STAGING_BUCKET"),
                 "GEMINI_AUTHORIZATION_ID": os.environ.get("OAUTH_AUTH_ID"),
                 "GCP_ARTIFACT_BUCKET": os.environ.get("GCP_ARTIFACT_BUCKET"),
@@ -871,6 +878,19 @@ class AgentEngineManager:
                 "TIER1_AGENT_RESOURCE_NAME": os.environ.get(
                     "TIER1_AGENT_RESOURCE_NAME"
                 ),
+                "THREAT_HUNTER_AGENT_RESOURCE_NAME": os.environ.get(
+                    "THREAT_HUNTER_AGENT_RESOURCE_NAME"
+                ),
+                "CTI_RESEARCHER_AGENT_RESOURCE_NAME": os.environ.get(
+                    "CTI_RESEARCHER_AGENT_RESOURCE_NAME"
+                ),
+                "DETECTION_ENGINEER_AGENT_RESOURCE_NAME": os.environ.get(
+                    "DETECTION_ENGINEER_AGENT_RESOURCE_NAME"
+                ),
+                # Model Configuration Override Variables
+                "ORCHESTRATOR_MODEL": os.environ.get("ORCHESTRATOR_MODEL"),
+                "CTI_RESEARCHER_MODEL": os.environ.get("CTI_RESEARCHER_MODEL"),
+                "TIER1_ANALYST_MODEL": os.environ.get("TIER1_ANALYST_MODEL"),
                 # Elasticsearch Grounding
                 "ELASTICSEARCH_GROUNDING_ENABLED": os.environ.get(
                     "ELASTICSEARCH_GROUNDING_ENABLED"
@@ -954,6 +974,7 @@ class AgentEngineManager:
                     "google-adk~=2.2.0",
                     # ToDo: do we REALLY need evaluation?
                     "google-cloud-aiplatform[agent-engines,evaluation]~=1.153.0",
+                    "google-cloud-discoveryengine",
                     "pydantic",
                     "python-dotenv",
                     "httpx>=0.28.1",

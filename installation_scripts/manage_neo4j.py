@@ -3,7 +3,7 @@
 Neo4j Management CLI for Security Operations Knowledge Graph
 
 This script handles database connections, graph clearing, and ingestion
-of nodes and edges from the harvested_investigations/knowledge_graph.json file.
+of nodes and edges from the investigations/knowledge_graph.json file.
 """
 
 import json
@@ -33,9 +33,7 @@ class Neo4jManager:
         self.uri = self.env_vars.get("NEO4J_URI", "bolt://localhost:7687")
         self.user = self.env_vars.get("NEO4J_USER", "neo4j")
         self.password = self.env_vars.get("NEO4J_PASSWORD", "password")
-        self.graph_path = (
-            self.project_root / "harvested_investigations" / "knowledge_graph.json"
-        )
+        self.graph_path = self.project_root / "investigations" / "knowledge_graph.json"
 
     def _load_env_vars(self) -> dict[str, str]:
         """Load environment variables from the .env file."""
@@ -314,7 +312,7 @@ def ingest_data(
 def recalc_graph(
     dir: Annotated[
         str, typer.Option(help="Directory containing harvested JSONs.")
-    ] = "harvested_investigations",
+    ] = "investigations",
 ) -> None:
     """Recalculate the SOC Threat Graph from harvested JSON telemetry."""
     import subprocess

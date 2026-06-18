@@ -48,7 +48,7 @@ TEST_CASES = [
         "agent_module": "agent_soc_manager",
         "resource_env_var": "AGENT_ENGINE_RESOURCE_NAME",
         "prompt": "What else do we know about frank.kolzig?",
-        "expected_tool": "query_neo4j_graph",
+        "expected_tool": "query_knowledge_graph",
         "rubric": """
         Evaluate whether the agent correctly retrieved information from the Neo4j knowledge graph and structured the findings.
 
@@ -72,7 +72,7 @@ TEST_CASES = [
         "agent_module": "agent_soc_manager",
         "resource_env_var": "AGENT_ENGINE_RESOURCE_NAME",
         "prompt": "Verify if there is any attack path or log correlation connecting WRK-SHASEK to our Domain Controller activedir.stackedpads.local.",
-        "expected_tool": "query_neo4j_graph",
+        "expected_tool": "query_knowledge_graph",
         "rubric": """
         Evaluate whether the agent successfully ran a path relationship search in Neo4j and explained the lateral movement flow.
 
@@ -100,7 +100,7 @@ TEST_CASES = [
         Evaluate whether the agent successfully queried the telemetry search database and cited source markdown documents.
 
         GRADING RUBRIC:
-        - SCORE 5: Citations are present (contains relative paths like 'harvested_investigations/1b6bf948-0e8c-4977-9f3f-f8b085a76d2a.md' or similar document filenames) AND lists the triage steps accurately.
+        - SCORE 5: Citations are present (contains relative paths like 'investigations/1b6bf948-0e8c-4977-9f3f-f8b085a76d2a.md' or similar document filenames) AND lists the triage steps accurately.
         - SCORE 3: Standard triage steps are summarized but source citations/filepaths are missing.
         - SCORE 1: Returns generic advice or fails to find matching runbooks.
 
@@ -113,12 +113,12 @@ TEST_CASES = [
         "agent_module": "agent_a2a_tier2",
         "resource_env_var": "TIER2_AGENT_RESOURCE_NAME",
         "prompt": "Check if frank.kolzig is known in our graph database, and list any incident response runbooks associated with credential dumping.",
-        "expected_tool": "query_neo4j_graph",
+        "expected_tool": "query_knowledge_graph",
         "rubric": """
-        Evaluate whether the Tier 2 Incident Responder can use both query_neo4j_graph and search_knowledge_base.
+        Evaluate whether the Tier 2 Incident Responder can use both query_knowledge_graph and search_knowledge_base.
 
         GRADING RUBRIC:
-        - SCORE 5: Successfully invokes query_neo4j_graph for frank.kolzig and lists credential dumping case metadata from the knowledge base.
+        - SCORE 5: Successfully invokes query_knowledge_graph for frank.kolzig and lists credential dumping case metadata from the knowledge base.
         - SCORE 3: Successfully queries one database (either Neo4j or knowledge base search) but fails to query or locate data in the other.
         - SCORE 1: Fails to execute both tools or throws unexpected ToolNotFound errors.
 

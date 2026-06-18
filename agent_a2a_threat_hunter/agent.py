@@ -601,9 +601,9 @@ def create_agent():
         tools.append(retrieve_agentic_soc_runbooks)
 
     # ========================================================================
-    # Add query_neo4j_graph as a standalone tool
+    # Add query_knowledge_graph as a standalone tool
     # ========================================================================
-    async def query_neo4j_graph(cypher_query: str, ctx: Context) -> str:
+    async def query_knowledge_graph(cypher_query: str, ctx: Context) -> str:
         """
         Execute a read-only Cypher query against the Security Operations Neo4j knowledge graph
         to query entity relationships, trace attack paths, and correlate logs.
@@ -637,7 +637,7 @@ def create_agent():
             logger.error(f"Neo4j query failed: {e}")
             return f"Error querying Neo4j: {e}"
 
-    tools.append(query_neo4j_graph)
+    tools.append(query_knowledge_graph)
 
     # ========================================================================
     # Add save_report_artifact as a standalone tool
@@ -664,7 +664,7 @@ ROLE & FOCUS:
 
 WORKFLOW APPROACH:
 1. **Hypothesis Formulation:** Retrieve relevant runbooks (e.g., `apt_threat_hunt.md`, `proactive_threat_hunting_based_on_gti_campaign_or_actor.md`, `ioc_threat_hunt.md`) using `retrieve_agentic_soc_runbooks`.
-2. **Graph Relationship Traversal:** Use `query_neo4j_graph` to run Cypher queries and traverse your multi-hop security knowledge graph to find pivot points, compromised users, and lateral movement paths (e.g., connecting workstations to domain controllers).
+2. **Graph Relationship Traversal:** Use `query_knowledge_graph` to run Cypher queries and traverse your multi-hop security knowledge graph to find pivot points, compromised users, and lateral movement paths (e.g., connecting workstations to domain controllers).
 3. **Telemetry Querying:** Construct and run UDM queries using Chronicle/SIEM (`search_security_events` or similar) to query for specific attacker activities, anomalies, or IOC matches.
 4. **Indicator Enrichment:** Perform threat intelligence research using Google Threat Intelligence (`gti-mcp`) tools to obtain context on campaigns, actor groups, reputation scores, and related IOCs.
 5. **Behavior Analysis & Correlation:** Correlate events across multiple logs (network, endpoint, cloud) to trace the scope of any potential breach or compromise.
@@ -672,7 +672,7 @@ WORKFLOW APPROACH:
 7. **Documentation & Artifacts:** Document the results of your hunt. Call `save_report_artifact` to save a detailed Markdown report summarizing the hypothesis, query parameters, findings, and next steps/remediation recommendations.
 
 BUDGET & EFFICIENCY CONSTRAINTS:
-- **Strict Graph-Query Budget:** To prevent runaway sessions and avoid exceeding execution step limits in the cloud, you have a strict budget of **2 to 3 knowledge graph queries (`query_neo4j_graph`)** per hunt. Retrieve only the immediate connections (e.g., logged-on users, direct parent/child nodes) for the target workstation or account.
+- **Strict Graph-Query Budget:** To prevent runaway sessions and avoid exceeding execution step limits in the cloud, you have a strict budget of **2 to 3 knowledge graph queries (`query_knowledge_graph`)** per hunt. Retrieve only the immediate connections (e.g., logged-on users, direct parent/child nodes) for the target workstation or account.
 - **Pivot Early:** Do not attempt to map or query the entire graph database. Once you have identified the primary pivoting entities, pivot immediately to Chronicle SIEM (`search_security_events`) to query the event logs.
 - **Conclude and Report:** Do not get stuck in a query loop. Once you have gathered sufficient telemetry to confirm or rule out the threat, immediately compile your findings, call `save_report_artifact` to save the report, and write your final summary response containing your role sign-off.
 

@@ -540,7 +540,7 @@ class EvaluationRunner:
         commit_short: str,
     ):
         """Write a structured JSON summary of the evaluation run to the local ledger."""
-        kg_path = Path("harvested_investigations/knowledge_graph.json")
+        kg_path = Path("investigations/knowledge_graph.json")
 
         run_data = {
             "metadata": {

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Threat Graph Recalculator and Compiler
-Sourced and compiled from harvested investigation telemetry in harvested_investigations/.
+Sourced and compiled from harvested investigation telemetry in investigations/.
 Generates knowledge_graph.json, knowledge_graph.dot, and knowledge_graph.html.
 """
 
@@ -699,22 +699,22 @@ def main():
     )
     parser.add_argument(
         "--dir",
-        default="harvested_investigations",
+        default="investigations",
         help="Directory containing harvested JSONs.",
     )
     parser.add_argument(
         "--output-json",
-        default="harvested_investigations/knowledge_graph.json",
+        default="investigations/knowledge_graph.json",
         help="Output JSON path.",
     )
     parser.add_argument(
         "--output-dot",
-        default="harvested_investigations/knowledge_graph.dot",
+        default="investigations/knowledge_graph.dot",
         help="Output Graphviz DOT path.",
     )
     parser.add_argument(
         "--output-html",
-        default="harvested_investigations/knowledge_graph.html",
+        default="investigations/knowledge_graph.html",
         help="Output HTML path.",
     )
     args = parser.parse_args()

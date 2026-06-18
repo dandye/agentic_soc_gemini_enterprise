@@ -777,7 +777,7 @@ def create_agent():
     # Get service account filename for MCP servers
     service_account_filename = service_account_path.name
 
-    async def query_neo4j_graph(cypher_query: str, ctx: Context) -> str:
+    async def query_knowledge_graph(cypher_query: str, ctx: Context) -> str:
         """
         Execute a read-only Cypher query against the Security Operations Neo4j knowledge graph
         to query entity relationships, trace attack paths, and correlate logs.
@@ -951,9 +951,9 @@ def create_agent():
     tools.append(save_report_artifact)
 
     # ========================================================================
-    # Add query_neo4j_graph as a standalone tool
+    # Add query_knowledge_graph as a standalone tool
     # ========================================================================
-    tools.append(query_neo4j_graph)
+    tools.append(query_knowledge_graph)
 
     # ========================================================================
     # Add ChatOps Mitigation Skills

@@ -404,7 +404,6 @@ llm_logger.debug = _patched_debug
 
 from google.adk.tools.load_memory_tool import LoadMemoryTool  # noqa: E402
 from google.adk.tools.preload_memory_tool import PreloadMemoryTool  # noqa: E402
-from google.adk.tools.retrieval import VertexAiRagRetrieval  # noqa: E402
 from google.cloud import storage  # noqa: E402
 from google.genai.types import (  # noqa: E402
     AutomaticFunctionCallingConfig,
@@ -743,7 +742,63 @@ async def search_knowledge_base(query: str, ctx: Context) -> str:
         return f"Error querying Elasticsearch: {e}"
 
 
-async def query_neo4j_graph(cypher_query: str, ctx: Context) -> str:
+async def retrieve_agentic_soc_runbooks(query: str, ctx: Context) -> str:
+    """
+    Retrieve security incident response plans (IRPs), playbooks, procedures, and guidelines from the RAG knowledge base.
+
+    Args:
+        query: The search term or query to retrieve relevant runbooks for.
+    """
+    logger.info(f"RAG_RETRIEVAL_CALL: query='{query}'")
+
+    rag_corpus_id = os.environ.get("RAG_CORPUS_ID")
+    project_id = os.environ.get("GCP_PROJECT_ID")
+    if not rag_corpus_id:
+        return "RAG knowledge base is not configured (RAG_CORPUS_ID is missing)."
+
+    import re
+
+    m = re.search(r"locations/([^/]+)/", rag_corpus_id)
+    rag_location = m.group(1) if m else os.environ.get("RAG_GCP_LOCATION", "us-east4")
+
+    try:
+        import vertexai
+        # Initialize regional client context dynamically
+        vertexai.init(project=project_id, location=rag_location)
+
+        # Import the RAG module dynamically from high-level vertexai
+        from vertexai.preview import rag
+
+        # Call the programmatic retrieval API
+        response = rag.retrieval_query(
+            text=query,
+            rag_resources=[rag.RagResource(rag_corpus=rag_corpus_id)],
+            similarity_top_k=int(os.environ.get("RAG_SIMILARITY_TOP_K", "3")),
+        )
+
+        contexts = (
+            response.contexts.contexts if hasattr(response.contexts, "contexts") else []
+        )
+        if not contexts:
+            return "No relevant runbooks found in RAG knowledge base."
+
+        results = []
+        for context in contexts:
+            source_uri = getattr(context, "source_uri", "Unknown")
+            distance = getattr(context, "distance", 0.0)
+            results.append(
+                f"Document: {source_uri}\n"
+                f"Distance Score: {distance:.4f}\n"
+                f"Content:\n{context.text}\n"
+                f"{'='*40}"
+            )
+        return "\n\n".join(results)
+    except Exception as e:
+        logger.error(f"RAG retrieval failed: {e}")
+        return f"Error retrieving from RAG knowledge base: {e}"
+
+
+async def query_knowledge_graph(cypher_query: str, ctx: Context) -> str:
     """
     Execute a read-only Cypher query against the Security Operations Neo4j knowledge graph
     to query entity relationships, trace attack paths, and correlate logs.
@@ -1812,8 +1867,6 @@ def create_agent():
 
     # RAG configuration
     RAG_CORPUS_ID = os.environ.get("RAG_CORPUS_ID")
-    RAG_SIMILARITY_TOP_K = int(os.environ.get("RAG_SIMILARITY_TOP_K", "10"))
-    RAG_DISTANCE_THRESHOLD = float(os.environ.get("RAG_DISTANCE_THRESHOLD", "0.6"))
     RAG_GCP_LOCATION = os.environ.get("RAG_GCP_LOCATION")
 
     # Elasticsearch grounding configuration
@@ -1914,7 +1967,7 @@ def create_agent():
         tier1_skill_toolset,
         SharedScopePreloadMemoryTool(),  # Auto-load memories at start of every turn
         LoadMemoryTool(),  # On-demand memory queries during investigation
-        query_neo4j_graph,
+        query_knowledge_graph,
         notify_human_incident,
         request_human_confirmation,
         send_chatops_card,
@@ -1929,14 +1982,8 @@ def create_agent():
     # Configure grounding/retrieval for Tier 1 Analyst
     if ELASTICSEARCH_GROUNDING_ENABLED:
         tier1_tools.append(search_knowledge_base)
-    elif RAG_CORPUS_ID:
-        tier1_tools.append(
-            VertexAiRagRetrieval(
-                name="retrieve_agentic_soc_runbooks",
-                description="Retrieve IRPs, Runbooks, Common Steps, Procedures, guidelines, and Personas for the Agentic SOC.",
-                rag_corpora=[RAG_CORPUS_ID],
-            )
-        )
+    if RAG_CORPUS_ID:
+        tier1_tools.append(retrieve_agentic_soc_runbooks)
 
     # Chronicle for basic entity lookups
     tier1_tools.append(
@@ -1992,7 +2039,7 @@ def create_agent():
 ### COGNITIVE BUDGET & EFFICIENCY CONSTRAINTS:
 1. **You are a Triage Analyst, not a Deep Investigator:** Do NOT conduct deep-dive technical investigations, multi-step log queries, or multi-step graph traversals. Limit your scope strictly to alert validation and initial triage.
 2. **Strict Tool Budgets:**
-   - **`query_neo4j_graph`**: Max 2 calls per session (use only for quick, single-step entity lookups).
+   - **`query_knowledge_graph`**: Max 2 calls per session (use only for quick, single-step entity lookups).
    - **`search_knowledge_base`**: Max 2 calls per session.
 3. **Early Escalation/Remediation Recommendation:** If you find evidence of Ransomware, APT, lateral movement, or data exfiltration, you **MUST** immediately stop your search, document your findings, and recommend escalation or containment. Do NOT continue traversing the graph or searching logs.
 4. **No Runaway Loops:** If you find yourself needing to run more than 2 consecutive tools of the same type, you MUST immediately stop and compile your triage report.
@@ -2137,32 +2184,28 @@ CRITICAL: Summarize procedures and ask for user permission before executing stat
         os.environ.get("ELASTICSEARCH_GROUNDING_ENABLED", "False") == "True"
     )
 
+    grounding_tool_desc = ""
+    tool_idx = 1
     if ELASTICSEARCH_GROUNDING_ENABLED:
         orchestrator_tools.append(search_knowledge_base)
-        grounding_tool_desc = """1. **search_knowledge_base** (Historical Telemetry Search):
+        grounding_tool_desc += f"""{tool_idx}. **search_knowledge_base** (Historical Telemetry Search):
    - Directly searches historical cases, alerts, and investigations telemetry stored in the knowledge base.
-   - **IMPORTANT:** This tool provides grounding citations - preserve document titles and paths in your response!"""
-    else:
-        if RAG_CORPUS_ID:
-            orchestrator_tools.append(
-                VertexAiRagRetrieval(
-                    name="retrieve_agentic_soc_runbooks",
-                    description="Retrieve IRPs, Runbooks, Common Steps, Procedures, guidelines, and Personas for the Agentic SOC.",
-                    rag_corpora=[RAG_CORPUS_ID],
-                    similarity_top_k=RAG_SIMILARITY_TOP_K,
-                    vector_distance_threshold=RAG_DISTANCE_THRESHOLD,
-                )
-            )
-        grounding_tool_desc = """1. **retrieve_agentic_soc_runbooks** (RAG Knowledge Base):
+   - **IMPORTANT:** This tool provides grounding citations - preserve document titles and paths in your response!\n"""
+        tool_idx += 1
+
+    if RAG_CORPUS_ID:
+        orchestrator_tools.append(retrieve_agentic_soc_runbooks)
+        grounding_tool_desc += f"""{tool_idx}. **retrieve_agentic_soc_runbooks** (RAG Knowledge Base):
    - Directly retrieves SOC runbooks, IRPs, procedures, and documentation from RAG corpus.
-   - **IMPORTANT:** This tool provides grounding citations - preserve them in your response!"""
+   - **IMPORTANT:** This tool provides grounding citations - preserve them in your response!\n"""
+        tool_idx += 1
 
     # Add Memory tools — PreloadMemory for automatic context, LoadMemory for on-demand queries
     orchestrator_tools.append(
         SharedScopePreloadMemoryTool()
     )  # Auto-load at start of every turn
     orchestrator_tools.append(LoadMemoryTool())  # On-demand memory queries
-    orchestrator_tools.append(query_neo4j_graph)  # On-demand Neo4j queries
+    orchestrator_tools.append(query_knowledge_graph)  # On-demand Neo4j queries
 
     # Build orchestrator instruction
     orchestrator_instruction = f"""You are the SecOps Security Agent orchestrator for Google SecOps - a sophisticated coordinator that intelligently delegates security operations to specialized persona-based agents and retrieves knowledge base documentation.
@@ -2170,7 +2213,7 @@ CRITICAL: Summarize procedures and ask for user permission before executing stat
 ### COGNITIVE BUDGET & DELEGATION-FIRST CONSTRAINTS:
 1. **You are a Coordinator, not a Specialist:** Your primary role is routing, orchestration, and high-level synthesis. Do NOT conduct deep-dive technical investigations, multi-step log queries, or multi-step graph traversals yourself.
 2. **Strict Tool Budgets:**
-   - **`query_neo4j_graph`**: Max 2 calls per request (use only for quick, single-step entity lookups).
+   - **`query_knowledge_graph`**: Max 2 calls per request (use only for quick, single-step entity lookups).
    - **`retrieve_agentic_soc_runbooks`**: Max 1 call per request.
 3. **Delegation-First Routing:** If a task requires:
    - Deep-dive threat hunting, lateral movement mapping, or log prevalence checks: Delegate to **Threat Hunter** (`delegate_to_threat_hunter`).
@@ -2190,7 +2233,7 @@ You have direct access to several tools and can delegate to specialized sub-agen
    - Fetches the complete document text from GCS using a gs:// URI.
    - Use for reading the complete text of a document to avoid truncation.
 
-5. **query_neo4j_graph**:
+5. **query_knowledge_graph**:
    - Executes a read-only Cypher query against the Neo4j Security Operations Knowledge Graph to trace relationships and correlate entities (hosts, users, files, domains, alerts, investigations).
 
    NEO4J GRAPH DATABASE SCHEMA CONTEXT:
@@ -2259,7 +2302,7 @@ You have direct access to several tools and can delegate to specialized sub-agen
 DELEGATION STRATEGY:
 1. Analyze the user's request to determine the type of work required.
 2. For runbook/procedure queries: Use the RAG knowledge base directly via `retrieve_agentic_soc_runbooks`.
-3. For structured queries about alerts, cases, user/host connections, or MITRE ATT&CK technique associations: Call the `query_neo4j_graph` tool directly to execute a Cypher query.
+3. For structured queries about alerts, cases, user/host connections, or MITRE ATT&CK technique associations: Call the `query_knowledge_graph` tool directly to execute a Cypher query.
 4. For keyword/metadata searches of historical cases, alerts, or investigations (like searching for technique IDs or indicators across previous reports): Call `search_knowledge_base` directly (if available).
 5. For alert triage/investigation: Delegate to `tier1_analyst`.
 6. For querying historical memory or recording analyst notes: Delegate to `tier1_analyst`.
