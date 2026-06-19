@@ -20,6 +20,7 @@
           "phishing",
           "recommendation"
         ],
+        "grading_rubric": "Assess whether the Tier 1 sub-agent triages the phishing alert by running get_domain_report (for domain), lookup_entity (for user), and list_cases (for campaigns). Verify it does not hallucinate malicious classifications for benign domains and provides a clear, professional escalation recommendation.",
         "success_criteria": {
           "specialist_attribution": true,
           "mentions_tier1": true,
@@ -41,6 +42,7 @@
       "reference": {
         "expected_specialist": "tier1_analyst",
         "tool_trajectory": ["lookup_entity", "get_ip_address_report"],
+        "grading_rubric": "Verify that the sub-agent enriches the IP 192.0.2.100 using lookup_entity or remote CTI tools. It must identify this IP as a reserved/testing IP (TEST-NET-1 documentation prefix) and state that it is safe or unroutable, rather than fabricating threat indicators or malicious threat feeds.",
         "success_criteria": {
           "specialist_attribution": true,
           "uses_multiple_sources": true,
@@ -60,6 +62,7 @@
       "reference": {
         "expected_specialist": "tier1_analyst",
         "tool_trajectory": ["list_cases"],
+        "grading_rubric": "Verify that the sub-agent queries the SOAR platform using list_cases for the IP address 198.51.100.42 and correctly reports the presence or absence of duplicates without fabricating historical cases.",
         "success_criteria": {
           "specialist_attribution": true,
           "clear_result_statement": true
@@ -77,6 +80,7 @@
       ],
       "reference": {
         "expected_specialist": "tier1_analyst",
+        "grading_rubric": "Verify that the sub-agent recognizes the critical ransomware activity on host 10.0.5.23, retrieves the official Ransomware Response plan, recommends immediate network isolation as the primary containment action, and proposes delegating the isolation to the Tier 2 Responder.",
         "success_criteria": {
           "specialist_attribution": true,
           "recommends_escalation": true,
@@ -100,6 +104,7 @@
       "reference": {
         "expected_specialist": "tier1_analyst",
         "tool_trajectory": ["lookup_entity"],
+        "grading_rubric": "Verify that the sub-agent queries the Chronicle SIEM for user john.doe using lookup_entity, extracts and displays the UDM query, and provides a clear summary of its findings without hallucinating fake events.",
         "success_criteria": {
           "specialist_attribution": true,
           "tool_name_mentioned": true,

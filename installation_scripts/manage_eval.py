@@ -18,9 +18,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Annotated
 
+import pydantic
 import typer
 import vertexai
 from dotenv import load_dotenv
+from google import genai
+from google.genai import types
 from vertexai import agent_engines
 
 
@@ -28,6 +31,89 @@ app = typer.Typer(
     add_completion=False,
     help="Manage and run evaluations for the Google MCP Security Agent.",
 )
+
+
+class SemanticGrade(pydantic.BaseModel):
+    operational_score: float = pydantic.Field(
+        description="Score from 0.0 to 1.0 assessing operational correctness based on the rubric."
+    )
+    reasoning_score: float = pydantic.Field(
+        description="Score from 0.0 to 1.0 assessing the agent's reasoning depth and path."
+    )
+    passed: bool = pydantic.Field(
+        description="Whether the agent successfully achieved the core goal of the rubric."
+    )
+    critique: str = pydantic.Field(
+        description="Detailed multi-line critique explaining the score, what went right, what went wrong, and how to optimize."
+    )
+
+
+class LLMJudge:
+    """Grades agent trajectories semantically based on case rubrics."""
+
+    def __init__(self, project_id: str, location: str):
+        self.project_id = project_id
+        self.location = location
+        # Initialize GenAI Client for Vertex AI using ADC or environment-provided credentials
+        self.client = genai.Client(vertexai=True, project=project_id, location=location)
+        self.model = "gemini-2.5-pro"  # High-reasoning model for robust grading
+
+    async def async_grade_case(
+        self,
+        query: str,
+        response: str,
+        tool_calls: list[str],
+        rubric: str,
+    ) -> SemanticGrade:
+        """Semantically grades the agent's response and tool trajectory using the GenAI SDK."""
+        prompt = f"""
+        You are an elite, objective Security Operations (SOC) Quality Assurance Judge.
+        Grade the following agent run against the provided operational rubric.
+
+        ### Case Query:
+        {query}
+
+        ### Agent Tool Trajectory:
+        {tool_calls}
+
+        ### Agent Final Response:
+        {response}
+
+        ### Operational Grading Rubric:
+        {rubric}
+
+        ### Grading Instructions:
+        1. Assess whether the agent followed all rules, consulted the correct runbooks/databases, and took the correct actions.
+        2. Verify that the agent did not make any false assumptions or hallucinate information from memory instead of using tools.
+        3. Evaluate the reasoning path: did it delegate correctly, correlate telemetry logically, and provide a clear, professional response?
+        4. Provide a detailed, constructive critique pinpointing any prompt instruction defects or reasoning flaws.
+        """
+
+        loop = asyncio.get_running_loop()
+
+        def _call():
+            return self.client.models.generate_content(
+                model=self.model,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema=SemanticGrade,
+                    temperature=0.0,
+                    system_instruction="You are a strict, objective, expert AI SOC QA Judge. Output a precise grading JSON.",
+                ),
+            )
+
+        try:
+            res = await loop.run_in_executor(None, _call)
+            data = json.loads(res.text)
+            return SemanticGrade(**data)
+        except Exception as e:
+            return SemanticGrade(
+                operational_score=0.0,
+                reasoning_score=0.0,
+                passed=False,
+                critique=f"Failed to execute LLM Judge grading: {e}",
+            )
 
 
 class EvaluationRunner:
@@ -330,16 +416,49 @@ class EvaluationRunner:
 
         results["assertions"]["success_criteria"] = criteria_results
 
-        # Calculate score (percentage of passed assertions)
-        total_assertions = len(results["assertions"]) - 1 + len(criteria_results)
-        passed_assertions = sum(
-            1 for v in results["assertions"].values() if isinstance(v, bool) and v
-        )
-        passed_assertions += sum(1 for v in criteria_results.values() if v)
+        # Integrate LLM Semantic Grade if Rubric is defined
+        grading_rubric = reference.get("grading_rubric")
+        if grading_rubric:
+            judge = LLMJudge(self.project_id, self.location)
+            if not quiet:
+                typer.secho(
+                    "    [LLM Judge] Semantically grading the trajectory...",
+                    fg=typer.colors.CYAN,
+                )
+            grade = await judge.async_grade_case(
+                query=query,
+                response=final_response,
+                tool_calls=tool_calls,
+                rubric=grading_rubric,
+            )
+            results["semantic_grade"] = {
+                "operational_score": grade.operational_score,
+                "reasoning_score": grade.reasoning_score,
+                "passed": grade.passed,
+                "critique": grade.critique,
+                "rubric": grading_rubric,
+            }
+            # Semantic score dictates the final case score
+            results["score"] = grade.operational_score
+            if not quiet:
+                status_color = typer.colors.GREEN if grade.passed else typer.colors.RED
+                typer.secho(
+                    f"    [LLM Judge Verdict] Passed: {grade.passed} (Score: {grade.operational_score * 100:.1f}%)",
+                    fg=status_color,
+                )
+                if grade.critique:
+                    typer.echo(f"    [LLM Judge Critique] {grade.critique}")
+        else:
+            # Calculate score (percentage of passed assertions)
+            total_assertions = len(results["assertions"]) - 1 + len(criteria_results)
+            passed_assertions = sum(
+                1 for v in results["assertions"].values() if isinstance(v, bool) and v
+            )
+            passed_assertions += sum(1 for v in criteria_results.values() if v)
 
-        results["score"] = (
-            passed_assertions / total_assertions if total_assertions > 0 else 1.0
-        )
+            results["score"] = (
+                passed_assertions / total_assertions if total_assertions > 0 else 1.0
+            )
 
         return results
 
@@ -526,7 +645,7 @@ class EvaluationRunner:
             commit_short,
         )
 
-        return avg_score
+        return avg_score, case_results
 
     def _write_to_ledger(
         self,
@@ -1094,6 +1213,278 @@ def compare(
         base_commit,
         new_commit,
     )
+
+
+class PromptOptimizer:
+    """Refines system instructions based on semantic critiques of failures using gemini-3.1-pro-preview."""
+
+    def __init__(self, project_id: str, location: str = "us-central1"):
+        # Initialize GenAI Client for Vertex AI using ADC or environment-provided credentials
+        self.client = genai.Client(vertexai=True, project=project_id, location=location)
+        self.model = "gemini-2.5-pro"  # High-reasoning model for prompt synthesis
+
+    def optimize_instructions(
+        self,
+        current_instructions: str,
+        failed_cases: list[dict],
+    ) -> str:
+        """Generates a refined, optimized system instruction prompt."""
+        failures_summary = ""
+        for i, case in enumerate(failed_cases, start=1):
+            failures_summary += f"""
+--- Failed Case {i}: {case['name']} ---
+User Query: {case['query']}
+Tool Trajectory: {case['tool_calls']}
+Agent Response:
+{case['response']}
+
+QA Judge Critique:
+{case['critique']}
+"""
+
+        prompt = f"""
+        You are an elite, world-class MLOps and Prompt Engineer. Your task is to refine the system instructions for a Security Operations (SOC) agent to resolve the active failures identified during QA evaluation.
+
+        ### Current System Instructions:
+        ```markdown
+        {current_instructions}
+        ```
+
+        ### Active Evaluation Failures:
+        {failures_summary}
+
+        ### Optimization Guidelines:
+        1. **Do NOT delete core capabilities or rules:** You must preserve the existing agent architecture, tool descriptions, and constraints.
+        2. **Address the Root Cause**: Analyze the Judge's critiques to understand *why* the agent failed. Did it ignore a rule? Did it lack guidance on which tool to prioritize? Did it hallucinate?
+        3. **Inject Specific, Bulletproof Rules**: Add clear, unambiguous, and actionable instructions (such as operational mandates or cognitive constraints) that target the exact failure modes.
+        4. **Maintain Format**: Return ONLY the complete, updated system instructions in clean markdown format. Do not include any conversational explanation, preambles, or markdown code block wrapper backticks around the entire response. Start directly with the first line of the instructions.
+        """
+
+        res = self.client.models.generate_content(
+            model=self.model,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                temperature=0.2,
+                system_instruction="You are an expert Prompt Compiler and Optimizer. Output the refined prompt string directly without conversational preambles or code blocks.",
+            ),
+        )
+        return res.text.strip()
+
+
+def get_prompt_file_path(evalset_id: str) -> Path | None:
+    """Resolve the prompts file path based on the evalset ID."""
+    if evalset_id == "tier1_triage":
+        return Path("agent_soc_manager/prompts/tier1_analyst_instructions.md")
+    elif evalset_id == "soc_basic" or evalset_id == "multi_specialist":
+        return Path("agent_soc_manager/prompts/orchestrator_instructions.md")
+    return None
+
+
+def redeploy_agent(evalset_id: str):
+    """Sync the updated agent with the cloud reasoning engine using just."""
+    module = "agent_soc_manager"
+    if evalset_id == "cti_research":
+        module = "agent_a2a_cti_researcher"
+    elif evalset_id == "threat_hunting":
+        module = "agent_a2a_threat_hunter"
+    elif evalset_id == "detection_engineering":
+        module = "agent_a2a_detection_engineer"
+    elif evalset_id == "incident_response":
+        module = "agent_a2a_tier2"
+
+    typer.echo(f"  Redeploying cloud reasoning engine '{module}'...")
+    res = subprocess.run(
+        ["just", f"agent_module={module}", "agent-engine-update"],
+        capture_output=True,
+        text=True,
+    )
+    if res.returncode != 0:
+        typer.secho(f"  [ERROR] Redeployment failed: {res.stderr}", fg=typer.colors.RED)
+        raise Exception("Redeployment failed.")
+    typer.secho("  Reasoning Engine updated successfully!", fg=typer.colors.GREEN)
+
+
+async def async_optimize(evalset_path: Path, max_iterations: int):
+    """Asynchronous orchestrator for the closed-loop optimization run."""
+    runner = EvaluationRunner(Path(".env"))
+
+    if not evalset_path.exists():
+        typer.secho(
+            f"[ERROR] Evalset file not found: {evalset_path}", fg=typer.colors.RED
+        )
+        raise typer.Exit(1)
+
+    with open(evalset_path) as f:
+        evalset = json.load(f)
+
+    evalset_id = evalset.get("evalset_id")
+    prompt_file = get_prompt_file_path(evalset_id)
+    if not prompt_file or not prompt_file.exists():
+        typer.secho(
+            f"[ERROR] Prompt file not found or unsupported for evalset '{evalset_id}'.",
+            fg=typer.colors.RED,
+        )
+        raise typer.Exit(1)
+
+    typer.echo("\n" + "=" * 80)
+    typer.secho(
+        "COGNITIVE COMPILER: AUTONOMOUS OPTIMIZATION LOOP",
+        fg=typer.colors.MAGENTA,
+        bold=True,
+    )
+    typer.echo(f"  Evalset:      {evalset.get('name')}")
+    typer.echo(f"  Prompt File:  {prompt_file}")
+    typer.echo("=" * 80 + "\n")
+
+    # Backup original prompt
+    original_prompt = prompt_file.read_text()
+    best_prompt = original_prompt
+    best_score = 0.0
+    best_cases_failed = {}
+
+    # Gather git metadata
+    git_meta = runner._get_git_metadata()
+
+    for cycle in range(1, max_iterations + 1):
+        typer.secho(
+            f"\n📊 [CYCLE {cycle}/{max_iterations}] Running Evaluation Suite...",
+            fg=typer.colors.MAGENTA,
+            bold=True,
+        )
+
+        # Run evaluation suite
+        avg_score, case_results = await runner.async_run_evaluation(
+            evalset_path=evalset_path,
+            resource_name=None,
+            verbose=False,
+            quiet=False,
+            git_meta=git_meta,
+        )
+
+        # Collect failed cases
+        failed_cases = []
+        for eval_id, case_name, res in case_results:
+            # Score below 80% is considered a failure
+            if res["score"] < 0.8:
+                critique = res.get("semantic_grade", {}).get(
+                    "critique", "Static heuristics failed."
+                )
+                failed_cases.append(
+                    {
+                        "id": eval_id,
+                        "name": case_name,
+                        "query": res["query"],
+                        "tool_calls": res["tool_calls"],
+                        "response": res["response"],
+                        "critique": critique,
+                    }
+                )
+
+        typer.echo("-" * 80)
+        typer.echo(
+            f"Cycle {cycle} Results: Score = {avg_score:.1f}% | Failures = {len(failed_cases)}"
+        )
+
+        # Keep track of the best prompt
+        if avg_score > best_score:
+            best_score = avg_score
+            best_prompt = prompt_file.read_text()
+            best_cases_failed = {fc["id"] for fc in failed_cases}
+            typer.secho(
+                f"🌟 [New Best Score] Saved new optimal prompt with score {best_score:.1f}%",
+                fg=typer.colors.GREEN,
+                bold=True,
+            )
+
+        if not failed_cases:
+            typer.secho(
+                "\n🟢 [SUCCESS] All cases passed! Optimization complete!",
+                fg=typer.colors.GREEN,
+                bold=True,
+            )
+            break
+
+        # Check if we should continue optimizing
+        if cycle == max_iterations:
+            typer.secho(
+                "\n🟡 [LIMIT REACHED] Reached maximum optimization cycles.",
+                fg=typer.colors.YELLOW,
+            )
+            break
+
+        # Check for regressions: did a previously passing case fail in this run?
+        # A case is a regression if it failed in this run but was NOT failed in the best run.
+        regressions = [
+            fc["name"] for fc in failed_cases if fc["id"] not in best_cases_failed
+        ]
+        if regressions:
+            typer.secho(
+                f"⚠️ [REGRESSION DETECTED] Prompt cycle introduced regressions in: {', '.join(regressions)}",
+                fg=typer.colors.YELLOW,
+            )
+            typer.echo(
+                "🔄 Reverting prompt back to best known state before next tuning..."
+            )
+            prompt_file.write_text(best_prompt)
+
+        # Trigger Prompt Optimizer Agent
+        typer.secho(
+            "\n🤖 [Optimizer] Engage Prompt Optimizer Agent to compile new instructions...",
+            fg=typer.colors.CYAN,
+        )
+        optimizer = PromptOptimizer(runner.project_id, "us-central1")
+        current_instructions = prompt_file.read_text()
+
+        try:
+            refined_instructions = optimizer.optimize_instructions(
+                current_instructions, failed_cases
+            )
+
+            # Write prompt
+            prompt_file.write_text(refined_instructions)
+            typer.secho(
+                "📝 [Optimizer] Refined instructions written to prompt file.",
+                fg=typer.colors.GREEN,
+            )
+
+            # Redeploy agent to cloud
+            redeploy_agent(evalset_id)
+        except Exception as e:
+            typer.secho(
+                f"❌ [Optimizer Error] Failed to optimize or redeploy: {e}",
+                fg=typer.colors.RED,
+            )
+            typer.echo("🔄 Restoring best known prompt...")
+            prompt_file.write_text(best_prompt)
+            break
+
+    # Revert to best known prompt if the final iteration was not the best
+    current_prompt = prompt_file.read_text()
+    if current_prompt != best_prompt:
+        typer.echo("\n🔄 Restoring best performing prompt to files...")
+        prompt_file.write_text(best_prompt)
+        redeploy_agent(evalset_id)
+
+    typer.echo("\n" + "=" * 80)
+    typer.secho(
+        f"OPTIMIZATION COMPLETE! FINAL BEST SCORE: {best_score:.1f}%",
+        fg=typer.colors.GREEN,
+        bold=True,
+    )
+    typer.echo("=" * 80 + "\n")
+
+
+@app.command("optimize")
+def optimize(
+    evalset_file: Annotated[
+        Path, typer.Option("--file", "-f", help="Path to the evalset JSON file")
+    ],
+    max_iterations: Annotated[
+        int, typer.Option("--max-iter", "-i", help="Maximum optimization cycles")
+    ] = 2,
+) -> None:
+    """Autonomous closed-loop prompt optimizer that semantically critiques failures and auto-tunes instructions."""
+    asyncio.run(async_optimize(evalset_file, max_iterations))
 
 
 if __name__ == "__main__":

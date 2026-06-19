@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-06-19
+
+### Added
+- **Programmatic RAG & Dual-Grounding**: Implemented a custom programmatic search tool `retrieve_agentic_soc_runbooks` to query the Vertex AI RAG corpus. This bypasses Vertex AI's native grounding limitations and allows concurrent Elasticsearch grounding (`search_knowledge_base`) to run side-by-side in a single model turn.
+- **Backward-Compatibility Wrapper (`lookup_entity`)**: Added a custom Python tool that dynamically translates legacy `lookup_entity` calls into a remote MCP JSON-RPC call to `search_entity`, passing active OAuth headers and project parameters. This preserves backward-compatibility with old playbooks without running local MCP processes.
+- **Scientific Hypothesis Registry**: Established `evalsets/HYPOTHESES.md` as a central scientific ledger to track, verify, and falsify core architectural, cognitive, and prompt-engineering hypotheses (`HYP-001` through `HYP-004`).
+
+### Changed
+- **Global Telemetry & Citations Migration**: Renamed the local telemetry folder from `harvested_investigations/` to `investigations/` globally. Updated all ingestion scripts, index mapping, Cypher graph imports, document citation generation, and gitignore rules.
+- **Cypher Query Tool Renaming**: Renamed the graph traversal tool from `query_neo4j_graph` to `query_knowledge_graph` globally across all Orchestrator, Threat Hunter, and Tier 2 Responder agents.
+- **Dynamic A2A Regional Routing**: Upgraded A2A routing to dynamically resolve regional gRPC client stubs based on the target agent's location in `.env`, preventing cross-region A2A `404` or `400` errors.
+- **Triage Prompt Hardening & Anti-Hallucination**: Added strict tool mandates to the Tier 1 sub-agent (forcing it to run tools for phishing, enrichment, and duplicate checks) and added anti-memory rules to prevent the Orchestrator from answering from pre-existing memory alone.
+
+### Experimental Findings (MLOps Case Study)
+- **Model Calibration A/B Comparison**: Proven that `gemini-2.5-flash` is fully stable across multi-region deployments, raising the Tier 1 Triage score from **44.0% to 59.7% (+15.7%)**.
+- **Vertex Regional Routing Constraint**: Proven that a Model Garden preview model hosted only in `us-central1` (like `3.5-flash`) will fail silently with empty responses if called by an in-process sub-agent whose Vertex client defaults to the parent's `us-east4` regional endpoint, unless the client's location is explicitly overridden.
+- **YARA-L Generation Breakthrough**: Verified that `gemini-3.5-flash` (in its native `us-central1` region) achieves a **perfect 100.0%** on YARA-L rule generation (up from `28.6%`), demonstrating the massive reasoning jump of the 3.5 model.
+
 ## [0.3.1] - 2026-06-17
 
 ### Added

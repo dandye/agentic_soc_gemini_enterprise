@@ -455,7 +455,7 @@ def create_agent():
     load_dotenv(Path(".env"), override=True)
 
     # Model Configuration
-    THREAT_HUNTER_MODEL = os.environ.get("THREAT_HUNTER_MODEL", "gemini-3.5-flash")
+    THREAT_HUNTER_MODEL = os.environ.get("THREAT_HUNTER_MODEL", "gemini-2.5-flash")
 
     # Get all required environment variables
     GCP_PROJECT_ID = os.environ.get("GCP_PROJECT_ID")

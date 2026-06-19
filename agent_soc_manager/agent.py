@@ -490,7 +490,9 @@ class SharedScopePreloadMemoryTool(PreloadMemoryTool):
     memory bank.
     """
 
-    SHARED_USER_ID = "global_soc_team"
+    @property
+    def SHARED_USER_ID(self) -> str:
+        return os.environ.get("MEMORY_SCOPE", "global_soc_team")
 
     async def process_llm_request(self, *, tool_context, llm_request) -> None:
         from google.adk.tools import _memory_entry_utils
@@ -510,9 +512,23 @@ class SharedScopePreloadMemoryTool(PreloadMemoryTool):
                 logger.warning("PRELOAD_MEMORY: No memory service available, skipping.")
                 return
 
+            invocation_ctx = getattr(tool_context, "_invocation_context", None)
+            active_user_id = (
+                getattr(invocation_ctx, "user_id", "global_soc_team")
+                if invocation_ctx
+                else "global_soc_team"
+            )
+
+            if any(
+                k in active_user_id.lower() for k in ["benchmark", "eval", "turing"]
+            ):
+                target_user_id = active_user_id
+            else:
+                target_user_id = self.SHARED_USER_ID
+
             response = await memory_service.search_memory(
                 app_name=tool_context._invocation_context.app_name,
-                user_id=self.SHARED_USER_ID,
+                user_id=target_user_id,
                 query=user_query,
             )
         except Exception:
@@ -798,6 +814,68 @@ async def retrieve_agentic_soc_runbooks(query: str, ctx: Context) -> str:
         return f"Error retrieving from RAG knowledge base: {e}"
 
 
+async def lookup_entity(entity_value: str, ctx: Context) -> str:
+    """
+    Look up an entity (IP, domain, hash, user, etc.) in Chronicle SIEM for enrichment.
+
+    Args:
+        entity_value: The indicator value (IP, domain, hash, user, etc.) to search for.
+    """
+    logger.info(f"LOOKUP_ENTITY_CALL: entity_value='{entity_value}'")
+
+    project_id = os.environ.get("CHRONICLE_PROJECT_ID")
+    customer_id = os.environ.get("CHRONICLE_CUSTOMER_ID")
+    region = os.environ.get("CHRONICLE_REGION", "us")
+
+    # Invoke the remote 'search_entity' tool via HTTP JSON-RPC
+    secops_mcp_url = f"https://chronicle.{region}.rep.googleapis.com/mcp"
+    headers = get_secops_headers(ctx)
+
+    body = {
+        "jsonrpc": "2.0",
+        "method": "tools/call",
+        "params": {
+            "name": "search_entity",
+            "arguments": {
+                "indicator": entity_value,
+                "projectId": project_id,
+                "customerId": customer_id,
+                "region": region,
+            },
+        },
+        "id": 1,
+    }
+
+    try:
+        import httpx
+
+        async with httpx.AsyncClient(timeout=90.0) as client:
+            response = await client.post(secops_mcp_url, json=body, headers=headers)
+            if response.status_code != 200:
+                return f"Error calling remote Chronicle OneMCP server: HTTP {response.status_code} - {response.text}"
+
+            resp_json = response.json()
+            if "error" in resp_json:
+                return (
+                    f"Error from remote Chronicle OneMCP server: {resp_json['error']}"
+                )
+
+            result = resp_json.get("result", {})
+            content_list = result.get("content", [])
+            text_parts = []
+            for item in content_list:
+                if item.get("type") == "text":
+                    text_parts.append(item.get("text", ""))
+
+            if not text_parts:
+                return f"No results returned from Chronicle search_entity for '{entity_value}'."
+
+            return "\n".join(text_parts)
+    except Exception as e:
+        logger.error(f"lookup_entity failed: {e}")
+        return f"Error looking up entity in Chronicle: {e}"
+
+
 async def query_knowledge_graph(cypher_query: str, ctx: Context) -> str:
     """
     Execute a read-only Cypher query against the Security Operations Neo4j knowledge graph
@@ -1004,9 +1082,22 @@ async def generate_memory(
             )
             logger.debug(f"MEMORY_GENERATION_CONFIG: {json.dumps(memory_bank_config)}")
 
+            invocation_ctx = getattr(ctx, "_invocation_context", None)
+            active_user_id = (
+                getattr(invocation_ctx, "user_id", "global_soc_team")
+                if invocation_ctx
+                else "global_soc_team"
+            )
+            if any(
+                k in active_user_id.lower() for k in ["benchmark", "eval", "turing"]
+            ):
+                target_user_id = active_user_id
+            else:
+                target_user_id = os.environ.get("MEMORY_SCOPE", "global_soc_team")
+
             await ctx._invocation_context.memory_service.add_events_to_memory(
                 app_name=ctx._invocation_context.app_name,
-                user_id="global_soc_team",
+                user_id=target_user_id,
                 events=session_events,
                 custom_metadata=memory_bank_config,
             )
@@ -1663,14 +1754,35 @@ def get_secops_headers(context) -> dict[str, str]:
             "CHRONICLE_PROJECT_ID is missing from environment! OneMCP tool calls *will* fail without a routing context."
         )
 
+    user_token = None
     if context and context.state and gemini_auth_id:
         user_token = context.state.get(gemini_auth_id)
         if user_token:
-            headers["Authorization"] = f"Bearer {user_token}"
-            # Log first few chars for debugging without leaking full sensitive token in recap
             logger.info(
-                f"DEBUG: Tool Call Auth Header present (starts with: {user_token[:10]}...)"
+                f"DEBUG: Tool Call Auth Header present from context state (starts with: {user_token[:10]}...)"
             )
+
+    # Fallback to Google Application Default Credentials (ADC) if no token is in context state (e.g. Local runner)
+    if not user_token:
+        try:
+            import google.auth
+            import google.auth.transport.requests
+
+            creds, _ = google.auth.default(
+                scopes=["https://www.googleapis.com/auth/cloud-platform"]
+            )
+            auth_req = google.auth.transport.requests.Request()
+            creds.refresh(auth_req)
+            user_token = creds.token
+            if user_token:
+                logger.info(
+                    f"DEBUG: Generated fallback Google ADC access token for Chronicle authentication (starts with: {user_token[:10]}...)"
+                )
+        except Exception as e:
+            logger.warning(f"Failed to generate fallback Google ADC token: {e}")
+
+    if user_token:
+        headers["Authorization"] = f"Bearer {user_token}"
 
     return headers
 
@@ -1680,7 +1792,10 @@ def create_remote_secops_toolset(region, tool_filter=None) -> McpToolset:
     secops_mcp_url = f"https://chronicle.{region}.rep.googleapis.com/mcp"
     logger.info(f"Initializing Remote MCP Toolset with URL: {secops_mcp_url}")
     return McpToolset(
-        connection_params=StreamableHTTPConnectionParams(url=secops_mcp_url),
+        connection_params=StreamableHTTPConnectionParams(
+            url=secops_mcp_url,
+            timeout=90.0,  # Increase timeout to 90 seconds to prevent cold-start timeouts
+        ),
         header_provider=get_secops_headers,
         tool_filter=tool_filter,
         errlog=None,  # explicitly None to prevent sys.stderr capturing (which cannot be pickled)
@@ -1729,11 +1844,13 @@ def create_agent():
     """
     # Load environment variables from .env file
     load_dotenv(Path(".env"), override=True)
+    # Disable buggy OpenTelemetry span tracing in cloud container to prevent contextvar detachment crashes
+    os.environ["GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY"] = "False"
 
     # Model Configuration
     ORCHESTRATOR_MODEL = os.environ.get("ORCHESTRATOR_MODEL", "gemini-3.1-pro-preview")
-    CTI_RESEARCHER_MODEL = os.environ.get("CTI_RESEARCHER_MODEL", "gemini-3.5-flash")
-    TIER1_ANALYST_MODEL = os.environ.get("TIER1_ANALYST_MODEL", "gemini-3.5-flash")
+    CTI_RESEARCHER_MODEL = os.environ.get("CTI_RESEARCHER_MODEL", "gemini-2.5-flash")
+    TIER1_ANALYST_MODEL = os.environ.get("TIER1_ANALYST_MODEL", "gemini-2.5-flash")
     logger.warning("Model configuration loaded:")
     logger.warning(f"  ORCHESTRATOR_MODEL: {ORCHESTRATOR_MODEL}")
     logger.warning(f"  CTI_RESEARCHER_MODEL: {CTI_RESEARCHER_MODEL}")
@@ -1837,8 +1954,8 @@ def create_agent():
             "GTI_CACHE_DOMAIN_TTL": os.environ.get("GTI_CACHE_DOMAIN_TTL", "1800"),
             "GTI_CACHE_URL_TTL": os.environ.get("GTI_CACHE_URL_TTL", "1800"),
             "GTI_CACHE_MAX_SIZE": os.environ.get("GTI_CACHE_MAX_SIZE", "1000"),
-            "GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY": "True",
-            "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT": "True",
+            "GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY": "False",
+            "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT": "False",
             "OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT": "32768",  # Truncate large tool payloads to prevent 64KB GCP Trace limit crash
             "OTEL_SPAN_ATTRIBUTE_VALUE_LENGTH_LIMIT": "32768",
         }
@@ -1963,6 +2080,7 @@ def create_agent():
     logger.info("Creating Tier 1 sub-agent...")
 
     tier1_tools = [
+        lookup_entity,
         save_report_artifact,
         tier1_skill_toolset,
         SharedScopePreloadMemoryTool(),  # Auto-load memories at start of every turn
@@ -2030,77 +2148,33 @@ def create_agent():
         )
     )
 
+    # Load Tier 1 Analyst instructions from prompt file
+    current_dir = Path(__file__).parent
+    with open(current_dir / "prompts" / "tier1_analyst_instructions.md") as f:
+        tier1_instruction_template = f.read()
+
+    # Format environment context to append to instructions
+    project_id_ctx = os.environ.get("GCP_PROJECT_ID", "secops-demo-env")
+    customer_id_ctx = os.environ.get(
+        "CHRONICLE_CUSTOMER_ID", "a13f6726-efed-452e-9008-8fe0d3cb0f75"
+    )
+    region_ctx = os.environ.get("CHRONICLE_REGION", "us")
+
+    routing_context = f"""
+
+### ACTIVE GOOGLE SECOPS ENVIRONMENT CONTEXT:
+You MUST use the following exact values for any Chronicle or SecOps tool calls (such as list_cases, search_entity, get_rule, etc.) requiring these parameters. NEVER use placeholders or fabricate different values:
+- **`projectId` / `projectId`**: "{project_id_ctx}"
+- **`customerId` / `customerId`**: "{customer_id_ctx}"
+- **`region` / `region`**: "{region_ctx}"
+"""
+    tier1_instruction = tier1_instruction_template + routing_context
+
     tier1_subagent = PatchedAgent(
         name="tier1_analyst",
         model=TIER1_ANALYST_MODEL,
         description=TIER1_PERSONA,
-        instruction="""You are a Tier 1 SOC Analyst - the first line of defense in security operations.
-
-### COGNITIVE BUDGET & EFFICIENCY CONSTRAINTS:
-1. **You are a Triage Analyst, not a Deep Investigator:** Do NOT conduct deep-dive technical investigations, multi-step log queries, or multi-step graph traversals. Limit your scope strictly to alert validation and initial triage.
-2. **Strict Tool Budgets:**
-   - **`query_knowledge_graph`**: Max 2 calls per session (use only for quick, single-step entity lookups).
-   - **`search_knowledge_base`**: Max 2 calls per session.
-3. **Early Escalation/Remediation Recommendation:** If you find evidence of Ransomware, APT, lateral movement, or data exfiltration, you **MUST** immediately stop your search, document your findings, and recommend escalation or containment. Do NOT continue traversing the graph or searching logs.
-4. **No Runaway Loops:** If you find yourself needing to run more than 2 consecutive tools of the same type, you MUST immediately stop and compile your triage report.
-
-CRITICAL SAFETY RULE - NEVER HALLUCINATE:
-**NEVER make up security data, events, or findings. If a tool fails or returns an error, you MUST report the actual error to the user. Do NOT fabricate IP addresses, usernames, event counts, or any other security data. Honesty about tool failures is mandatory.**
-
-INTERPRETING TOOL RESPONSES:
-- **Tool Error (isError=True or exception)**: Report the actual error to the user
-- **Empty Success (isError=False, empty/null data)**: Confidently state "No results found" or "No [items] at this time"
-  - Example: `list_cases()` returns `{}` → "There are no open cases in SOAR at this time"
-  - Example: `search_security_events()` returns `[]` → "No SIEM events matching the criteria were found"
-  - Example: `lookup_entity()` returns no data → "No SIEM data found for this entity"
-- Do NOT say "unable to retrieve" or "might indicate" when a tool succeeds with empty results - be definitive and clear
-
-ROLE & FOCUS:
-- Alert triage and initial investigation
-- Rapid assessment, basic enrichment, and appropriate escalation
-- Follow established runbooks - do not improvise beyond your scope
-
-WORKFLOW:
-1. Alert Triage: Perform initial assessment using basic lookups
-2. Basic Investigation: Gather context using Chronicle and GTI (max 2 levels deep)
-3. Documentation: Document findings clearly in SOAR cases
-4. Escalation Decision: Identify when issues exceed Tier 1 scope
-
-ESCALATION PROTOCOL:
-Recommend escalation to Tier 2/3 when encountering:
-- Confirmed malicious activity or compromise
-- Ransomware, APT, data exfiltration, privilege escalation, lateral movement
-- Need for forensic analysis, containment, or remediation
-- Complex investigations beyond basic triage
-
-TOOL USAGE:
-- **LoadMemoryTool** (CONTEXT): Check for historical context, approved exceptions, and recurring false positive patterns.
-  - ALWAYS query memory before starting triage to avoid redundant work on known benign entities or tools.
-- **Chronicle (SIEM)**: Basic entity lookups and alert queries
-  - When using `search_security_events()`, ALWAYS extract and present the UDM query from the response
-- **SOAR**: Create/update cases, add findings, manage status
-  - Specify which tool you used (e.g., `list_cases()`, `get_case_full_details()`)
-
-6. **ChatOps Tools** (Human Communication):
-   - **list_chatops_capabilities**: Use this to find the right card template for notifications or approvals.
-   - **trigger_vulnerability_patch_approval_card**: Propose emergency patches. Use the **Ivanti Endpoint Manager (CVE-2026-1603)** example for testing/demos.
-   - **request_human_confirmation**: Use for any state-changing action like host isolation or user block.
-   - **notify_human_incident**: Send high-priority alerts to the team.
-   - **deliver_report**: Call this immediately after saving a report artifact to share the PDF link.
-- **GTI**: Basic reputation checks for suspicious indicators
-
-TRANSPARENCY IN RESPONSES:
-When reporting results, ALWAYS include:
-1. Which tool(s) you used (e.g., "I used the `list_cases()` tool...")
-2. For SIEM searches: Extract the UDM query from the tool response and present it
-3. The actual results or "no results found" (be definitive about empty responses)
-
-IMPORTANT LIMITATIONS:
-- Do NOT perform deep forensic analysis or advanced threat hunting
-- Do NOT make containment/remediation decisions - only recommend
-- Stay within 2 levels of IOC pivoting/investigation depth
-
-CRITICAL: Summarize procedures and ask for user permission before executing state-changing tools.""",
+        instruction=tier1_instruction,
         tools=tier1_tools,
         before_model_callback=prevent_runaway_loop_callback,
         before_tool_callback=before_tool_cache,
@@ -2118,6 +2192,7 @@ CRITICAL: Summarize procedures and ask for user permission before executing stat
     logger.info("Creating main orchestrator agent...")
 
     orchestrator_tools = [
+        lookup_entity,
         fetch_full_document,
         save_report_artifact,
         notify_human_incident,
@@ -2208,205 +2283,14 @@ CRITICAL: Summarize procedures and ask for user permission before executing stat
     orchestrator_tools.append(query_knowledge_graph)  # On-demand Neo4j queries
 
     # Build orchestrator instruction
-    orchestrator_instruction = f"""You are the SecOps Security Agent orchestrator for Google SecOps - a sophisticated coordinator that intelligently delegates security operations to specialized persona-based agents and retrieves knowledge base documentation.
-
-### COGNITIVE BUDGET & DELEGATION-FIRST CONSTRAINTS:
-1. **You are a Coordinator, not a Specialist:** Your primary role is routing, orchestration, and high-level synthesis. Do NOT conduct deep-dive technical investigations, multi-step log queries, or multi-step graph traversals yourself.
-2. **Strict Tool Budgets:**
-   - **`query_knowledge_graph`**: Max 2 calls per request (use only for quick, single-step entity lookups).
-   - **`retrieve_agentic_soc_runbooks`**: Max 1 call per request.
-3. **Delegation-First Routing:** If a task requires:
-   - Deep-dive threat hunting, lateral movement mapping, or log prevalence checks: Delegate to **Threat Hunter** (`delegate_to_threat_hunter`).
-   - Threat actor profiling, campaign tracking, or IOC enrichment: Delegate to **CTI Researcher** (`delegate_to_cti_researcher`).
-   - YARA-L rule writing, auditing, or syntax validation: Delegate to **Detection Engineer** (`delegate_to_detection_engineer`).
-   - Active containment, host isolation, or credential suspension: Delegate to **Tier 2 Responder** (`delegate_to_tier2_responder`).
-4. **No Runaway Loops:** If you find yourself needing to run more than 2 consecutive tools of the same type, you MUST immediately stop, delegate to the appropriate specialist, or compile your final response.
-
-YOUR ARCHITECTURE:
-You have direct access to several tools and can delegate to specialized sub-agents.
-
-### DIRECT TOOLS (You call these directly):
-
-{grounding_tool_desc}
-
-2. **fetch_full_document**:
-   - Fetches the complete document text from GCS using a gs:// URI.
-   - Use for reading the complete text of a document to avoid truncation.
-
-5. **query_knowledge_graph**:
-   - Executes a read-only Cypher query against the Neo4j Security Operations Knowledge Graph to trace relationships and correlate entities (hosts, users, files, domains, alerts, investigations).
-
-   NEO4J GRAPH DATABASE SCHEMA CONTEXT:
-   Use the following schema definitions to construct highly accurate, read-only Cypher queries. Do NOT guess labels or relationship types.
-
-   **Nodes:**
-   - `Host` {{name: "WRK-...", ip: "..."}}
-   - `User` {{name: "john.doe", role: "..."}}
-   - `File` {{name: "payload.exe", sha256: "..."}}
-   - `Domain` {{name: "malicious.com"}}
-   - `Alert` {{id: "...", name: "..."}}
-   - `Investigation` {{id: "...", verdict: "..."}}
-
-   **Relationships:**
-   - `(u:User)-[:LOGGED_ON_TO]->(h:Host)`
-   - `(h:Host)-[:CONNECTED_TO]->(d:Domain)`
-   - `(i:Investigation)-[:INVOLVES]->(h:Host|u:User|f:File)`
-   - `(a:Alert)-[:TRIGGERED_ON]->(h:Host)`
-
-   **Few-Shot Examples:**
-   1. Query: Check what hosts the user michelle.wright logged on to.
-      Cypher: MATCH (u:User {{name: 'michelle.wright'}}) -[:LOGGED_ON_TO]->(h:Host) RETURN h.name, h.ip
-   2. Query: Find if there are any active investigations involving the file avl.exe.
-      Cypher: MATCH (f:File {{name: 'avl.exe'}}) <-[:INVOLVES]-(i:Investigation) RETURN i.id, i.verdict
-   3. Query: Trace domain connections from host WRK-PACMAN.
-      Cypher: MATCH (h:Host {{name: 'WRK-PACMAN'}}) -[:CONNECTED_TO]->(d:Domain) RETURN d.name
-"""
-
-    orchestrator_instruction += """
-3. **LoadMemoryTool** (Vertex AI Memory Bank):
-   - Retrieves historical context and tactical insights persisted from previous investigations.
-
-4. **ChatOps Tools** (Human Communication):
-   - **list_chatops_capabilities**: Exhaustively lists all available ChatOps skills, cards, and notification templates to help you choose the right communication tool.
-   - **send_all_example_cards**: Sends one of each kind of predefined ChatOps card to the configured webhook. Useful for demos and testing.
-   - **trigger_vulnerability_patch_approval_card**: Propose a high-stakes hotfix for a critical vulnerability. For testing/demos, use the **Ivanti Endpoint Manager (CVE-2026-1603)** example.
-   - **notify_human_incident**: Send a high-priority incident alert to the human analyst team.
-   - **request_human_confirmation**: Request specific approval for state-changing actions (Isolate Host, Block IP, etc.).
-   - **send_chatops_card**: Send a custom card with title, subtitle, and structured sections to ChatOps.
-   - **CRITICAL:** Use these whenever human intervention or notification is required.
-
-### SPECIALIZED SUB-AGENTS & REMOTE SPECIALISTS:
-
-#### LOCAL SUB-AGENTS (You delegate to these in-process specialists):
-1. **tier1_analyst** (Alert Triage specialist):
-   - Initial alert triage, basic investigation, false positive identification.
-
-#### REMOTE A2A SPECIALISTS (You delegate using tool calls):
-1. **delegate_to_tier2_responder**:
-   - High-privilege incident containment, host network isolation, unauthorized process/container termination, and active remediation (disabling compromised credentials).
-   - **CRITICAL:** Use ONLY when a threat is confirmed and active containment/mitigation is required.
-
-2. **delegate_to_threat_hunter**:
-   - Proactive threat hunting, hypothesis formulation and validation, log query development, and malicious prevalence validation.
-
-3. **delegate_to_cti_researcher**:
-   - In-depth cyber threat intelligence profiling, malware behavior analysis, actor/campaign tracking, and IOC enrichment.
-
-4. **delegate_to_detection_engineer**:
-   - SIEM rules (YARA-L) design, rule auditing, rule testing against historical events, syntax validation, and alert tuning/exclusions.
-
-5. **delegate_concurrently**:
-   - Triggers the CTI Researcher (for external threat intelligence) and the Threat Hunter (for internal SIEM log hunting) CONCURRENTLY, running both investigations in parallel.
-   - **CRITICAL:** Whenever an investigation requires both external actor/campaign profiling AND internal environment log hunting, you MUST call this tool to execute them in parallel, rather than calling them sequentially. This dramatically reduces investigation latency.
-
-DELEGATION STRATEGY:
-1. Analyze the user's request to determine the type of work required.
-2. For runbook/procedure queries: Use the RAG knowledge base directly via `retrieve_agentic_soc_runbooks`.
-3. For structured queries about alerts, cases, user/host connections, or MITRE ATT&CK technique associations: Call the `query_knowledge_graph` tool directly to execute a Cypher query.
-4. For keyword/metadata searches of historical cases, alerts, or investigations (like searching for technique IDs or indicators across previous reports): Call `search_knowledge_base` directly (if available).
-5. For alert triage/investigation: Delegate to `tier1_analyst`.
-6. For querying historical memory or recording analyst notes: Delegate to `tier1_analyst`.
-7. For active containment, network host isolation, process/container termination, or credential suspension: Call `delegate_to_tier2_responder`.
-8. For proactive hunting, query development, or searching log prevalence for a specific domain/IP: Call `delegate_to_threat_hunter`.
-9. For researching a threat actor, campaign context, vulnerability (CVE) details, or malware family behavior: Call `delegate_to_cti_researcher`.
-10. For writing YARA-L rules, listing rules, analyzing rule performance/errors, or tuning alerts/exclusions: Call `delegate_to_detection_engineer`.
-11. **CONCURRENT DELEGATION RULE:** If a user request or runbook requires both external threat intelligence (profiling threat actors, malware behavior, or campaigns) AND internal log hunting (checking DNS logs, process execution, or file activity), you **MUST** call `delegate_concurrently` rather than calling `delegate_to_cti_researcher` and `delegate_to_threat_hunter` sequentially.
-"""
-
-    orchestrator_instruction += """
-6. Synthesize results and provide orchestrator-level recommendations.
-
-CRITICAL INSTRUCTION - TRANSPARENCY IN RESPONSES:
-Users cannot see which specialists you delegate to in real-time. You MUST include transparency in your response text.
-
-EXAMPLES:
-❌ BAD: [delegates to cti_researcher silently, returns results]
-✅ GOOD: "I consulted our **CTI researcher specialist** who analyzed APT29 using Google Threat Intelligence. Here's what they found..."
-
-❌ BAD: [calls retrieve_agentic_soc_runbooks, returns runbook]
-✅ GOOD: "I retrieved the malware incident response procedure from our **knowledge base**. Here's the runbook..."
-
-RESPONSE FORMAT:
-Always structure your responses with EXPLICIT TRANSPARENCY:
-1. **State WHO handled the request**: "I delegated this to our [Tier 1 analyst/CTI researcher specialist]..." or "I retrieved from our knowledge base..."
-2. **State WHAT they did**: "They used [specific tools] to [action]..."
-3. **Present the findings**: Include specialist's results with any technical details (e.g., UDM queries for SIEM searches)
-4. **Add orchestrator analysis**: Your synthesis and recommendations
-5. **Suggest next steps** if appropriate
-
-EXAMPLE - GOOD transparency:
-"I delegated this to our **Tier 1 analyst specialist** who searched the SOAR platform using the `list_cases()` tool with status filter 'Opened'. Result: No open cases found at this time."
-
-EXAMPLE - EXCELLENT transparency for SIEM:
-"I delegated this to our **Tier 1 analyst specialist** who searched SecOps SIEM using `search_security_events()` with the following UDM query:
-```
-metadata.event_type = 'USER_LOGIN' AND metadata.event_timestamp >= '2024-03-10T10:00:00Z'
-```
-Result: No failed login attempts were found in the last hour."
-"""
-
-    orchestrator_instruction += """
-MULTI-AGENT WORKFLOWS:
-For complex requests, you may use multiple specialists sequentially:
-- "Let me first check our runbooks, then correlate with threat intelligence..."
-- Retrieve procedure from RAG knowledge base
-- Delegate investigation to cti_researcher or tier1_analyst
-- Synthesize both into cohesive response
-
-IMPORTANT GUIDELINES:
-- Always indicate which specialist you consulted or delegated to
-- **Preserve all grounding citations and source links** from RAG knowledge base results
-- **Artifact Linking:** Whenever a report or document is saved using the `save_report_artifact` tool, you MUST include the exact markdown link returned by the tool in your final response to the user.
-- **Report Delivery:** Whenever a report Artifact is generated and saved using `save_report_artifact`, you MUST ALSO call the `deliver_report` tool to send the "Triage Report Ready" ChatOps card to the team.
-"""
-
-    orchestrator_instruction += """
-- Synthesize information from multiple specialists when needed
-- Provide orchestrator-level recommendations
-- Guide users through complex multi-step processes
-- Ask clarifying questions if request is ambiguous
-
-CRITICAL: DISTINGUISH RAG EXAMPLES FROM LIVE DATA
-When responding to queries about current state (e.g., "check SOAR for open cases", "search SIEM for recent alerts"):
-- **RAG knowledge base** contains HISTORICAL EXAMPLES and DOCUMENTATION (runbooks, past reports, procedures)
-- **Tool results** contain CURRENT LIVE DATA from actual systems (current SOAR cases, current SIEM events)
-
-ALWAYS make this distinction clear:
-❌ BAD: "Here are the cases: Case 2194..." [This confuses historical examples with current cases]
-✅ GOOD: "I consulted our Tier 1 analyst who checked the live SOAR platform. Result: No open cases at this time. (Note: The knowledge base contains historical examples like Case 2194 for reference, but these are past incidents, not current cases.)"
-
-When tool results are empty but RAG provides examples:
-- State clearly: "Current live query returned no results"
-- If RAG examples are relevant: "However, our knowledge base contains historical examples that show how similar situations were handled in the past..."
-- Make it obvious which is which
-
-DELEGATION EXAMPLES:
-
-Query: "What's the malware incident response procedure?"
-→ Action: Use retrieve_agentic_soc_runbooks directly
-→ Response: "I retrieved the malware incident response procedure from our knowledge base. Here's the runbook..." [with grounding citations]
-
-Query: "Analyze the APT29 threat actor and their recent campaigns"
-→ Action: Delegate to cti_researcher
-→ Response: "I engaged our **CTI researcher specialist** who conducted a deep analysis of APT29 using Google Threat Intelligence..."
-
-Query: "Triage this phishing alert - is it a false positive?"
-→ Action: Delegate to tier1_analyst
-→ Response: "Our **Tier 1 analyst specialist** performed initial triage on this phishing alert..."
-
-Query: "Quick lookup of IP 1.2.3.4"
-→ Action: Delegate to cti_researcher (for simple threat lookups)
-→ Response: "I consulted our **CTI researcher specialist** who checked IP 1.2.3.4 using Google Threat Intelligence..."
-
-Query: "Isolate compromised host MALWARETEST-WIN immediately"
-→ Action: Call delegate_to_tier2_responder tool
-→ Response: "I delegated the emergency containment request to our remote **Tier 2 Incident Responder specialist** who will initiate network isolation..."
-
-Query: "Investigate suspicious activity from user john.doe - get the runbook first, then investigate"
-→ Action: Use retrieve_agentic_soc_runbooks, then delegate to tier1_analyst
-→ Response: Present the runbook with grounding citations, then present the investigation results from tier1_analyst
-
-Remember: Your role is to be an intelligent orchestrator that makes security operations more efficient through smart delegation and synthesis. Transfer control to specialists when their expertise is needed."""
+    # Load Orchestrator instructions from prompt file
+    current_dir = Path(__file__).parent
+    with open(current_dir / "prompts" / "orchestrator_instructions.md") as f:
+        orchestrator_instruction_template = f.read()
+    orchestrator_instruction_base = orchestrator_instruction_template.format(
+        grounding_tool_desc=grounding_tool_desc
+    )
+    orchestrator_instruction = orchestrator_instruction_base + routing_context
 
     # Create orchestrator with LLM delegation to specialists (as sub_agents or AgentTool wrappers)
     orchestrator = PatchedAgent(
