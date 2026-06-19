@@ -70,3 +70,16 @@ This registry serves as the central scientific ledger for the Agentic SOC projec
 *   **Status:** 🟡 **ACTIVE (COMPILER DEPLOYED & TESTING READY)**
 *   **Linked Experiments:**
     *   [installation_scripts/manage_eval.py](file:///Users/dandye/Projects/agentic_soc_agentspace__worktrees/harvest_detection_reports/installation_scripts/manage_eval.py) (The MLOps Compiler Engine)
+
+---
+
+### `HYP-006`: Human-vs-AI Turing Test Hardening (Cognitive Resilience)
+*   **Hypothesis Statement:** If we harden the multi-agent SOC network with strict anti-conflation prompt constraints (separating historical runbooks from live telemetry), precise temporal scoping (propagating alert timeRange), and cognitive resilience guidelines for tool failures on low-severity alerts, then the autonomous system will successfully triage harvested enterprise SIEM/SOAR alerts with a Turing Test overall quality grade of **$\ge 90\%$ (🏆 EXPERT)**, matching or exceeding human analyst quality in rigor, transparency, and detail.
+*   **Falsification Criteria:** The agent's Turing Test quality grade remains $< 90\%$, it suffers from temporal conflation, or it unnecessarily escalates false-positive alerts during minor tool/API failures.
+*   **Status:** 🟢 **VERIFIED**
+*   **Linked Experiments:**
+    *   [evalsets/experiments/009_turing_test_hardening_retrospective.md](file:///Users/dandye/Projects/agentic_soc_agentspace__worktrees/harvest_detection_reports/evalsets/experiments/009_turing_test_hardening_retrospective.md) (The Turing Test Breakthrough)
+*   **Empirical Evidence:**
+    *   *Hardened Turing Test Run*: Raised the overall quality grade from a baseline of **30.0%** to a stunning **95.0% (🏆 EXPERT)**.
+    *   *Metric Breakdown*: Achieved **100%** on Timeline Accuracy, **100%** on Containment Precision, and **90%** on Telemetry Coverage.
+    *   *Cognitive Breakthroughs*: Successfully avoided Rubeus temporal conflation, resolved the remote Chronicle schema mismatches via ADC/camelCase token integration, and demonstrated resilience by confidently closing the case as a False Positive despite a remote `list_cases` SOAR backend failure.
