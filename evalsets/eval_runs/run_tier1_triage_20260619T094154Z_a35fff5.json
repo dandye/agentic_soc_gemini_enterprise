@@ -1,0 +1,159 @@
+{
+  "metadata": {
+    "evalset_id": "tier1_triage",
+    "timestamp": "2026-06-19T09:41:54.528957Z",
+    "git": {
+      "commit": "a35fff523fc5d35c28ae36997695fb16cdf700ac",
+      "branch": "harvest_detection_reports",
+      "dirty": true,
+      "submodules": {
+        "external/adk_runbooks": "d4ccf85d393eacae34bc006689601f013a03479b",
+        "external/ai-runbooks": "fca5f8eba3fff9964680ae035915c87a74e2f767",
+        "external/mcp-security": "b3ccb9a190b87512ba0901f672c76c5527ebcff7"
+      }
+    },
+    "environment": {
+      "project_id": "secops-demo-env",
+      "location": "us-central1",
+      "orchestrator_model": "gemini-2.5-pro",
+      "agent_resource": "projects/813924125873/locations/us-east4/reasoningEngines/427921129437396992",
+      "knowledge_graph_hash": "025f15bc6a020547c7809d9b382229a7"
+    }
+  },
+  "summary": {
+    "total_cases": 5,
+    "average_score": 44.00000000000001,
+    "status": "FAIL"
+  },
+  "cases": {
+    "phishing_alert_triage": {
+      "name": "Phishing Alert Triage",
+      "score": 0.5,
+      "tool_calls": [
+        "transfer_to_agent",
+        "list_skills",
+        "load_memory",
+        "retrieve_agentic_soc_runbooks",
+        "list_cases",
+        "search_knowledge_base",
+        "search_knowledge_base",
+        "query_knowledge_graph",
+        "get_domain_report",
+        "udm_search",
+        "list_chatops_capabilities",
+        "load_skill",
+        "request_human_confirmation",
+        "request_human_confirmation",
+        "save_report_artifact",
+        "deliver_report"
+      ],
+      "assertions_passed": [],
+      "assertions_failed": [
+        "specialist_attribution",
+        "tool_trajectory",
+        "keyword_matching"
+      ],
+      "success_criteria_passed": [
+        "mentions_tier1",
+        "includes_assessment",
+        "provides_recommendation",
+        "mentions_escalation_criteria"
+      ],
+      "success_criteria_failed": [
+        "specialist_attribution"
+      ]
+    },
+    "basic_ioc_enrichment": {
+      "name": "Basic IOC Enrichment",
+      "score": 0.5,
+      "tool_calls": [
+        "delegate_concurrently",
+        "save_report_artifact",
+        "deliver_report"
+      ],
+      "assertions_passed": [
+        "keyword_matching"
+      ],
+      "assertions_failed": [
+        "specialist_attribution",
+        "tool_trajectory"
+      ],
+      "success_criteria_passed": [
+        "uses_multiple_sources",
+        "within_tier1_scope"
+      ],
+      "success_criteria_failed": [
+        "specialist_attribution"
+      ]
+    },
+    "duplicate_case_check": {
+      "name": "Duplicate Case Detection",
+      "score": 0.2,
+      "tool_calls": [
+        "transfer_to_agent"
+      ],
+      "assertions_passed": [
+        "keyword_matching"
+      ],
+      "assertions_failed": [
+        "specialist_attribution",
+        "tool_trajectory"
+      ],
+      "success_criteria_passed": [],
+      "success_criteria_failed": [
+        "specialist_attribution",
+        "clear_result_statement"
+      ]
+    },
+    "escalation_recommendation": {
+      "name": "Escalation Decision - Ransomware",
+      "score": 0.6666666666666666,
+      "tool_calls": [
+        "retrieve_agentic_soc_runbooks",
+        "delegate_to_tier2_responder",
+        "delegate_concurrently",
+        "search_knowledge_base",
+        "query_knowledge_graph"
+      ],
+      "assertions_passed": [
+        "tool_trajectory",
+        "keyword_matching"
+      ],
+      "assertions_failed": [
+        "specialist_attribution"
+      ],
+      "success_criteria_passed": [
+        "recommends_escalation",
+        "final_response_must_contain"
+      ],
+      "success_criteria_failed": [
+        "specialist_attribution"
+      ]
+    },
+    "user_activity_lookup": {
+      "name": "User Activity Investigation",
+      "score": 0.3333333333333333,
+      "tool_calls": [
+        "transfer_to_agent",
+        "load_memory",
+        "list_skills",
+        "search_knowledge_base",
+        "query_knowledge_graph"
+      ],
+      "assertions_passed": [
+        "keyword_matching"
+      ],
+      "assertions_failed": [
+        "specialist_attribution",
+        "tool_trajectory"
+      ],
+      "success_criteria_passed": [
+        "tool_name_mentioned"
+      ],
+      "success_criteria_failed": [
+        "specialist_attribution",
+        "searches_siem"
+      ]
+    }
+  }
+}

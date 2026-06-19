@@ -1,0 +1,170 @@
+{
+  "metadata": {
+    "evalset_id": "multi_specialist",
+    "timestamp": "2026-06-19T09:21:59.833006Z",
+    "git": {
+      "commit": "a35fff523fc5d35c28ae36997695fb16cdf700ac",
+      "branch": "harvest_detection_reports",
+      "dirty": true,
+      "submodules": {
+        "external/adk_runbooks": "d4ccf85d393eacae34bc006689601f013a03479b",
+        "external/ai-runbooks": "fca5f8eba3fff9964680ae035915c87a74e2f767",
+        "external/mcp-security": "b3ccb9a190b87512ba0901f672c76c5527ebcff7"
+      }
+    },
+    "environment": {
+      "project_id": "secops-demo-env",
+      "location": "us-central1",
+      "orchestrator_model": "gemini-2.5-pro",
+      "agent_resource": "projects/813924125873/locations/us-east4/reasoningEngines/427921129437396992",
+      "knowledge_graph_hash": "025f15bc6a020547c7809d9b382229a7"
+    }
+  },
+  "summary": {
+    "total_cases": 5,
+    "average_score": 93.80952380952381,
+    "status": "PASS"
+  },
+  "cases": {
+    "runbook_then_investigate": {
+      "name": "Multi-Step: Runbook + Investigation",
+      "score": 0.8571428571428571,
+      "tool_calls": [
+        "retrieve_agentic_soc_runbooks",
+        "delegate_concurrently",
+        "load_memory",
+        "query_knowledge_graph"
+      ],
+      "assertions_passed": [
+        "keyword_matching"
+      ],
+      "assertions_failed": [
+        "tool_trajectory"
+      ],
+      "success_criteria_passed": [
+        "mentions_runbook_retrieval",
+        "mentions_cti_specialist",
+        "combines_both_outputs",
+        "clear_workflow_structure",
+        "has_grounding_citation"
+      ],
+      "success_criteria_failed": []
+    },
+    "threat_actor_local_correlation": {
+      "name": "Threat Intel + Local Correlation",
+      "score": 1.0,
+      "tool_calls": [
+        "delegate_concurrently",
+        "delegate_to_cti_researcher",
+        "delegate_to_threat_hunter",
+        "search_knowledge_base"
+      ],
+      "assertions_passed": [
+        "specialist_attribution",
+        "tool_trajectory",
+        "keyword_matching"
+      ],
+      "assertions_failed": [],
+      "success_criteria_passed": [
+        "specialist_attribution",
+        "combines_external_and_internal",
+        "final_response_must_contain"
+      ],
+      "success_criteria_failed": []
+    },
+    "lateral_movement_hunt": {
+      "name": "Complex Threat Hunting - Lateral Movement",
+      "score": 1.0,
+      "tool_calls": [
+        "delegate_to_threat_hunter"
+      ],
+      "assertions_passed": [
+        "specialist_attribution",
+        "tool_trajectory",
+        "keyword_matching"
+      ],
+      "assertions_failed": [],
+      "success_criteria_passed": [
+        "specialist_attribution",
+        "includes_udm_query",
+        "maps_to_mitre_attack",
+        "final_response_must_contain"
+      ],
+      "success_criteria_failed": []
+    },
+    "incident_workflow_phishing_to_compromise": {
+      "name": "Incident Workflow - Phishing to Compromise",
+      "score": 0.8333333333333334,
+      "tool_calls": [
+        "retrieve_agentic_soc_runbooks",
+        "transfer_to_agent",
+        "load_memory",
+        "search_knowledge_base",
+        "query_knowledge_graph",
+        "query_knowledge_graph",
+        "query_knowledge_graph",
+        "query_knowledge_graph",
+        "search_knowledge_base",
+        "load_memory",
+        "search_knowledge_base",
+        "list_skills",
+        "load_skill",
+        "search_knowledge_base",
+        "retrieve_agentic_soc_runbooks",
+        "search_knowledge_base",
+        "search_knowledge_base",
+        "search_knowledge_base",
+        "search_knowledge_base",
+        "search_knowledge_base",
+        "search_knowledge_base",
+        "load_skill",
+        "load_skill_resource",
+        "search_knowledge_base",
+        "save_report_artifact",
+        "notify_human_incident",
+        "deliver_report"
+      ],
+      "assertions_passed": [
+        "keyword_matching"
+      ],
+      "assertions_failed": [
+        "tool_trajectory"
+      ],
+      "success_criteria_passed": [
+        "mentions_runbook_retrieval",
+        "mentions_tier1_or_cti",
+        "provides_workflow",
+        "has_grounding_citation"
+      ],
+      "success_criteria_failed": []
+    },
+    "conflicting_intel": {
+      "name": "Conflicting Intelligence Sources",
+      "score": 1.0,
+      "tool_calls": [
+        "delegate_to_threat_hunter",
+        "delegate_to_threat_hunter",
+        "search_knowledge_base",
+        "delegate_to_cti_researcher",
+        "delegate_to_threat_hunter",
+        "search_knowledge_base",
+        "delegate_to_threat_hunter",
+        "save_report_artifact",
+        "deliver_report"
+      ],
+      "assertions_passed": [
+        "specialist_attribution",
+        "tool_trajectory",
+        "keyword_matching"
+      ],
+      "assertions_failed": [],
+      "success_criteria_passed": [
+        "specialist_attribution",
+        "presents_both_findings",
+        "acknowledges_discrepancy",
+        "provides_interpretation"
+      ],
+      "success_criteria_failed": []
+    }
+  }
+}
