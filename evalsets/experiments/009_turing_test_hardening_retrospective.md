@@ -12,11 +12,11 @@ provenance:
 
 # Turing Test Hardening Retrospective: The 95% Expert Breakthrough
 
-This document captures the retrospective analysis of the successful hardening campaign that elevated our multi-agent security operations network to **🏆 EXPERT (Exceeds Human)** performance on harvested SIEM/SOAR incidents.
+This document captures the retrospective analysis of the successful hardening campaign that elevated our multi-agent security operations network to **EXPERT (Exceeds Human)** performance on harvested SIEM/SOAR incidents.
 
 ---
 
-## 📊 The Hardening Journey: Scorecard Progression
+## The Hardening Journey: Scorecard Progression
 
 We used historical incident **`0da67709-7061-4ac2-b7be-23bc867a12ef`** (Low-Severity PowerShell administrative share mapping by an IT intern) to run iterative comparative Turing Test audits against the gold-standard human analyst.
 
@@ -26,11 +26,11 @@ We used historical incident **`0da67709-7061-4ac2-b7be-23bc867a12ef`** (Low-Seve
 | **Iteration 1 (Context Fix)** | 10.0% | 0.0% | 0.0% | **0.0%** | Tool parameter hallucination; HTTP 403 Forbidden on SOAR case lookups due to placeholders. |
 | **Iteration 2 (Timeout Crash)**| -- | -- | -- | **CRASH** | ADK MCP default timeout (5.0s) exceeded; silent toolset registration failures (`list_cases` missing). |
 | **Iteration 3 (Resilience Fix)**| 80.0% | 100.0% | 0.0% | **20.0%** | Weak temporal scoping (October 2023 guess); defeatist escalation of false positives on tool errors. |
-| **Final Hardened Run** | **90.0%** 🟢 | **100.0%** 🏆 | **100.0%** 🏆 | **95.0%** 🏆 | **SUCCESS! Exceeded human analyst in transparency, auditability, and rigor!** |
+| **Final Hardened Run** | **90.0%** (Pass) | **100.0%** (Pass) | **100.0%** (Pass) | **95.0%** (Pass) | **SUCCESS! Exceeded human analyst in transparency, auditability, and rigor!** |
 
 ---
 
-## 🛠️ Four Pillars of Agent Hardening
+## Four Pillars of Agent Hardening
 
 To bridge the quality gap and out-perform the human analyst, we engineered four core architectural and cognitive patches:
 
@@ -57,7 +57,7 @@ To bridge the quality gap and out-perform the human analyst, we engineered four 
 
 ---
 
-## 🏆 The Breakthrough: Auditability and Rigor
+## The Breakthrough: Auditability and Rigor
 The judge's final verdict highlights the game-changing value of the hardened multi-agent system:
 > *"The AI followed a logical and efficient workflow... matched the human's conclusion but did so via a more transparent and methodologically sound process, making its findings highly reliable."*
 

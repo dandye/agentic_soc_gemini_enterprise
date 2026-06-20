@@ -12,7 +12,7 @@ provenance:
 
 # Experiment 008: Autonomous Cognitive Prompt Optimization Compiler
 
-*   **Status:** 🟢 **VERIFIED / SUCCESSFUL**
+*   **Status:** VERIFIED / SUCCESSFUL
 *   **Linked Hypothesis:** [HYP-005 (Autonomous Prompt Optimization)](file:///Users/dandye/Projects/agentic_soc_agentspace__worktrees/harvest_detection_reports/evalsets/HYPOTHESES.md)
 *   **Date:** 2026-06-19
 *   **Author:** Antigravity (AI Coding Partner) & USER
@@ -26,7 +26,7 @@ This experiment marks the first full live run of our **Autonomous Cognitive Comp
 The results represent a **historic MLOps success**:
 *   **Baseline Score:** **`45.0%`** (Cycle 1)
 *   **Optimized Score:** **`90.0%`** (Cycle 2)
-*   **Net Score Delta:** 🟢 **`+45.0%` Score Increase!**
+*   **Net Score Delta:** **`+45.0%` Score Increase!**
 *   **Human Intervention:** **0%** (Fully autonomous execution).
 
 ---
@@ -51,25 +51,25 @@ We kept all environmental, infrastructure, and tool configurations 100% constant
 
 | Case ID / Benchmark Workflow | Cycle 1 Baseline (Score) | Cycle 2 Optimized (Score) | Delta (Pass/Fail Status) |
 | :--- | :---: | :---: | :---: |
-| `phishing_alert_triage` | **100.0%** | **100.0%** | 🟢 `0.0%` (Constant PASS) |
-| `basic_ioc_enrichment` | **0.0%** | **100.0%** | 🟢 **`+100.0%`** (FAIL ➡️ PASS) |
-| `duplicate_case_check` | **0.0%** | **100.0%** | 🟢 **`+100.0%`** (FAIL ➡️ PASS) |
-| `escalation_recommendation` | **100.0%** | **100.0%** | 🟢 `0.0%` (Constant PASS) |
-| `user_activity_lookup` | **25.0%** | **50.0%** | 🟢 **`+25.0%`** (FAIL ➡️ WARN) |
-| **Overall Scorecard Average** | **45.0%** | **90.0%** | 🟢 **`+45.0%` Score Increase!** |
+| `phishing_alert_triage` | **100.0%** | **100.0%** | 0.0% (Constant PASS) |
+| `basic_ioc_enrichment` | **0.0%** | **100.0%** | +100.0% (FAIL -> PASS) |
+| `duplicate_case_check` | **0.0%** | **100.0%** | +100.0% (FAIL -> PASS) |
+| `escalation_recommendation` | **100.0%** | **100.0%** | 0.0% (Constant PASS) |
+| `user_activity_lookup` | **25.0%** | **50.0%** | +25.0% (FAIL -> WARN) |
+| **Overall Scorecard Average** | **45.0%** | **90.0%** | +45.0% Score Increase |
 
 ---
 
 ## 4. In-Depth Case Analysis & Critique Evolution
 
-### Case 2: Basic IOC Enrichment (`0.0%` ➡️ `100.0%`)
+### Case 2: Basic IOC Enrichment (0.0% -> 100.0%)
 *   **Baseline Failure Mode:** The agent hallucinated threat intelligence data and malicious indicators when enriching a reserved documentation IP address (`192.0.2.100`) instead of recognizing it as safe.
 *   **Judge's Baseline Critique:** *"The agent contradicted its own finding that the IP is unroutable by presenting it as a malicious indicator..."*
 *   **Autonomously Compiled Rule:**
     > `- Non-Routable IP Handling: If an IP address is identified as non-routable, reserved for documentation (e.g., RFC 1918, RFC 5737)... you MUST state this fact and conclude that it poses no direct external threat. You MUST NOT proceed with any further threat intelligence enrichment...`
 *   **Optimized Outcome:** The agent followed the new mandate perfectly. It identified the IP as unroutable, did not perform lookups, and confidently reported that it represented no threat, achieving a perfect `100.0%`.
 
-### Case 3: Duplicate Case Detection (`0.0%` ➡️ `100.0%`)
+### Case 3: Duplicate Case Detection (0.0% -> 100.0%)
 *   **Baseline Failure Mode:** The agent bypassed the mandated live query tool and fabricated existing case details out of local session memory.
 *   **Judge's Baseline Critique:** *"However, the decision to abandon the tool-based approach and invent data is a fundamental reasoning error..."*
 *   **Autonomously Compiled Rule:**
@@ -77,7 +77,7 @@ We kept all environmental, infrastructure, and tool configurations 100% constant
     > `- Empty Success (isError=False, empty/null data): Confidently state "No results found"...`
 *   **Optimized Outcome:** The agent called `list_cases` as mandated. When the tool returned an environment failure ("MCP session connection lost"), the agent did not hallucinate. Instead, it accurately reported the tool failure and explained why it could not complete the request. The Judge awarded a perfect score for reasoning and transparency.
 
-### Case 5: User Activity Investigation (`25.0%` ➡️ `50.0%`)
+### Case 5: User Activity Investigation (25.0% -> 50.0%)
 *   **Baseline Failure Mode:** The agent hit an `Invalid Argument` error when querying `john.doe` in the SIEM and gave up immediately, failing the core task.
 *   **Judge's Baseline Critique:** *"While the agent's handling of the tool failure was perfect, the primary task was not completed..."*
 *   **Autonomously Compiled Rule:**
