@@ -1444,9 +1444,22 @@ async def delegate_to_threat_hunter(query: str, tool_context: Context) -> str:
             )
             return "Error: Threat Hunter agent is not configured in the environment."
 
-        from vertexai import agent_engines
+        # Parse the location from the resource name dynamically
+        import re
 
-        remote_engine = agent_engines.get(engine_name)
+        m = re.search(r"locations/([^/]+)/", engine_name)
+        target_location = m.group(1) if m else "us-central1"
+
+        # Clean Regional Routing:
+        # Instead of using the global 'vertexai.agent_engines.get' shortcut,
+        # we explicitly construct a regional 'vertexai.Client' instance.
+        # This guarantees an isolated, correct regional gRPC pathway for A2A.
+        import vertexai
+
+        client = vertexai.Client(
+            project=os.environ.get("GCP_PROJECT_ID"), location=target_location
+        )
+        remote_engine = client.agent_engines.get(name=engine_name)
         session_id = None
         user_id = "secops_assistant"
 
@@ -1528,9 +1541,22 @@ async def delegate_to_cti_researcher(query: str, tool_context: Context) -> str:
             )
             return "Error: CTI Researcher agent is not configured in the environment."
 
-        from vertexai import agent_engines
+        # Parse the location from the resource name dynamically
+        import re
 
-        remote_engine = agent_engines.get(engine_name)
+        m = re.search(r"locations/([^/]+)/", engine_name)
+        target_location = m.group(1) if m else "us-central1"
+
+        # Clean Regional Routing:
+        # Instead of using the global 'vertexai.agent_engines.get' shortcut,
+        # we explicitly construct a regional 'vertexai.Client' instance.
+        # This guarantees an isolated, correct regional gRPC pathway for A2A.
+        import vertexai
+
+        client = vertexai.Client(
+            project=os.environ.get("GCP_PROJECT_ID"), location=target_location
+        )
+        remote_engine = client.agent_engines.get(name=engine_name)
         session_id = None
         user_id = "secops_assistant"
 
@@ -1650,9 +1676,22 @@ async def delegate_to_detection_engineer(query: str, tool_context: Context) -> s
                 "Error: Detection Engineer agent is not configured in the environment."
             )
 
-        from vertexai import agent_engines
+        # Parse the location from the resource name dynamically
+        import re
 
-        remote_engine = agent_engines.get(engine_name)
+        m = re.search(r"locations/([^/]+)/", engine_name)
+        target_location = m.group(1) if m else "us-central1"
+
+        # Clean Regional Routing:
+        # Instead of using the global 'vertexai.agent_engines.get' shortcut,
+        # we explicitly construct a regional 'vertexai.Client' instance.
+        # This guarantees an isolated, correct regional gRPC pathway for A2A.
+        import vertexai
+
+        client = vertexai.Client(
+            project=os.environ.get("GCP_PROJECT_ID"), location=target_location
+        )
+        remote_engine = client.agent_engines.get(name=engine_name)
         session_id = None
         user_id = "secops_assistant"
 

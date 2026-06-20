@@ -48,6 +48,7 @@ This registry serves as the central scientific ledger for the Agentic SOC projec
 *   **Status:** [VERIFIED & REFINED]
 *   **Linked Experiments:**
     *   [experiments/007_tier1_triage_model_hardening.md](file:///Users/dandye/Projects/agentic_soc_agentspace__worktrees/harvest_detection_reports/evalsets/experiments/007_tier1_triage_model_hardening.md)
+    *   [evalsets/experiments/010_active_directory_intrusion_emulation.md](file:///Users/dandye/Projects/agentic_soc_agentspace__worktrees/harvest_detection_reports/evalsets/experiments/010_active_directory_intrusion_emulation.md) (Cross-region gRPC client routing fix)
 *   **Empirical Evidence:**
     *   *Phase 1 (Run A - `gemini-2.5-flash`)*: Calibrating the model to a Generally Available (GA) model deployed in the parent's region (`us-east4`) successfully eliminated all empty responses, executing the full tool trajectory (RAG + OneMCP `lookup_entity` wrapper + SOAR) and raising the Tier 1 Triage score from **44.0% to 59.7%** (a **15.7% increase**).
     *   *Phase 2 (Run B - `publishers/google/models/gemini-3.5-flash`)*: Proved that a Model Garden preview model hosted only in `us-central1` will fail silently with empty responses if called by an in-process sub-agent whose Vertex client defaults to the parent's `us-east4` regional endpoint.
@@ -80,6 +81,7 @@ This registry serves as the central scientific ledger for the Agentic SOC projec
 *   **Status:** [VERIFIED]
 *   **Linked Experiments:**
     *   [evalsets/experiments/009_turing_test_hardening_retrospective.md](file:///Users/dandye/Projects/agentic_soc_agentspace__worktrees/harvest_detection_reports/evalsets/experiments/009_turing_test_hardening_retrospective.md) (The Turing Test Breakthrough)
+    *   [evalsets/experiments/010_active_directory_intrusion_emulation.md](file:///Users/dandye/Projects/agentic_soc_agentspace__worktrees/harvest_detection_reports/evalsets/experiments/010_active_directory_intrusion_emulation.md) (Active Directory intrusion benchmark)
 *   **Empirical Evidence:**
     *   *Hardened Turing Test Run*: Raised the overall quality grade from a baseline of **30.0%** to a stunning **95.0% (EXPERT)**.
     *   *Metric Breakdown*: Achieved **100%** on Timeline Accuracy, **100%** on Containment Precision, and **90%** on Telemetry Coverage.
