@@ -226,7 +226,7 @@ async def async_run_benchmark(incident_uuid: str, verbose: bool, local: bool = F
         alert_ids = alerts
     alert_id = alert_ids[0] if alert_ids else ""
 
-    user_id = "turing_eval"
+    user_id = f"turing_eval_{incident_uuid}"
     query = (
         f"Please perform a complete, end-to-end investigation of this alert.\n"
         f"- **Alert Type**: {display_name}\n"
