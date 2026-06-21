@@ -145,6 +145,10 @@ def run_fleet():
             }
         )
 
+        # Stagger spawning by 15s to prevent DNS resolution rate-limiting and socket exhaustion
+        if comp != FLEET_CAMPAIGNS[-1]:
+            time.sleep(15)
+
     print("-" * 80)
     print(
         "🛡  All 15 parallel investigations successfully spawned. Monitoring progress..."
