@@ -103,11 +103,11 @@ def run_fleet(parallel: bool = False):
     print("=" * 80)
     if parallel:
         print(
-            "🚀 LAUNCHING CONCURRENT SECURITY AGENT BENCHMARKING FLEET (15 CAMPAIGNS)"
+            "[LAUNCH] LAUNCHING CONCURRENT SECURITY AGENT BENCHMARKING FLEET (15 CAMPAIGNS)"
         )
     else:
         print(
-            "🚀 LAUNCHING SEQUENTIAL SECURITY AGENT BENCHMARKING FLEET (15 CAMPAIGNS)"
+            "[LAUNCH] LAUNCHING SEQUENTIAL SECURITY AGENT BENCHMARKING FLEET (15 CAMPAIGNS)"
         )
     print("=" * 80)
     print(f"Project Root: {project_root}")
@@ -133,9 +133,7 @@ def run_fleet(parallel: bool = False):
                 uuid,
             ]
 
-            print(
-                f"👉 Spawning: {name:<25} | Worktree: {comp['path']} -> {uuid[:8]}..."
-            )
+            print(f"Spawning: {name:<25} | Worktree: {comp['path']} -> {uuid[:8]}...")
             proc = subprocess.Popen(
                 cmd,
                 cwd=str(worktree_path),
@@ -161,7 +159,7 @@ def run_fleet(parallel: bool = False):
 
         print("-" * 80)
         print(
-            "🛡  All 15 parallel investigations successfully spawned. Monitoring progress..."
+            "[INFO] All 15 parallel investigations successfully spawned. Monitoring progress..."
         )
         print("-" * 80)
 
@@ -177,12 +175,12 @@ def run_fleet(parallel: bool = False):
                         if ret == 0:
                             p["status"] = "COMPLETED"
                             print(
-                                f"✅ Finished: {p['name']:<25} | Elapsed: {elapsed:.1f}s | Status: Success"
+                                f"[SUCCESS] Finished: {p['name']:<25} | Elapsed: {elapsed:.1f}s | Status: Success"
                             )
                         else:
                             p["status"] = "FAILED"
                             print(
-                                f"❌ Failed:   {p['name']:<25} | Elapsed: {elapsed:.1f}s | Status: Exit Code {ret} (See log: {p['log_path']})"
+                                f"[FAILED] Failed:   {p['name']:<25} | Elapsed: {elapsed:.1f}s | Status: Exit Code {ret} (See log: {p['log_path']})"
                             )
                     else:
                         running += 1
@@ -208,7 +206,7 @@ def run_fleet(parallel: bool = False):
                 uuid,
             ]
 
-            print(f"👉 Running: {name:<25} | Worktree: {comp['path']} -> {uuid[:8]}...")
+            print(f"Running: {name:<25} | Worktree: {comp['path']} -> {uuid[:8]}...")
             proc = subprocess.Popen(
                 cmd,
                 cwd=str(worktree_path),
@@ -224,16 +222,16 @@ def run_fleet(parallel: bool = False):
             elapsed = time.time() - start_time
 
             if ret == 0:
-                print(f"✅ Success:  {name:<25} | Elapsed: {elapsed:.1f}s")
+                print(f"[SUCCESS] Success:  {name:<25} | Elapsed: {elapsed:.1f}s")
             else:
                 print(
-                    f"❌ Failed:   {name:<25} | Elapsed: {elapsed:.1f}s | Status: Exit Code {ret} (See log: {log_file_path})"
+                    f"[FAILED] Failed:   {name:<25} | Elapsed: {elapsed:.1f}s | Status: Exit Code {ret} (See log: {log_file_path})"
                 )
 
 
 def compile_results():
     print("=" * 80)
-    print("🏆 CONCURRENT FLEET INVESTIGATIONS COMPLETE! COMPILING RESULTS...")
+    print("[SUMMARY] CONCURRENT FLEET INVESTIGATIONS COMPLETE! COMPILING RESULTS...")
     print("=" * 80)
 
     # Compile Markdown table
@@ -254,7 +252,7 @@ def compile_results():
         artifact_path = report_artifacts_dir / f"benchmark_{uuid}_report.md"
         if not artifact_path.exists():
             table_lines.append(
-                f"| {name} ({uuid[:8]}) | - | - | - | **NO REPORT** | ⚠️ Evaluation report not found |"
+                f"| {name} ({uuid[:8]}) | - | - | - | **NO REPORT** | [WARNING] Evaluation report not found |"
             )
             continue
 
@@ -297,6 +295,8 @@ def compile_results():
         )
         if rating_match:
             rating = rating_match.group(1).strip()
+            # Strip any emojis or non-ASCII badges from parsed rating to maintain professional formatting
+            rating = re.sub(r"[^\x00-\x7F]+", "", rating).strip()
 
         table_lines.append(
             f"| {name} ({uuid[:8]}) | {telemetry} | {timeline} | {containment} | **{overall}** | {rating} |"
@@ -332,12 +332,12 @@ def compile_results():
         '  source_tool: "run_fleet_benchmarks"\n'
         '  timestamp: "2026-06-21T13:21:00Z"\n'
         "---\n\n"
-        "# 🏆 Multi-Agent SOC Network: Master Fleet Benchmarking Report\n\n"
-        f"### 📈 Fleet Summary: **{len(scores)}** Campaigns Evaluated | Average Grade: **{avg_score:.1f}%**\n\n"
+        "# Multi-Agent SOC Network: Master Fleet Benchmarking Report\n\n"
+        f"### Fleet Summary: **{len(scores)}** Campaigns Evaluated | Average Grade: **{avg_score:.1f}%**\n\n"
         "This report aggregates the concurrent evaluation of our RAG-decoupled multi-agent SOC network "
         "across 15 parallel production threat campaigns.\n\n" + master_report
     )
-    print(f"🎉 Master summary report saved to: file://{master_report_path}")
+    print(f"[SUCCESS] Master summary report saved to: file://{master_report_path}")
     print("=" * 80)
 
 
