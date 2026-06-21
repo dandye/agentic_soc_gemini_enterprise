@@ -87,7 +87,7 @@ FLEET_CAMPAIGNS = [
 ]
 
 
-def run_fleet(parallel: bool = False):
+def run_fleet(concurrency: int = 1):
     project_root = Path.cwd()
     log_dir = project_root / "scratch" / "fleet_logs"
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -101,24 +101,22 @@ def run_fleet(parallel: bool = False):
         env["GOOGLE_APPLICATION_CREDENTIALS"] = str(sa_path)
 
     print("=" * 80)
-    if parallel:
-        print(
-            "[LAUNCH] LAUNCHING CONCURRENT SECURITY AGENT BENCHMARKING FLEET (15 CAMPAIGNS)"
-        )
-    else:
-        print(
-            "[LAUNCH] LAUNCHING SEQUENTIAL SECURITY AGENT BENCHMARKING FLEET (15 CAMPAIGNS)"
-        )
+    print(
+        f"[LAUNCH] LAUNCHING BENCHMARKING FLEET (15 CAMPAIGNS, CONCURRENCY: {concurrency})"
+    )
     print("=" * 80)
     print(f"Project Root: {project_root}")
     print(f"Fleet Logs:   {log_dir}")
     print("-" * 80)
 
-    processes = []
+    # Bounded Worker Pool Queue
+    queue = list(FLEET_CAMPAIGNS)
+    active_processes = []
 
-    if parallel:
-        # Parallel execution with stagger delay
-        for comp in FLEET_CAMPAIGNS:
+    while queue or active_processes:
+        # Fill active slots up to concurrency limit
+        while queue and len(active_processes) < concurrency:
+            comp = queue.pop(0)
             name = comp["name"]
             uuid = comp["uuid"]
             worktree_path = project_root / comp["path"]
@@ -133,7 +131,9 @@ def run_fleet(parallel: bool = False):
                 uuid,
             ]
 
-            print(f"Spawning: {name:<25} | Worktree: {comp['path']} -> {uuid[:8]}...")
+            print(
+                f"[SPAWN] Spawning: {name:<25} | Worktree: {comp['path']} -> {uuid[:8]}..."
+            )
             proc = subprocess.Popen(
                 cmd,
                 cwd=str(worktree_path),
@@ -142,91 +142,43 @@ def run_fleet(parallel: bool = False):
                 stderr=log_file,
                 text=True,
             )
-            processes.append(
+            active_processes.append(
                 {
                     "name": name,
                     "uuid": uuid,
                     "proc": proc,
                     "log_file": log_file,
                     "log_path": log_file_path,
-                    "status": "RUNNING",
                     "start_time": time.time(),
                 }
             )
 
-            if comp != FLEET_CAMPAIGNS[-1]:
-                time.sleep(15)
+            # Stagger spawning within the pool slightly to prevent network handshake collisions
+            if queue and len(active_processes) < concurrency:
+                time.sleep(5)
 
-        print("-" * 80)
-        print(
-            "[INFO] All 15 parallel investigations successfully spawned. Monitoring progress..."
-        )
-        print("-" * 80)
-
-        # Monitor loop
-        while True:
-            running = 0
-            for p in processes:
-                if p["status"] == "RUNNING":
-                    ret = p["proc"].poll()
-                    if ret is not None:
-                        p["log_file"].close()
-                        elapsed = time.time() - p["start_time"]
-                        if ret == 0:
-                            p["status"] = "COMPLETED"
-                            print(
-                                f"[SUCCESS] Finished: {p['name']:<25} | Elapsed: {elapsed:.1f}s | Status: Success"
-                            )
-                        else:
-                            p["status"] = "FAILED"
-                            print(
-                                f"[FAILED] Failed:   {p['name']:<25} | Elapsed: {elapsed:.1f}s | Status: Exit Code {ret} (See log: {p['log_path']})"
-                            )
-                    else:
-                        running += 1
-            if running == 0:
-                break
-            time.sleep(15)
-
-    else:
-        # Sequential execution (ultra-reliable, prevents DNS rate-limiting)
-        for comp in FLEET_CAMPAIGNS:
-            name = comp["name"]
-            uuid = comp["uuid"]
-            worktree_path = project_root / comp["path"]
-            start_time = time.time()
-
-            log_file_path = log_dir / f"{uuid}.log"
-            log_file = open(log_file_path, "w", buffering=1)
-
-            cmd = [
-                "python",
-                "installation_scripts/benchmark_human_vs_ai.py",
-                "--uuid",
-                uuid,
-            ]
-
-            print(f"Running: {name:<25} | Worktree: {comp['path']} -> {uuid[:8]}...")
-            proc = subprocess.Popen(
-                cmd,
-                cwd=str(worktree_path),
-                env=env,
-                stdout=log_file,
-                stderr=log_file,
-                text=True,
-            )
-
-            # Wait synchronously for this specific campaign to finish
-            ret = proc.wait()
-            log_file.close()
-            elapsed = time.time() - start_time
-
-            if ret == 0:
-                print(f"[SUCCESS] Success:  {name:<25} | Elapsed: {elapsed:.1f}s")
+        # Check on active processes
+        still_active = []
+        for p in active_processes:
+            ret = p["proc"].poll()
+            if ret is not None:
+                p["log_file"].close()
+                elapsed = time.time() - p["start_time"]
+                if ret == 0:
+                    print(
+                        f"[SUCCESS] Finished: {p['name']:<25} | Elapsed: {elapsed:.1f}s | Active Slots: {len(active_processes)-1}/{concurrency}"
+                    )
+                else:
+                    print(
+                        f"[FAILED] Failed:   {p['name']:<25} | Elapsed: {elapsed:.1f}s | Status: Exit Code {ret} (See log: {p['log_path']})"
+                    )
             else:
-                print(
-                    f"[FAILED] Failed:   {name:<25} | Elapsed: {elapsed:.1f}s | Status: Exit Code {ret} (See log: {log_file_path})"
-                )
+                still_active.append(p)
+        active_processes = still_active
+
+        # Sleep briefly before the next poll to minimize CPU usage
+        if queue or active_processes:
+            time.sleep(5)
 
 
 def compile_results():
@@ -344,12 +296,18 @@ def compile_results():
 if __name__ == "__main__":
     import sys
 
+    concurrency = 1
     if len(sys.argv) > 1 and sys.argv[1] == "--summary-only":
         compile_results()
+        sys.exit(0)
     elif len(sys.argv) > 1 and sys.argv[1] == "--parallel":
-        run_fleet(parallel=True)
-        compile_results()
-    else:
-        # Default: safe, reliable sequential execution to prevent DNS/network rate-limiting
-        run_fleet(parallel=False)
-        compile_results()
+        concurrency = len(FLEET_CAMPAIGNS)
+    elif len(sys.argv) > 1 and sys.argv[1] in ("--concurrency", "-c"):
+        try:
+            concurrency = int(sys.argv[2])
+        except (ValueError, IndexError):
+            print("Error: --concurrency requires an integer value.")
+            sys.exit(1)
+
+    run_fleet(concurrency=concurrency)
+    compile_results()
