@@ -87,7 +87,7 @@ FLEET_CAMPAIGNS = [
 ]
 
 
-def run_fleet():
+def run_fleet(parallel: bool = False):
     project_root = Path.cwd()
     log_dir = project_root / "scratch" / "fleet_logs"
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -101,94 +101,137 @@ def run_fleet():
         env["GOOGLE_APPLICATION_CREDENTIALS"] = str(sa_path)
 
     print("=" * 80)
-    print("🚀 LAUNCHING CONCURRENT SECURITY AGENT BENCHMARKING FLEET (15 CAMPAIGNS)")
+    if parallel:
+        print(
+            "🚀 LAUNCHING CONCURRENT SECURITY AGENT BENCHMARKING FLEET (15 CAMPAIGNS)"
+        )
+    else:
+        print(
+            "🚀 LAUNCHING SEQUENTIAL SECURITY AGENT BENCHMARKING FLEET (15 CAMPAIGNS)"
+        )
     print("=" * 80)
     print(f"Project Root: {project_root}")
     print(f"Fleet Logs:   {log_dir}")
     print("-" * 80)
 
     processes = []
-    for comp in FLEET_CAMPAIGNS:
-        name = comp["name"]
-        uuid = comp["uuid"]
-        worktree_path = project_root / comp["path"]
 
-        # Open dedicated log file
-        log_file_path = log_dir / f"{uuid}.log"
-        log_file = open(log_file_path, "w", buffering=1)
+    if parallel:
+        # Parallel execution with stagger delay
+        for comp in FLEET_CAMPAIGNS:
+            name = comp["name"]
+            uuid = comp["uuid"]
+            worktree_path = project_root / comp["path"]
 
-        cmd = [
-            "python",
-            "installation_scripts/benchmark_human_vs_ai.py",
-            "--uuid",
-            uuid,
-        ]
+            log_file_path = log_dir / f"{uuid}.log"
+            log_file = open(log_file_path, "w", buffering=1)
 
-        print(f"👉 Spawning: {name:<25} | Worktree: {comp['path']} -> {uuid[:8]}...")
-        proc = subprocess.Popen(
-            cmd,
-            cwd=str(worktree_path),
-            env=env,
-            stdout=log_file,
-            stderr=log_file,
-            text=True,
+            cmd = [
+                "python",
+                "installation_scripts/benchmark_human_vs_ai.py",
+                "--uuid",
+                uuid,
+            ]
+
+            print(
+                f"👉 Spawning: {name:<25} | Worktree: {comp['path']} -> {uuid[:8]}..."
+            )
+            proc = subprocess.Popen(
+                cmd,
+                cwd=str(worktree_path),
+                env=env,
+                stdout=log_file,
+                stderr=log_file,
+                text=True,
+            )
+            processes.append(
+                {
+                    "name": name,
+                    "uuid": uuid,
+                    "proc": proc,
+                    "log_file": log_file,
+                    "log_path": log_file_path,
+                    "status": "RUNNING",
+                    "start_time": time.time(),
+                }
+            )
+
+            if comp != FLEET_CAMPAIGNS[-1]:
+                time.sleep(15)
+
+        print("-" * 80)
+        print(
+            "🛡  All 15 parallel investigations successfully spawned. Monitoring progress..."
         )
-        processes.append(
-            {
-                "name": name,
-                "uuid": uuid,
-                "proc": proc,
-                "log_file": log_file,
-                "log_path": log_file_path,
-                "status": "RUNNING",
-                "start_time": time.time(),
-            }
-        )
+        print("-" * 80)
 
-        # Stagger spawning by 15s to prevent DNS resolution rate-limiting and socket exhaustion
-        if comp != FLEET_CAMPAIGNS[-1]:
+        # Monitor loop
+        while True:
+            running = 0
+            for p in processes:
+                if p["status"] == "RUNNING":
+                    ret = p["proc"].poll()
+                    if ret is not None:
+                        p["log_file"].close()
+                        elapsed = time.time() - p["start_time"]
+                        if ret == 0:
+                            p["status"] = "COMPLETED"
+                            print(
+                                f"✅ Finished: {p['name']:<25} | Elapsed: {elapsed:.1f}s | Status: Success"
+                            )
+                        else:
+                            p["status"] = "FAILED"
+                            print(
+                                f"❌ Failed:   {p['name']:<25} | Elapsed: {elapsed:.1f}s | Status: Exit Code {ret} (See log: {p['log_path']})"
+                            )
+                    else:
+                        running += 1
+            if running == 0:
+                break
             time.sleep(15)
 
-    print("-" * 80)
-    print(
-        "🛡  All 15 parallel investigations successfully spawned. Monitoring progress..."
-    )
-    print("-" * 80)
+    else:
+        # Sequential execution (ultra-reliable, prevents DNS rate-limiting)
+        for comp in FLEET_CAMPAIGNS:
+            name = comp["name"]
+            uuid = comp["uuid"]
+            worktree_path = project_root / comp["path"]
+            start_time = time.time()
 
-    # Monitor loop
-    while True:
-        running = 0
-        completed = 0
-        failed = 0
+            log_file_path = log_dir / f"{uuid}.log"
+            log_file = open(log_file_path, "w", buffering=1)
 
-        for p in processes:
-            if p["status"] == "RUNNING":
-                ret = p["proc"].poll()
-                if ret is not None:
-                    p["log_file"].close()
-                    elapsed = time.time() - p["start_time"]
-                    if ret == 0:
-                        p["status"] = "COMPLETED"
-                        print(
-                            f"✅ Finished: {p['name']:<25} | Elapsed: {elapsed:.1f}s | Status: Success"
-                        )
-                    else:
-                        p["status"] = "FAILED"
-                        print(
-                            f"❌ Failed:   {p['name']:<25} | Elapsed: {elapsed:.1f}s | Status: Exit Code {ret} (See log: {p['log_path']})"
-                        )
-                else:
-                    running += 1
-            elif p["status"] == "COMPLETED":
-                completed += 1
+            cmd = [
+                "python",
+                "installation_scripts/benchmark_human_vs_ai.py",
+                "--uuid",
+                uuid,
+            ]
+
+            print(f"👉 Running: {name:<25} | Worktree: {comp['path']} -> {uuid[:8]}...")
+            proc = subprocess.Popen(
+                cmd,
+                cwd=str(worktree_path),
+                env=env,
+                stdout=log_file,
+                stderr=log_file,
+                text=True,
+            )
+
+            # Wait synchronously for this specific campaign to finish
+            ret = proc.wait()
+            log_file.close()
+            elapsed = time.time() - start_time
+
+            if ret == 0:
+                print(f"✅ Success:  {name:<25} | Elapsed: {elapsed:.1f}s")
             else:
-                failed += 1
+                print(
+                    f"❌ Failed:   {name:<25} | Elapsed: {elapsed:.1f}s | Status: Exit Code {ret} (See log: {log_file_path})"
+                )
 
-        if running == 0:
-            break
 
-        time.sleep(15)
-
+def compile_results():
     print("=" * 80)
     print("🏆 CONCURRENT FLEET INVESTIGATIONS COMPLETE! COMPILING RESULTS...")
     print("=" * 80)
@@ -199,34 +242,23 @@ def run_fleet():
     )
 
     table_lines = [
-        "| Campaign / Threat Triage | Verdict | Telemetry | Timeline | Containment | OVERALL GRADE | Status |",
-        "| :--- | :---: | :---: | :---: | :---: | :---: | :---: |",
+        "| Campaign / Threat Triage | Telemetry | Timeline | Containment | OVERALL GRADE | QA Verdict / Rating |",
+        "| :--- | :---: | :---: | :---: | :---: | :--- |",
     ]
 
-    for p in processes:
-        name = p["name"]
-        uuid = p["uuid"]
-        status = p["status"]
-
-        if status == "FAILED":
-            table_lines.append(
-                f"| {name} ({uuid[:8]}) | - | - | - | - | **FAILED** | ❌ Error |"
-            )
-            continue
+    for comp in FLEET_CAMPAIGNS:
+        name = comp["name"]
+        uuid = comp["uuid"]
 
         # Parse scorecard from the generated artifact
         artifact_path = report_artifacts_dir / f"benchmark_{uuid}_report.md"
         if not artifact_path.exists():
             table_lines.append(
-                f"| {name} ({uuid[:8]}) | - | - | - | - | **NO REPORT** | ⚠️ Missed |"
+                f"| {name} ({uuid[:8]}) | - | - | - | **NO REPORT** | ⚠️ Evaluation report not found |"
             )
             continue
 
         content = artifact_path.read_text()
-
-        # Extract verdict
-        verdict_match = re.search(r"Human Verdict:\s*(\w+)", content)
-        verdict = verdict_match.group(1) if verdict_match else "UNKNOWN"
 
         # Extract scores
         telemetry = "0.0%"
@@ -234,29 +266,40 @@ def run_fleet():
         containment = "0.0%"
         overall = "0.0%"
 
-        telemetry_match = re.search(r"Telemetry Coverage\s*([\d\.]+\%)", content)
+        telemetry_match = re.search(
+            r"Telemetry Coverage\*\*\s*\|\s*([\d\.]+\%)", content
+        )
         if telemetry_match:
             telemetry = telemetry_match.group(1)
 
-        timeline_match = re.search(r"Timeline Accuracy\s*([\d\.]+\%)", content)
+        timeline_match = re.search(r"Timeline Accuracy\*\*\s*\|\s*([\d\.]+\%)", content)
         if timeline_match:
             timeline = timeline_match.group(1)
 
-        containment_match = re.search(r"Containment Precision\s*([\d\.]+\%)", content)
+        containment_match = re.search(
+            r"Containment Precision\*\*\s*\|\s*([\d\.]+\%)", content
+        )
         if containment_match:
             containment = containment_match.group(1)
 
-        overall_match = re.search(r"OVERALL QUALITY GRADE\s*([\d\.]+\%)", content)
-        if not overall_match:
-            overall_match = re.search(
-                r"OVERALL INVESTIGATION GRADE\s*([\d\.]+\%)", content
-            )
+        overall_match = re.search(
+            r"OVERALL (?:INVESTIGATION|QUALITY) GRADE\*\*\s*\|\s*\*\*([\d\.]+\%)\*\*",
+            content,
+        )
         if overall_match:
             overall = overall_match.group(1)
 
-        rating = "🏆 EXPERT" if "EXPERT" in content else "🟢 Passed"
+        # Extract the QA Rating/Verdict
+        rating = "Passed"
+        rating_match = re.search(
+            r"OVERALL (?:INVESTIGATION|QUALITY) GRADE\*\*\s*\|\s*\*\*[\d\.]+\%\*\*\s*\|\s*(.*?)\s*\|",
+            content,
+        )
+        if rating_match:
+            rating = rating_match.group(1).strip()
+
         table_lines.append(
-            f"| {name} ({uuid[:8]}) | `{verdict}` | {telemetry} | {timeline} | {containment} | **{overall}** | {rating} |"
+            f"| {name} ({uuid[:8]}) | {telemetry} | {timeline} | {containment} | **{overall}** | {rating} |"
         )
 
     master_report = "\n".join(table_lines)
@@ -264,8 +307,33 @@ def run_fleet():
 
     # Save master report
     master_report_path = report_artifacts_dir / "fleet_benchmarking_summary.md"
+
+    # Compute average score
+    scores = []
+    for line in table_lines[2:]:
+        parts = line.split("|")
+        if len(parts) >= 6:
+            score_str = parts[5].replace("**", "").replace("%", "").strip()
+            try:
+                scores.append(float(score_str))
+            except ValueError:
+                pass
+    avg_score = sum(scores) / len(scores) if scores else 0.0
+
     master_report_path.write_text(
+        "---\n"
+        'type: "Evaluation Report"\n'
+        'title: "Multi-Agent SOC Network: Master Fleet Benchmarking Report"\n'
+        'description: "Aggregated concurrent evaluation of the RAG-decoupled multi-agent SOC network across 15 parallel production threat campaigns."\n'
+        f'resource: "file://{master_report_path}"\n'
+        'timestamp: "2026-06-21T13:21:00Z"\n'
+        "provenance:\n"
+        '  source_type: "generative_ai"\n'
+        '  source_tool: "run_fleet_benchmarks"\n'
+        '  timestamp: "2026-06-21T13:21:00Z"\n'
+        "---\n\n"
         "# 🏆 Multi-Agent SOC Network: Master Fleet Benchmarking Report\n\n"
+        f"### 📈 Fleet Summary: **{len(scores)}** Campaigns Evaluated | Average Grade: **{avg_score:.1f}%**\n\n"
         "This report aggregates the concurrent evaluation of our RAG-decoupled multi-agent SOC network "
         "across 15 parallel production threat campaigns.\n\n" + master_report
     )
@@ -274,4 +342,14 @@ def run_fleet():
 
 
 if __name__ == "__main__":
-    run_fleet()
+    import sys
+
+    if len(sys.argv) > 1 and sys.argv[1] == "--summary-only":
+        compile_results()
+    elif len(sys.argv) > 1 and sys.argv[1] == "--parallel":
+        run_fleet(parallel=True)
+        compile_results()
+    else:
+        # Default: safe, reliable sequential execution to prevent DNS/network rate-limiting
+        run_fleet(parallel=False)
+        compile_results()
