@@ -257,6 +257,412 @@ def _apply_runtime_patches():
             f"[RUNTIME_PATCH_DEBUG] Failed to patch interactions_utils base64.b64decode: {e}"
         )
 
+    # 7. Monkeypatch aiohttp to support extremely large streaming lines (e.g., 10MB)
+    # to prevent LineTooLong errors during large threat intel/hunting telemetry dumps.
+    try:
+        import aiohttp.streams
+
+        original_init = aiohttp.streams.StreamReader.__init__
+
+        def _patched_init(self, *args, **kwargs):
+            if "limit" in kwargs:
+                kwargs["limit"] = 10 * 1024 * 1024
+            elif len(args) >= 2:
+                # limit is the second positional argument after self (bound, so args[0] is protocol, args[1] is limit)
+                args = (args[0], 10 * 1024 * 1024) + args[2:]
+            else:
+                kwargs["limit"] = 10 * 1024 * 1024
+            original_init(self, *args, **kwargs)
+
+        aiohttp.streams.StreamReader.__init__ = _patched_init
+
+        # Also patch readline to override explicit max_line_length passed by HTTP parser
+        original_readline = aiohttp.streams.StreamReader.readline
+
+        async def _patched_readline(self, *args, **kwargs):
+            # Force max_line_length to 10MB in kwargs to override any default or passed value
+            kwargs["max_line_length"] = 10 * 1024 * 1024
+            return await original_readline(self, *args, **kwargs)
+
+        aiohttp.streams.StreamReader.readline = _patched_readline
+
+        logger.warning(
+            "[RUNTIME_PATCH_DEBUG] Successfully patched aiohttp StreamReader limit and readline to 10MB"
+        )
+    except Exception as e:
+        logger.warning(
+            f"[RUNTIME_PATCH_DEBUG] Failed to patch aiohttp StreamReader: {e}"
+        )  # 8. Monkeypatch McpTool._run_async_impl to truncate/aggregate massive telemetry and prevent gRPC buffer overflows
+    try:
+        import datetime
+        import json
+
+        from google.adk.tools.mcp_tool.mcp_tool import McpTool
+
+        # Inner helper functions for semantic aggregation
+        def _summarize_udm_events(events: list, tool_name: str) -> str:
+            total_events = len(events)
+            event_types = {}
+            processes = {}
+            logins = {}
+            network_conns = {}
+            others = {}
+
+            for ev in events:
+                if not isinstance(ev, dict):
+                    continue
+                metadata = ev.get("metadata", {})
+                etype = metadata.get("event_type", "UNKNOWN")
+                event_types[etype] = event_types.get(etype, 0) + 1
+                ts = metadata.get("event_timestamp", "")
+
+                if etype == "PROCESS_LAUNCH":
+                    target = ev.get("target", {})
+                    proc = target.get("process", {})
+                    proc_path = (
+                        proc.get("file", {}).get("full_path")
+                        or proc.get("file", {}).get("name")
+                        or "unknown_process"
+                    )
+                    cmd = proc.get("command_line") or "no_command_line"
+
+                    principal = ev.get("principal", {})
+                    parent_proc = principal.get("process", {})
+                    parent_cmd = (
+                        parent_proc.get("command_line")
+                        or parent_proc.get("file", {}).get("name")
+                        or "unknown_parent"
+                    )
+                    host = (
+                        ev.get("principal", {}).get("hostname")
+                        or ev.get("target", {}).get("hostname")
+                        or "unknown_host"
+                    )
+
+                    key = (proc_path, cmd, parent_cmd, host)
+                    if key not in processes:
+                        processes[key] = {"count": 0, "first": ts, "last": ts}
+                    processes[key]["count"] += 1
+                    if ts:
+                        processes[key]["first"] = min(processes[key]["first"], ts)
+                        processes[key]["last"] = max(processes[key]["last"], ts)
+
+                elif etype == "USER_LOGIN":
+                    target = ev.get("target", {})
+                    user = (
+                        target.get("user", {}).get("userid")
+                        or ev.get("principal", {}).get("user", {}).get("userid")
+                        or "unknown_user"
+                    )
+                    src_ip = (
+                        ev.get("principal", {}).get("ip")
+                        or ev.get("principal", {}).get("hostname")
+                        or "unknown_source"
+                    )
+                    target_host = (
+                        ev.get("target", {}).get("hostname") or "unknown_target"
+                    )
+
+                    sec_result = ev.get("security_result", {})
+                    status = sec_result.get("status", "UNKNOWN")
+                    logon_type = (
+                        ev.get("extensions", {}).get("auth", {}).get("logon_type")
+                        or "unknown_type"
+                    )
+
+                    key = (user, src_ip, target_host, status, logon_type)
+                    if key not in logins:
+                        logins[key] = {"count": 0, "first": ts, "last": ts}
+                    logins[key]["count"] += 1
+                    if ts:
+                        logins[key]["first"] = min(logins[key]["first"], ts)
+                        logins[key]["last"] = max(logins[key]["last"], ts)
+
+                elif etype in ["NETWORK_CONNECTION", "DNS_QUERY"]:
+                    target = ev.get("target", {})
+                    dest_ip = (
+                        target.get("ip") or target.get("hostname") or "unknown_dest"
+                    )
+                    dest_port = target.get("port") or "unknown_port"
+
+                    principal = ev.get("principal", {})
+                    proc_name = (
+                        principal.get("process", {}).get("file", {}).get("name")
+                        or "unknown_process"
+                    )
+
+                    key = (dest_ip, dest_port, proc_name, etype)
+                    if key not in network_conns:
+                        network_conns[key] = {"count": 0, "first": ts, "last": ts}
+                    network_conns[key]["count"] += 1
+                    if ts:
+                        network_conns[key]["first"] = min(
+                            network_conns[key]["first"], ts
+                        )
+                        network_conns[key]["last"] = max(network_conns[key]["last"], ts)
+                else:
+                    key = (etype, ev.get("metadata", {}).get("product_name", "generic"))
+                    others[key] = others.get(key, 0) + 1
+
+            summary_lines = [
+                f"### [SEMANTIC SUMMARY] UDM Telemetry (Source: {tool_name})",
+                f"**Total Events Analyzed:** {total_events}",
+                "**Event Types Breakdown:** "
+                + ", ".join([f"`{k}`: {v}" for k, v in event_types.items()]),
+                "",
+            ]
+
+            if processes:
+                summary_lines.append("#### Process Execution Tree Summary")
+                for (proc, cmd, parent, host), stats in processes.items():
+                    summary_lines.append(
+                        f"- **Host:** `{host}` | **Process:** `{proc}`\n"
+                        f"  - **Command:** `{cmd}`\n"
+                        f"  - **Parent Process:** `{parent}`\n"
+                        f"  - **Execution Count:** {stats['count']} times | **Time window:** `{stats['first']}` to `{stats['last']}`"
+                    )
+                summary_lines.append("")
+
+            if logins:
+                summary_lines.append("#### Authentication Activity Summary")
+                for (user, src, target, status, ltype), stats in logins.items():
+                    status_color = (
+                        "🟢 SUCCESS" if status == "SUCCESS" else f"🔴 FAILED ({status})"
+                    )
+                    summary_lines.append(
+                        f"- **User:** `{user}` | **Source:** `{src}` -> **Target:** `{target}`\n"
+                        f"  - **Logon Type:** `{ltype}` | **Status:** {status_color}\n"
+                        f"  - **Login Count:** {stats['count']} attempts | **Time window:** `{stats['first']}` to `{stats['last']}`"
+                    )
+                summary_lines.append("")
+
+            if network_conns:
+                summary_lines.append("#### Network & DNS Connection Summary")
+                for (dest, port, proc, etype), stats in network_conns.items():
+                    summary_lines.append(
+                        f"- **Process:** `{proc}` initiated `{etype}` to `{dest}:{port}`\n"
+                        f"  - **Connection Count:** {stats['count']} times | **Time window:** `{stats['first']}` to `{stats['last']}`"
+                    )
+                summary_lines.append("")
+
+            if others:
+                summary_lines.append("#### Miscellaneous System Events Summary")
+                for (etype, product), count in others.items():
+                    summary_lines.append(
+                        f"- **Type:** `{etype}` (Product: `{product}`) | **Count:** {count} times"
+                    )
+                summary_lines.append("")
+
+            return "\n".join(summary_lines)
+
+        def _summarize_soar_cases(cases: list, tool_name: str) -> str:
+            total_cases = len(cases)
+            severities = {}
+            statuses = {}
+
+            # Sort cases by creation time if present
+            def get_ctime(x):
+                t = x.get("creationTime") or x.get("creation_time") or 0
+                return t if isinstance(t, (int, float)) else 0
+
+            sorted_cases = sorted(cases, key=get_ctime, reverse=True)
+
+            table_lines = [
+                "| Case ID | Title | Status | Severity | Creation Time |",
+                "| :--- | :--- | :---: | :---: | :---: |",
+            ]
+
+            detail_count = min(total_cases, 10)
+            for i in range(detail_count):
+                c = sorted_cases[i]
+                cid = c.get("id") or c.get("caseId") or "N/A"
+                title = c.get("title") or c.get("name") or "N/A"
+                status = c.get("status") or "N/A"
+                sev = c.get("severity") or "N/A"
+
+                ctime = c.get("creationTime") or c.get("creation_time") or "N/A"
+                if isinstance(ctime, (int, float)) and ctime > 1000000000:
+                    if ctime > 1000000000000:
+                        ctime = ctime / 1000.0
+                    ctime = datetime.datetime.utcfromtimestamp(ctime).isoformat() + "Z"
+
+                table_lines.append(
+                    f"| `{cid}` | {title} | `{status}` | `{sev}` | `{ctime}` |"
+                )
+
+                severities[sev] = severities.get(sev, 0) + 1
+                statuses[status] = statuses.get(status, 0) + 1
+
+            for i in range(detail_count, total_cases):
+                c = sorted_cases[i]
+                sev = c.get("severity") or "N/A"
+                status = c.get("status") or "N/A"
+                severities[sev] = severities.get(sev, 0) + 1
+                statuses[status] = statuses.get(status, 0) + 1
+
+            summary_lines = [
+                f"### [SEMANTIC SUMMARY] SOAR Cases (Source: {tool_name})",
+                f"**Total Cases Found:** {total_cases}",
+                "**Severity Breakdown:** "
+                + ", ".join([f"`{k}`: {v}" for k, v in severities.items()]),
+                "**Status Breakdown:** "
+                + ", ".join([f"`{k}`: {v}" for k, v in statuses.items()]),
+                "",
+                f"#### Recent Cases (Showing top {detail_count} of {total_cases}):",
+                "",
+            ] + table_lines
+
+            return "\n".join(summary_lines)
+
+        def _summarize_gti_report(report: dict, tool_name: str) -> str:
+            attributes = report.get("attributes", {})
+            name = attributes.get("name") or report.get("id") or "Threat Intel Entity"
+            etype = report.get("type") or "collection"
+
+            description = attributes.get("description") or "No description available."
+            if len(description) > 500:
+                description = description[:500] + "... [TRUNCATED description]"
+
+            merged_actors = attributes.get("merged_actors", [])
+            alt_names = attributes.get("alt_names", [])
+
+            relationships = report.get("relationships", {})
+            associations = relationships.get("associations", {}).get("data", [])
+
+            counters = attributes.get("counters", {})
+            files_count = counters.get("files") or attributes.get("files_count") or 0
+            domains_count = counters.get("domains") or 0
+            ips_count = counters.get("ip_addresses") or 0
+            urls_count = counters.get("urls") or 0
+
+            summary_lines = [
+                f"### [SEMANTIC SUMMARY] Threat Intelligence Report: {name} (Type: `{etype}`)",
+                f"**Origin:** {tool_name} (Google Threat Intelligence)",
+                f"**Description:** {description}",
+                "",
+                "**Key Metrics & Associated Indicators:**",
+                f"- **Associated Files/Hashes:** {files_count}",
+                f"- **Associated Domains:** {domains_count}",
+                f"- **Associated IP Addresses:** {ips_count}",
+                f"- **Associated URLs:** {urls_count}",
+                "",
+            ]
+
+            if alt_names:
+                summary_lines.append(
+                    "**Alias Names:** "
+                    + ", ".join([f"`{name}`" for name in alt_names[:10]])
+                )
+
+            if merged_actors:
+                summary_lines.append(
+                    "**Merged Actor/Campaign Profiles:** "
+                    + ", ".join([f"`{a.get('value')}`" for a in merged_actors[:10]])
+                )
+
+            if associations:
+                summary_lines.append(
+                    "#### Key Associated Intelligence Objects (Top 10):"
+                )
+                for assoc in associations[:10]:
+                    summary_lines.append(
+                        f"- **Type:** `{assoc.get('type')}` | **ID:** `{assoc.get('id')}`"
+                    )
+
+            return "\n".join(summary_lines)
+
+        def summarize_telemetry(text: str, tool_name: str) -> str:
+            if not isinstance(text, str) or len(text) < 10000:
+                return text
+
+            try:
+                data = json.loads(text)
+            except Exception:
+                return text
+
+            try:
+                # 1. UDM Search Event List
+                if (
+                    isinstance(data, list)
+                    and len(data) > 0
+                    and isinstance(data[0], dict)
+                    and "metadata" in data[0]
+                ):
+                    return _summarize_udm_events(data, tool_name)
+
+                # 2. SOAR Cases (list or wrapped)
+                if (
+                    isinstance(data, dict)
+                    and "result" in data
+                    and isinstance(data["result"], list)
+                ):
+                    return _summarize_soar_cases(data["result"], tool_name)
+                if (
+                    isinstance(data, list)
+                    and len(data) > 0
+                    and isinstance(data[0], dict)
+                    and ("title" in data[0] or "severity" in data[0])
+                ):
+                    return _summarize_soar_cases(data, tool_name)
+
+                # 3. GTI Report
+                if isinstance(data, dict) and (
+                    "type" in data or "attributes" in data or "relationships" in data
+                ):
+                    return _summarize_gti_report(data, tool_name)
+            except Exception:  # noqa: S110
+                pass
+
+            return text
+
+        # Define the patched run async wrapper
+        original_run_async_impl = McpTool._run_async_impl
+
+        async def _patched_run_async_impl(self, *args, **kwargs):
+            result = await original_run_async_impl(self, *args, **kwargs)
+            try:
+                if isinstance(result, dict) and "content" in result:
+                    content_list = result["content"]
+                    if isinstance(content_list, list):
+                        for item in content_list:
+                            if isinstance(item, dict) and item.get("type") == "text":
+                                text = item.get("text")
+                                if isinstance(text, str) and len(text) > 15000:
+                                    # 1. Try to run semantic aggregation first
+                                    aggregated_text = summarize_telemetry(
+                                        text, self.name
+                                    )
+                                    if len(aggregated_text) < len(text):
+                                        logger.warning(
+                                            f"[RUNTIME_PATCH] Successfully aggregated tool '{self.name}' response from {len(text)} to {len(aggregated_text)} chars."
+                                        )
+                                        item["text"] = aggregated_text
+                                        text = aggregated_text
+
+                                    # 2. Fall back to character truncation if it's still too large
+                                    if len(text) > 15000:
+                                        logger.warning(
+                                            f"[RUNTIME_PATCH] Truncating tool '{self.name}' response from {len(text)} to 15000 chars as fallback."
+                                        )
+                                        item["text"] = (
+                                            text[:15000]
+                                            + "\n... [TRUNCATED due to large size] ..."
+                                        )
+            except Exception as ex:
+                logger.warning(
+                    f"[RUNTIME_PATCH] Error while truncating/aggregating tool response: {ex}"
+                )
+            return result
+
+        McpTool._run_async_impl = _patched_run_async_impl
+        logger.warning(
+            "[RUNTIME_PATCH_DEBUG] Successfully patched McpTool._run_async_impl"
+        )
+    except Exception as e:
+        logger.warning(
+            f"[RUNTIME_PATCH_DEBUG] Failed to patch McpTool._run_async_impl: {e}"
+        )
+
     _runtime_patches_applied = True
     logger.warning("[RUNTIME_PATCH_DEBUG] All runtime patches applied successfully!")
 
@@ -352,6 +758,23 @@ async def patched_delete_session(self, *, app_name, user_id, session_id):
 
 
 vertex_session.VertexAiSessionService.delete_session = patched_delete_session
+
+
+# Monkey-patch VertexAiSessionService._get_api_client to bypass GOOGLE_CLOUD_LOCATION="global"
+# which poisons the regional endpoint resolution for the sessions service, returning 404.
+original_get_api_client = vertex_session.VertexAiSessionService._get_api_client
+
+
+def patched_get_api_client(self):
+    old_loc = os.environ.pop("GOOGLE_CLOUD_LOCATION", None)
+    try:
+        return original_get_api_client(self)
+    finally:
+        if old_loc is not None:
+            os.environ["GOOGLE_CLOUD_LOCATION"] = old_loc
+
+
+vertex_session.VertexAiSessionService._get_api_client = patched_get_api_client
 
 
 import re  # noqa: E402
@@ -2156,6 +2579,7 @@ def create_agent():
                 "get_involved_entity",
                 "list_involved_entities",
                 "udm_search",
+                "translate_udm_query",
                 "list_cases",
                 "get_case",
                 "update_case",

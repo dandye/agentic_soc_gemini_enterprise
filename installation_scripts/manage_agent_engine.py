@@ -966,9 +966,28 @@ class AgentEngineManager:
             if not use_secret_manager:
                 extra_packages.append(sa_filename)
 
+            # Resolve the service account email to bind to the Reasoning Engine
+            sa_email = None
+            if CHRONICLE_SERVICE_ACCOUNT_PATH:
+                try:
+                    with open(CHRONICLE_SERVICE_ACCOUNT_PATH) as f:
+                        import json
+
+                        sa_data = json.load(f)
+                    sa_email = sa_data.get("client_email")
+                except Exception:  # noqa: S110
+                    pass
+            if not sa_email:
+                sa_email = f"vertex-express@{GCP_PROJECT_ID}.iam.gserviceaccount.com"
+
+            typer.echo(
+                f"Binding Reasoning Engine to service account identity: {sa_email}"
+            )
+
             deploy_kwargs = {
                 "display_name": display_name,
                 "description": description,
+                "service_account": sa_email,
                 "requirements": [
                     "cloudpickle",
                     "google-adk~=2.2.0",

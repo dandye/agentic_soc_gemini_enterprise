@@ -18,8 +18,46 @@ import typer
 import vertexai
 from dotenv import load_dotenv
 from google import genai
+from google.cloud import aiplatform
 from google.genai import types
 from vertexai import agent_engines
+
+
+# =========================================================================
+# Monkeypatch aiohttp to support extremely large streaming lines (e.g., 10MB)
+# to prevent LineTooLong errors during large threat intel/hunting telemetry dumps.
+# =========================================================================
+try:
+    import logging
+
+    import aiohttp.streams
+
+    logger = logging.getLogger("aiohttp_patch")
+    original_init = aiohttp.streams.StreamReader.__init__
+
+    def _patched_init(self, *args, **kwargs):
+        if "limit" in kwargs:
+            kwargs["limit"] = 10 * 1024 * 1024
+        elif len(args) >= 2:
+            args = (args[0], 10 * 1024 * 1024) + args[2:]
+        else:
+            kwargs["limit"] = 10 * 1024 * 1024
+        original_init(self, *args, **kwargs)
+
+    aiohttp.streams.StreamReader.__init__ = _patched_init
+
+    original_readline = aiohttp.streams.StreamReader.readline
+
+    async def _patched_readline(self, *args, **kwargs):
+        kwargs["max_line_length"] = 10 * 1024 * 1024
+        return await original_readline(self, *args, **kwargs)
+
+    aiohttp.streams.StreamReader.readline = _patched_readline
+    logger.warning(
+        "Successfully patched aiohttp StreamReader limit and readline to 10MB locally"
+    )
+except Exception as e:
+    print(f"Failed to patch aiohttp StreamReader: {e}")
 
 
 app = typer.Typer(
@@ -172,16 +210,28 @@ async def async_run_benchmark(incident_uuid: str, verbose: bool, local: bool = F
             target_location = parts[3]
 
     vertexai.init(project=project_id, location=target_location)
+    aiplatform.init(project=project_id, location=target_location)
 
     # Parse alert time range
     time_range = incident_data.get("timeRange", {})
     start_time = time_range.get("startTime", "")
     end_time = time_range.get("endTime", "")
 
+    # Parse alert and case IDs
+    case_id = incident_data.get("name", "").split("/")[-1]
+    alerts = incident_data.get("alerts", [])
+    if isinstance(alerts, dict):
+        alert_ids = alerts.get("ids", [])
+    else:
+        alert_ids = alerts
+    alert_id = alert_ids[0] if alert_ids else ""
+
     user_id = "turing_eval"
     query = (
         f"Please perform a complete, end-to-end investigation of this alert.\n"
         f"- **Alert Type**: {display_name}\n"
+        f"- **Alert ID**: {alert_id}\n"
+        f"- **Case ID**: {case_id}\n"
         f"- **Alert Time Range**: From {start_time} to {end_time}\n"
         f"- **Summary**: {alert_summary}"
     )
