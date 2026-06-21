@@ -828,21 +828,20 @@ import contextlib  # noqa: E402
 from collections.abc import AsyncIterator  # noqa: E402
 
 import google.adk.telemetry._instrumentation as adk_instrumentation  # noqa: E402
-from google.adk.telemetry.types import TelemetryContext  # noqa: E402
 
 
 @contextlib.asynccontextmanager
 async def patched_record_agent_invocation(
     ctx, agent
-) -> AsyncIterator[TelemetryContext]:
-    yield TelemetryContext(otel_context=None)
+) -> AsyncIterator[adk_instrumentation.TelemetryContext]:
+    yield adk_instrumentation.TelemetryContext(otel_context=None)
 
 
 @contextlib.asynccontextmanager
 async def patched_record_tool_execution(
     tool, agent, function_args
-) -> AsyncIterator[TelemetryContext]:
-    yield TelemetryContext(otel_context=None)
+) -> AsyncIterator[adk_instrumentation.TelemetryContext]:
+    yield adk_instrumentation.TelemetryContext(otel_context=None)
 
 
 adk_instrumentation.record_agent_invocation = patched_record_agent_invocation
