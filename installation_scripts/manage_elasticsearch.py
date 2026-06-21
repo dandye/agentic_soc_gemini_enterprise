@@ -115,7 +115,11 @@ class ElasticsearchManager:
 
         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-        client_kwargs = {"verify_certs": False, "ssl_show_warn": False}
+        client_kwargs = {
+            "verify_certs": False,
+            "ssl_show_warn": False,
+            "request_timeout": 60.0,
+        }
 
         if self.es_api_key:
             return Elasticsearch(self.es_url, api_key=self.es_api_key, **client_kwargs)
