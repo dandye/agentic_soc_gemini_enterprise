@@ -16,36 +16,42 @@ OPTIMIZATION_CAMPAIGNS = [
         "uuid": "0355946c-a580-4593-b9b1-e69e162d57e9",
         "playbook_name": "MSBuild_Triage.md",
         "alert_type": "MSBuildShell Utility Abuse",
+        "path": "worktrees/campaign_msbuild_bypass",
     },
     {
         "name": "Backup Script (FP)",
         "uuid": "c06477e1-4e4d-4ee1-934d-6b2e5b5c3167",
         "playbook_name": "Volume_Shadow_Copy_Triage.md",
         "alert_type": "Volume Shadow Copy Creation",
+        "path": "worktrees/campaign_backup_fp",
     },
     {
         "name": "Admin Tool (FP)",
         "uuid": "bf77d315-4707-47fc-b200-83352f5b4203",
         "playbook_name": "Windows_Admin_Tool_Triage.md",
         "alert_type": "mitre_attack_T1021_002_windows_admin_share_basicCopyCopy",
+        "path": "worktrees/campaign_admin_tool_fp",
     },
     {
         "name": "Shadow Maint (FP)",
         "uuid": "5a2d8f97-0a46-4355-b992-11e796d95c71",
         "playbook_name": "Volume_Shadow_Copy_Triage.md",
         "alert_type": "Volume Shadow Copy Creation",
+        "path": "worktrees/campaign_shadow_maintenance_fp",
     },
     {
         "name": "Remote Mgmt (FP)",
         "uuid": "03cbf404-9914-4d40-be82-f97c15a676be",
         "playbook_name": "Remote_Management_Triage.md",
         "alert_type": "Legitimate Remote Admin Session",
+        "path": "worktrees/campaign_remote_mgmt_fp",
     },
     {
         "name": "Service Migr (FP)",
         "uuid": "b32516a5-ea42-47f3-9424-eb0c2c8dd75f",
         "playbook_name": "Service_Migration_Triage.md",
         "alert_type": "Legitimate Service Creation",
+        "path": "worktrees/campaign_service_migration_fp",
     },
 ]
 
@@ -98,8 +104,6 @@ def main():
     project_id = get_project_id()
     print(f"[INIT] Starting Autonomous RAG Playbook Optimizer (Project: {project_id})")
 
-    # Initialize Vertex AI Client
-    client = genai.Client(vertexai=True, project=project_id, location="us-central1")
     model_name = "gemini-2.5-pro"  # Use pro model for high-reasoning synthesis
 
     optimization_log = [
@@ -160,6 +164,11 @@ def main():
         while current_score < 80.0 and attempts < max_attempts:
             attempts += 1
             print(f"[ITER] Optimization Attempt {attempts}/{max_attempts}...")
+
+            # Initialize a fresh Vertex AI Client for each generation attempt to prevent connection reuse issues
+            client = genai.Client(
+                vertexai=True, project=project_id, location="us-central1"
+            )
 
             # Read existing playbook if one exists to refine it
             existing_playbook_content = ""
@@ -247,7 +256,7 @@ Return ONLY the raw markdown content. Do not wrap the response in ```markdown ta
                     "python",
                     "installation_scripts/manage_elasticsearch.py",
                     "sync",
-                    "recreate=true",
+                    "--recreate",
                 ]
                 res_sync = run_cmd(sync_cmd, cwd=str(project_root))
                 if res_sync.returncode != 0:
