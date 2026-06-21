@@ -26,13 +26,6 @@ OPTIMIZATION_CAMPAIGNS = [
         "path": "worktrees/campaign_backup_fp",
     },
     {
-        "name": "Admin Tool (FP)",
-        "uuid": "bf77d315-4707-47fc-b200-83352f5b4203",
-        "playbook_name": "Windows_Admin_Tool_Triage.md",
-        "alert_type": "mitre_attack_T1021_002_windows_admin_share_basicCopyCopy",
-        "path": "worktrees/campaign_admin_tool_fp",
-    },
-    {
         "name": "Shadow Maint (FP)",
         "uuid": "5a2d8f97-0a46-4355-b992-11e796d95c71",
         "playbook_name": "Volume_Shadow_Copy_Triage.md",
@@ -45,13 +38,6 @@ OPTIMIZATION_CAMPAIGNS = [
         "playbook_name": "Remote_Management_Triage.md",
         "alert_type": "Legitimate Remote Admin Session",
         "path": "worktrees/campaign_remote_mgmt_fp",
-    },
-    {
-        "name": "Service Migr (FP)",
-        "uuid": "b32516a5-ea42-47f3-9424-eb0c2c8dd75f",
-        "playbook_name": "Service_Migration_Triage.md",
-        "alert_type": "Legitimate Service Creation",
-        "path": "worktrees/campaign_service_migration_fp",
     },
 ]
 
@@ -151,15 +137,41 @@ def main():
             continue
         human_report = human_report_path.read_text()
 
-        # Load failed AI report details if available
+        # Load failed AI report details and extract feedback if available
         failed_ai_report = ""
+        audit_feedback = ""
         if initial_report_path.exists():
-            failed_ai_report = initial_report_path.read_text()
+            content = initial_report_path.read_text()
+            failed_ai_report = content
 
-        # Iterate up to 2 attempts
+            # Extract specific audit verdict and weaknesses if present
+            verdict_match = re.search(
+                r"## ⚖️ Blind Audit Verdict Summary\n\n(.*?)\n\n---",
+                content,
+                re.DOTALL,
+            )
+            weaknesses_match = re.search(
+                r"## 🔴 AI Weaknesses \(Missed Details / Hallucinations\)\n\n(.*?)\n\n---",
+                content,
+                re.DOTALL,
+            )
+
+            feedback_parts = []
+            if verdict_match:
+                feedback_parts.append(
+                    f"Audit Verdict Summary:\n{verdict_match.group(1).strip()}"
+                )
+            if weaknesses_match:
+                feedback_parts.append(
+                    f"AI Weaknesses Identified by Auditor:\n{weaknesses_match.group(1).strip()}"
+                )
+            if feedback_parts:
+                audit_feedback = "\n\n".join(feedback_parts)
+
+        # Iterate up to 4 attempts for deep optimization
         current_score = initial_score
         attempts = 0
-        max_attempts = 2
+        max_attempts = 4
 
         while current_score < 80.0 and attempts < max_attempts:
             attempts += 1
@@ -186,13 +198,24 @@ We are triaging a FALSE POSITIVE event. The human ground-truth report concluded 
 --- Human Ground Truth Report ---
 {human_report}
 ---------------------------------
+"""
 
+            if audit_feedback:
+                prompt += f"""
+Our previous attempt failed the Turing quality benchmark. The senior auditor provided the following direct feedback and identified these weaknesses:
+--- Direct Auditor Feedback ---
+{audit_feedback}
+--------------------------------
+Please address every single weakness and gap identified above in the refined playbook!
+"""
+
+            prompt += f"""
 The autonomous AI agent failed its triage benchmark, scoring poorly because it panicked and recommended network containment:
 --- Failed AI Agent Investigation Report ---
 {failed_ai_report}
 --------------------------------------------
-
 """
+
             if existing_playbook_content:
                 prompt += f"""Here is the existing playbook that needs to be refined:
 --- Existing Playbook Content ---
