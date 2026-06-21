@@ -281,6 +281,10 @@ async def async_run_benchmark(incident_uuid: str, verbose: bool, local: bool = F
 
         session = await remote_app.async_create_session(user_id=user_id)
         session_id = session.get("id")
+        typer.secho(
+            f"Created remote session: {session_id}",
+            fg=typer.colors.MAGENTA,
+        )
 
         generator = remote_app.async_stream_query(
             user_id=user_id, session_id=session_id, message=query
