@@ -12,3 +12,4 @@ implementation_plan.md
 investigations/
 *.json
 !evalsets/**/*.json
+worktrees/
