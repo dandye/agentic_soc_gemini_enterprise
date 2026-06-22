@@ -880,3 +880,7 @@ neo4j-gce-deploy:
         --tags=neo4j-server \
         --metadata=neo4j-password=$NEO4J_PASSWORD \
         --metadata-from-file=startup-script=gce/startup_neo4j.sh
+
+# Run a local-vs-cloud environment parity audit for a campaign
+parity-audit uuid: check-prereqs
+    {{ python }} installation_scripts/audit_environment_parity.py {{ uuid }}
