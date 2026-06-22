@@ -299,21 +299,55 @@ class ElasticsearchManager:
             f"Index '{self.index_name}' created successfully.", fg=typer.colors.GREEN
         )
 
-    def sync_to_elasticsearch(self, recreate: bool = False) -> None:
+    def sync_to_elasticsearch(
+        self, recreate: bool = False, target_file: Path | None = None
+    ) -> None:
         """Sync runbook files to Elasticsearch."""
         client = self.get_client()
 
-        if recreate or not client.indices.exists(index=self.index_name):
+        if (recreate and not target_file) or not client.indices.exists(
+            index=self.index_name
+        ):
             self.recreate_index()
 
-        runbooks = self.get_runbook_files()
+        if target_file:
+            target_path = Path(target_file).resolve()
+            runbooks = [target_path]
+            try:
+                rel_path = target_path.relative_to(self.project_root.resolve())
+            except ValueError:
+                rel_path = target_path.relative_to(self.project_root)
+
+            # Clean up existing chunks for this specific file first to prevent duplicate/orphaned chunks
+            try:
+                client.delete_by_query(
+                    index=self.index_name,
+                    body={"query": {"term": {"doc_path": str(rel_path)}}},
+                    refresh=True,
+                )
+                typer.echo(f"Cleaned up existing chunks for: {rel_path}")
+            except Exception as e:
+                typer.secho(
+                    f"Warning: Failed to clean up existing chunks for {rel_path}: {e}",
+                    fg=typer.colors.YELLOW,
+                )
+        else:
+            runbooks = self.get_runbook_files()
+
         typer.echo(
             f"Found {len(runbooks)} runbooks matching include folders. Indexing..."
         )
 
+        from elasticsearch.helpers import bulk
+
+        actions = []
         indexed_chunks = 0
         for file_path in runbooks:
-            rel_path = file_path.relative_to(self.project_root)
+            try:
+                rel_path = file_path.resolve().relative_to(self.project_root.resolve())
+            except ValueError:
+                rel_path = file_path.relative_to(self.project_root)
+
             try:
                 with open(file_path, encoding="utf-8") as f:
                     content = f.read()
@@ -323,19 +357,31 @@ class ElasticsearchManager:
 
             chunks = self.chunk_document(content)
             for idx, chunk in enumerate(chunks):
-                # Calculate a stable unique ID for the chunk
                 chunk_id = hashlib.sha256(f"{rel_path}#{idx}".encode()).hexdigest()
 
-                doc = {
-                    "title": chunk["title"],
-                    "doc_name": file_path.name,
-                    "doc_path": str(rel_path),
-                    "content": chunk["content"],
-                    "chunk_index": idx,
+                action = {
+                    "_op_type": "index",
+                    "_index": self.index_name,
+                    "_id": chunk_id,
+                    "_source": {
+                        "title": chunk["title"],
+                        "doc_name": file_path.name,
+                        "doc_path": str(rel_path),
+                        "content": chunk["content"],
+                        "chunk_index": idx,
+                    },
                 }
-
-                client.index(index=self.index_name, id=chunk_id, document=doc)
+                actions.append(action)
                 indexed_chunks += 1
+
+                # Bulk index in batches of 200
+                if len(actions) >= 200:
+                    bulk(client, actions)
+                    actions = []
+
+        # Index remaining chunks
+        if actions:
+            bulk(client, actions)
 
         client.indices.refresh(index=self.index_name)
         typer.secho(
@@ -358,11 +404,15 @@ def sync(
     recreate: Annotated[
         bool, typer.Option("--recreate", help="Recreate index before syncing")
     ] = False,
+    target_file: Annotated[
+        Path | None,
+        typer.Option("--target-file", "-f", help="Sync only this specific file path"),
+    ] = None,
     env_file: Annotated[Path, typer.Option(help="Path to .env file")] = Path(".env"),
 ):
     """Sync local runbooks into Elasticsearch."""
     manager = ElasticsearchManager(env_file)
-    manager.sync_to_elasticsearch(recreate)
+    manager.sync_to_elasticsearch(recreate=recreate, target_file=target_file)
 
 
 @app.command()

@@ -309,13 +309,14 @@ Return ONLY the raw markdown content. Do not wrap the response in ```markdown ta
                 playbook_path.write_text(playbook_content)
                 print(f"[SUCCESS] Wrote playbook to: {playbook_path}")
 
-                # 2. Sync playbooks into Elasticsearch index
+                # 2. Sync playbooks into Elasticsearch index (targeted single-file sync)
                 print("[SYNC] Indexing new playbook into Elasticsearch...")
                 sync_cmd = [
                     "python",
                     "installation_scripts/manage_elasticsearch.py",
                     "sync",
-                    "--recreate",
+                    "--target-file",
+                    str(playbook_path),
                 ]
                 res_sync = run_cmd(sync_cmd, cwd=str(project_root))
                 if res_sync.returncode != 0:
