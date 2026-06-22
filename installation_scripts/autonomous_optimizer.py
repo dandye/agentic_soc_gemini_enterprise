@@ -325,6 +325,7 @@ Return ONLY the raw markdown content. Do not wrap the response in ```markdown ta
                     "installation_scripts/benchmark_human_vs_ai.py",
                     "--uuid",
                     uuid,
+                    "--local",
                 ]
 
                 # Execute inside the campaign's worktree to ensure isolated execution
