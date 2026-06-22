@@ -168,6 +168,11 @@ def main():
             if feedback_parts:
                 audit_feedback = "\n\n".join(feedback_parts)
 
+        # Track the best report content to restore at the end of the campaign
+        best_report_content = ""
+        if initial_report_path.exists():
+            best_report_content = initial_report_path.read_text()
+
         # Iterate up to 4 attempts for deep optimization
         current_score = initial_score
         attempts = 0
@@ -316,6 +321,7 @@ Return ONLY the raw markdown content. Do not wrap the response in ```markdown ta
                         failed_ai_report = (
                             new_report_content  # Update for next iteration if needed
                         )
+                        best_report_content = new_report_content
                     else:
                         print("[WARN] Score did not improve in this attempt.")
                 else:
@@ -324,6 +330,10 @@ Return ONLY the raw markdown content. Do not wrap the response in ```markdown ta
             except Exception as e:
                 print(f"[ERROR] Exception occurred during iteration: {e}")
                 time.sleep(5)
+
+        # Restore the physical report file to the best achieved score's content
+        if best_report_content:
+            initial_report_path.write_text(best_report_content)
 
         # Log final outcome of this campaign
         outcome = "Passed" if current_score >= 80.0 else "Needs Triage"
