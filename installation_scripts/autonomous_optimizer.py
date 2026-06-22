@@ -256,10 +256,26 @@ Return ONLY the raw markdown content. Do not wrap the response in ```markdown ta
 """
 
             try:
-                # Generate playbook content using Gemini
-                response = client.models.generate_content(
-                    model=model_name, contents=prompt
-                )
+                # Set up SIGALRM to prevent indefinite socket hangs during network drops
+                import signal
+
+                class TimeoutException(Exception):
+                    pass
+
+                def timeout_handler(signum, frame):
+                    raise TimeoutException("Model generation timed out after 5 minutes")
+
+                signal.signal(signal.SIGALRM, timeout_handler)
+                signal.alarm(300)  # 5 minutes timeout
+
+                try:
+                    # Generate playbook content using Gemini
+                    response = client.models.generate_content(
+                        model=model_name, contents=prompt
+                    )
+                finally:
+                    signal.alarm(0)  # Disable alarm
+
                 playbook_content = response.text.strip()
 
                 # Strip code block wraps if LLM accidentally included them
