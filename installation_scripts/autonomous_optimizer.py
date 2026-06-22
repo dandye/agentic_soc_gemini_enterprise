@@ -12,32 +12,39 @@ from google import genai
 # =========================================================================
 OPTIMIZATION_CAMPAIGNS = [
     {
-        "name": "MSBuild Bypass (FP)",
-        "uuid": "0355946c-a580-4593-b9b1-e69e162d57e9",
+        "name": "SEACACTUS Backdoor (TP)",
+        "uuid": "c05642c5-9688-4884-8519-1b5f9336840f",
+        "playbook_name": "SEACACTUS_Backdoor_Triage.md",
+        "alert_type": "SEACACTUS Backdoor Command",
+        "path": "",
+    },
+    {
+        "name": "Environment Enum (FP)",
+        "uuid": "6f0a2a96-7ec5-41c6-92e3-28f85dde5251",
+        "playbook_name": "Environment_Enumeration_Triage.md",
+        "alert_type": "producer_recon_environment_enumeration_system_cisa_report",
+        "path": "",
+    },
+    {
+        "name": "Shadow Copy Creation (FP)",
+        "uuid": "e5033c62-79d3-44e2-9f21-74ba65ee2c76",
+        "playbook_name": "Volume_Shadow_Copy_Triage.md",
+        "alert_type": "Volume Shadow Copy Creation",
+        "path": "",
+    },
+    {
+        "name": "MSBuild Utility Abuse (FP)",
+        "uuid": "8e3b0fd7-b694-4ead-964a-3e24051840ed",
         "playbook_name": "MSBuild_Triage.md",
         "alert_type": "MSBuildShell Utility Abuse",
-        "path": "worktrees/campaign_msbuild_bypass",
+        "path": "",
     },
     {
-        "name": "Backup Script (FP)",
-        "uuid": "c06477e1-4e4d-4ee1-934d-6b2e5b5c3167",
-        "playbook_name": "Volume_Shadow_Copy_Triage.md",
-        "alert_type": "Volume Shadow Copy Creation",
-        "path": "worktrees/campaign_backup_fp",
-    },
-    {
-        "name": "Shadow Maint (FP)",
-        "uuid": "5a2d8f97-0a46-4355-b992-11e796d95c71",
-        "playbook_name": "Volume_Shadow_Copy_Triage.md",
-        "alert_type": "Volume Shadow Copy Creation",
-        "path": "worktrees/campaign_shadow_maintenance_fp",
-    },
-    {
-        "name": "Remote Mgmt (FP)",
-        "uuid": "03cbf404-9914-4d40-be82-f97c15a676be",
-        "playbook_name": "Remote_Management_Triage.md",
-        "alert_type": "Legitimate Remote Admin Session",
-        "path": "worktrees/campaign_remote_mgmt_fp",
+        "name": "ATI Active Breach Process (TP)",
+        "uuid": "f7b4bb35-70b5-400c-8a45-d7eeff17ede1",
+        "playbook_name": "ATI_Active_Breach_Triage.md",
+        "alert_type": "ATI Active Breach Rule Match for File IoCs",
+        "path": "",
     },
 ]
 
