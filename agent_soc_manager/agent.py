@@ -2243,6 +2243,8 @@ def get_secops_headers(context) -> dict[str, str]:
         )
 
     user_token = None
+
+    # 1. Try to get the user's personal OAuth token from the context state first
     if context and context.state and gemini_auth_id:
         user_token = context.state.get(gemini_auth_id)
         if user_token:
@@ -2250,7 +2252,31 @@ def get_secops_headers(context) -> dict[str, str]:
                 f"DEBUG: Tool Call Auth Header present from context state (starts with: {user_token[:10]}...)"
             )
 
-    # Fallback to Google Application Default Credentials (ADC) if no token is in context state (e.g. Local runner)
+    # 2. Fallback to permanent Service Account JSON Key from Secret Manager if configured
+    if not user_token:
+        try:
+            sa_json_str = get_secret("SECOPS_SA_JSON")
+            if sa_json_str:
+                import google.auth.transport.requests
+                from google.oauth2 import service_account
+
+                info = json.loads(sa_json_str)
+                creds = service_account.Credentials.from_service_account_info(
+                    info, scopes=["https://www.googleapis.com/auth/cloud-platform"]
+                )
+                auth_req = google.auth.transport.requests.Request()
+                creds.refresh(auth_req)
+                user_token = creds.token
+                if user_token:
+                    logger.info(
+                        f"DEBUG: Generated access token from permanent Service Account Key in Secret Manager (starts with: {user_token[:10]}...)"
+                    )
+        except Exception as e:
+            logger.warning(
+                f"Failed to generate access token from Secret Manager SA JSON: {e}"
+            )
+
+    # 3. Fallback to Google Application Default Credentials (ADC) if no token is in context state (e.g. Local runner)
     if not user_token:
         try:
             import google.auth
