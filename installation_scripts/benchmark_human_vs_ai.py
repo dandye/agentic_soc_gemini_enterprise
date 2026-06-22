@@ -98,7 +98,7 @@ class ComparativeJudge:
             vertexai=True,
             project=project_id,
             location=location,
-            http_options={"timeout": 120},
+            http_options={"timeout": 120000},
         )
         self.model = "gemini-2.5-pro"  # GA high-reasoning model for elite QA
 

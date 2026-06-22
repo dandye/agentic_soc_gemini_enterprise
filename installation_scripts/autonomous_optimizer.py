@@ -192,7 +192,7 @@ def main():
                 vertexai=True,
                 project=project_id,
                 location="us-central1",
-                http_options={"timeout": 120},
+                http_options={"timeout": 120000},
             )
 
             # Read existing playbook if one exists to refine it
