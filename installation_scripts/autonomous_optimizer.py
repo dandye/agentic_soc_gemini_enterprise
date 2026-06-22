@@ -168,6 +168,12 @@ def main():
             if feedback_parts:
                 audit_feedback = "\n\n".join(feedback_parts)
 
+        # Initialize Experiment Tracking Log
+        experiments_dir = artifacts_dir / "experiments"
+        experiments_dir.mkdir(exist_ok=True)
+        experiment_file_path = experiments_dir / f"experiment_{uuid}.md"
+        experiment_entries = []
+
         # Track the best report content to restore at the end of the campaign
         best_report_content = ""
         if initial_report_path.exists():
@@ -332,6 +338,38 @@ Return ONLY the raw markdown content. Do not wrap the response in ```markdown ta
                         f"[INFO] New Score Achieved: {new_score}% (Previous: {current_score}%)"
                     )
 
+                    # Extract verdict and weaknesses from the newly generated report if available
+                    attempt_verdict = "Unknown"
+                    attempt_weaknesses = "None"
+                    verdict_m = re.search(
+                        r"## ⚖️ Blind Audit Verdict Summary\n\n(.*?)\n\n---",
+                        new_report_content,
+                        re.DOTALL,
+                    )
+                    weaknesses_m = re.search(
+                        r"## 🔴 AI Weaknesses \(Missed Details / Hallucinations\)\n\n(.*?)\n\n---",
+                        new_report_content,
+                        re.DOTALL,
+                    )
+                    if verdict_m:
+                        attempt_verdict = verdict_m.group(1).strip()
+                    if weaknesses_m:
+                        attempt_weaknesses = weaknesses_m.group(1).strip()
+
+                    from datetime import UTC, datetime
+
+                    entry_ts = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
+                    entry = f"""### Experiment Attempt {attempts} ({entry_ts})
+- **Overall Score:** **{new_score}%**
+- **Playbook Status:** {"Refined" if existing_playbook_content else "Created"}
+- **Auditor Verdict:**
+  {attempt_verdict}
+- **Auditor Weaknesses Identified:**
+  {attempt_weaknesses}
+- **Optimizer Action:** {"Refined playbook based on auditor feedback" if new_score < 80.0 else "Optimization successful - stashed peak playbook"}
+"""
+                    experiment_entries.append(entry)
+
                     if new_score > current_score:
                         current_score = new_score
                         failed_ai_report = (
@@ -350,6 +388,39 @@ Return ONLY the raw markdown content. Do not wrap the response in ```markdown ta
         # Restore the physical report file to the best achieved score's content
         if best_report_content:
             initial_report_path.write_text(best_report_content)
+
+        # Compile and save the final experiment log for this campaign
+        from datetime import UTC, datetime
+
+        improvement = current_score - initial_score
+        log_header = f"""---
+type: "Experiment Log"
+title: "AI Optimization Experiment Log: Campaign {uuid}"
+description: "Iterative prompt and RAG playbook tuning registry, documenting scores, prompt adaptations, and auditor feedback loops."
+resource: "file://{experiment_file_path}"
+timestamp: "{datetime.now(UTC).isoformat()}"
+provenance:
+  source_type: "generative_ai"
+  source_tool: "autonomous_optimizer"
+  timestamp: "{datetime.now(UTC).isoformat()}"
+---
+
+# AI Optimization Experiment Log: Campaign {uuid}
+
+- **Campaign Name:** {name}
+- **Alert Type:** {alert_type}
+- **Target Playbook:** `{playbook_name}`
+
+## 📊 Score Progression History
+- Initial Benchmark Score: **{initial_score}%**
+- Final Peak Score: **{current_score}%**
+- Net Improvement: **+{improvement}%**
+
+## 🧪 Iteration Registry
+
+"""
+        experiment_file_path.write_text(log_header + "\n\n".join(experiment_entries))
+        print(f"[SUCCESS] Experiment log saved to: file://{experiment_file_path}")
 
         # Log final outcome of this campaign
         outcome = "Passed" if current_score >= 80.0 else "Needs Triage"

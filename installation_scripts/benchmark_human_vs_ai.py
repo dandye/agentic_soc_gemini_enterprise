@@ -372,6 +372,12 @@ async def async_run_benchmark(incident_uuid: str, verbose: bool, local: bool = F
     )
     artifact_path = artifact_dir / f"benchmark_{incident_uuid}_report.md"
 
+    # Generate timestamped filename for historical tracking
+    from datetime import UTC, datetime
+
+    file_ts = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
+    timestamped_path = artifact_dir / f"benchmark_{incident_uuid}_{file_ts}_report.md"
+
     strengths_md = "\n".join([f"- {s}" for s in grade.strengths])
     weaknesses_md = "\n".join([f"- {w}" for w in grade.weaknesses])
 
@@ -436,6 +442,7 @@ This report documents the blind comparative audit of the autonomous **AI Multi-A
 ```
 """
     artifact_path.write_text(report_content)
+    timestamped_path.write_text(report_content)
 
     # 6. Output Gorgeous Scorecard in Terminal
     typer.echo("\n" + "=" * 80)
