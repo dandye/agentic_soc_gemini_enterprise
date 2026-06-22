@@ -383,6 +383,17 @@ Return ONLY the raw markdown content. Do not wrap the response in ```markdown ta
 
             except Exception as e:
                 print(f"[ERROR] Exception occurred during iteration: {e}")
+                from datetime import UTC, datetime
+
+                entry_ts = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
+                entry = f"""### Experiment Attempt {attempts} ({entry_ts})
+- **Overall Score:** N/A (Execution Error)
+- **Status:** Failed
+- **Error Details:**
+  `{str(e)}`
+- **Optimizer Action:** Logged exception and proceeding to next attempt.
+"""
+                experiment_entries.append(entry)
                 time.sleep(5)
 
         # Restore the physical report file to the best achieved score's content
