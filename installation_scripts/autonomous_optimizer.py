@@ -188,9 +188,11 @@ def main():
             attempts += 1
             print(f"[ITER] Optimization Attempt {attempts}/{max_attempts}...")
 
-            # Initialize a fresh Vertex AI Client for each generation attempt to prevent connection reuse issues
             client = genai.Client(
-                vertexai=True, project=project_id, location="us-central1"
+                vertexai=True,
+                project=project_id,
+                location="us-central1",
+                http_options={"timeout": 120},
             )
 
             # Read existing playbook if one exists to refine it

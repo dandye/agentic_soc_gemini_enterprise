@@ -94,7 +94,12 @@ class ComparativeJudge:
     """Grades AI investigations semantically against human analyst reports."""
 
     def __init__(self, project_id: str, location: str = "us-central1"):
-        self.client = genai.Client(vertexai=True, project=project_id, location=location)
+        self.client = genai.Client(
+            vertexai=True,
+            project=project_id,
+            location=location,
+            http_options={"timeout": 120},
+        )
         self.model = "gemini-2.5-pro"  # GA high-reasoning model for elite QA
 
     async def async_compare(
