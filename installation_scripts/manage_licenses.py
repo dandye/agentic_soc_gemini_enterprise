@@ -85,6 +85,52 @@ class LicenseManager:
         else:
             self._load_adc()
 
+        # If project number is not configured, try to fetch it dynamically using Resource Manager API
+        if self.project_id and not self.project_number:
+            try:
+                fetched_number = self._fetch_project_number()
+                if fetched_number:
+                    self.project_number = fetched_number
+                    debug = self.env_vars.get("DEBUG", "").lower() in [
+                        "true",
+                        "1",
+                        "yes",
+                    ]
+                    if debug:
+                        typer.echo(
+                            f"Dynamically resolved GCP_PROJECT_NUMBER: {self.project_number}"
+                        )
+            except Exception as e:
+                debug = self.env_vars.get("DEBUG", "").lower() in [
+                    "true",
+                    "1",
+                    "yes",
+                ]
+                if debug:
+                    typer.secho(
+                        f"Warning: Failed to fetch project number: {e}",
+                        fg=typer.colors.YELLOW,
+                    )
+
+    def _fetch_project_number(self) -> str | None:
+        """Fetch project number using Cloud Resource Manager API."""
+        if not self.project_id:
+            return None
+
+        # If project_id is already a number, return it
+        if self.project_id.isdigit():
+            return self.project_id
+
+        url = (
+            f"https://cloudresourcemanager.googleapis.com/v1/projects/{self.project_id}"
+        )
+        response = self._make_request("GET", url, silent=True)
+        if response and response.status_code == 200:
+            result = response.json()
+            project_number = result.get("projectNumber")
+            return project_number
+        return None
+
     def _load_adc(self) -> None:
         """Load credentials using Application Default Credentials (ADC)."""
         try:
@@ -122,7 +168,7 @@ class LicenseManager:
         return f"https://{location}-discoveryengine.googleapis.com/v1"
 
     def _make_request(
-        self, method: str, url: str, **kwargs: Any
+        self, method: str, url: str, silent: bool = False, **kwargs: Any
     ) -> requests.Response | None:
         """Make an authenticated request to the Discovery Engine API."""
         access_token = self._get_access_token()
@@ -161,9 +207,10 @@ class LicenseManager:
             response.raise_for_status()
             return response
         except requests.exceptions.RequestException as e:
-            typer.secho(f"API request failed: {e}", fg=typer.colors.RED)
-            if e.response is not None:
-                typer.echo(f"Response: {e.response.text}")
+            if not silent:
+                typer.secho(f"API request failed: {e}", fg=typer.colors.RED)
+                if e.response is not None:
+                    typer.echo(f"Response: {e.response.text}")
             return None
 
     def _poll_operation(self, operation_name: str, location: str) -> dict | None:
