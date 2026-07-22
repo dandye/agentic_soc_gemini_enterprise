@@ -562,6 +562,10 @@ oauth-delete force="false":
 licenses-list args="":
     {{ python }} {{ manage_licenses }} list {{ args }} --env-file {{ env_file }}
 
+# List available Gemini Enterprise license configs (subscriptions)
+licenses-configs:
+    {{ python }} {{ manage_licenses }} list-configs --env-file {{ env_file }}
+
 # Assign Gemini Enterprise licenses to users (use users="email1 email2", subscription="subscription_id")
 licenses-assign users subscription:
     {{ python }} {{ manage_licenses }} assign {{ users }} --subscription "{{ subscription }}" --env-file {{ env_file }}

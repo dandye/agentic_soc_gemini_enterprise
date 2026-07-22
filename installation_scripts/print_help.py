@@ -83,6 +83,7 @@ GROUPS = {
     ],
     "Gemini Enterprise User Licenses": [
         "licenses-list",
+        "licenses-configs",
         "licenses-assign",
         "licenses-remove",
     ],

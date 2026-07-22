@@ -330,6 +330,85 @@ class LicenseManager:
             typer.secho("Failed to list licenses.", fg=typer.colors.RED)
             return False
 
+    def list_configs(self, location: str) -> bool:
+        """
+        List all license configs available in the project.
+
+        Args:
+            location: API location/region (global, us, eu)
+
+        Returns:
+            True if successful, False otherwise
+        """
+        project = self.project_id or self.env_vars.get("GCP_PROJECT_ID")
+        if not project:
+            typer.secho("Missing GCP_PROJECT_ID", fg=typer.colors.RED)
+            return False
+
+        base_url = self._get_base_url(location)
+        url = f"{base_url}/projects/{project}/locations/{location}/licenseConfigs"
+
+        typer.echo(
+            f"Fetching available license configs for project '{project}' (location: {location})..."
+        )
+        response = self._make_request("GET", url)
+
+        if response and response.status_code == 200:
+            result = response.json()
+            configs = result.get("licenseConfigs", [])
+
+            if not configs:
+                typer.echo("No license configs found.")
+                return True
+
+            typer.echo(f"\nFound {len(configs)} license config(s):\n")
+
+            header_format = "{:<30} {:<10} {:<40} {:<12} {:<12}"
+            typer.secho(
+                header_format.format(
+                    "Config ID", "Seats", "Subscription Tier", "State", "End Date"
+                ),
+                bold=True,
+            )
+            typer.echo("-" * 110)
+
+            for cfg in configs:
+                name = cfg.get("name", "")
+                config_id = name.split("/")[-1] if "/" in name else name
+                count = cfg.get("licenseCount", "N/A")
+                tier = cfg.get("subscriptionTier", "N/A")
+                tier_short = tier.replace("SUBSCRIPTION_TIER_", "")
+                state = cfg.get("state", "N/A")
+
+                end_date_obj = cfg.get("endDate", {})
+                if end_date_obj:
+                    end_date = f"{end_date_obj.get('year')}-{end_date_obj.get('month'):02d}-{end_date_obj.get('day'):02d}"
+                else:
+                    end_date = "N/A"
+
+                if state == "ACTIVE":
+                    state_color = typer.colors.GREEN
+                elif state == "DEACTIVATING":
+                    state_color = typer.colors.YELLOW
+                else:
+                    state_color = typer.colors.RED
+
+                colorized_state = typer.style(state, fg=state_color)
+                state_pad = 12 + (len(colorized_state) - len(state))
+                format_str = f"{{:<30}} {{:<10}} {{:<40}} {{:<{state_pad}}} {{:<12}}"
+
+                typer.echo(
+                    format_str.format(
+                        config_id, count, tier_short, colorized_state, end_date
+                    )
+                )
+
+            typer.echo()
+            return True
+        else:
+            typer.secho("Failed to list license configs.", fg=typer.colors.RED)
+            return False
+
     def assign_licenses(
         self, users: list[str], subscription: str, location: str
     ) -> bool:
@@ -496,6 +575,22 @@ def list(
     """List all Gemini Enterprise user licenses."""
     manager = LicenseManager(env_file)
     if not manager.list_licenses(location, output_json=output_json):
+        raise typer.Exit(code=1)
+
+
+@app.command("list-configs")
+def list_configs(
+    location: Annotated[
+        str,
+        typer.Option("--location", "-l", help="API Endpoint Location (global, us, eu)"),
+    ] = "global",
+    env_file: Annotated[
+        Path, typer.Option(help="Path to the environment file.")
+    ] = Path(".env"),
+) -> None:
+    """List available Gemini Enterprise license configs (subscriptions)."""
+    manager = LicenseManager(env_file)
+    if not manager.list_configs(location):
         raise typer.Exit(code=1)
 
 
