@@ -24,6 +24,7 @@ manage_gcs := "installation_scripts/manage_gcs.py"
 manage_vertex_ai := "installation_scripts/manage_vertex_ai.py"
 manage_models := "installation_scripts/manage_models.py"
 manage_secret := "installation_scripts/upload_secret.py"
+manage_licenses := "installation_scripts/manage_licenses.py"
 
 # Global options for GCS / RAG / Data Store (override on command line)
 bucket := ""
@@ -552,6 +553,22 @@ oauth-delete force="false":
     else
         {{ python }} {{ manage_oauth }} delete --env-file {{ env_file }}
     fi
+
+# ============================================================================
+# Gemini Enterprise User Licenses
+# ============================================================================
+
+# List all Gemini Enterprise user licenses
+licenses-list:
+    {{ python }} {{ manage_licenses }} list --env-file {{ env_file }}
+
+# Assign Gemini Enterprise licenses to users (use users="email1 email2", subscription="subscription_id")
+licenses-assign users subscription:
+    {{ python }} {{ manage_licenses }} assign {{ users }} --subscription "{{ subscription }}" --env-file {{ env_file }}
+
+# Remove user licenses (use users="email1 email2", keep_entry="false")
+licenses-remove users keep_entry="false":
+    {{ python }} {{ manage_licenses }} remove {{ users }} {{ if keep_entry == "true" { "--keep-entry" } else { "" } }} --env-file {{ env_file }}
 
 # Upload Chronicle service account to Secret Manager (use creds=/path/to/sa.json for different account)
 secret-upload:
