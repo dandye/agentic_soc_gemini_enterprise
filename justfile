@@ -558,9 +558,9 @@ oauth-delete force="false":
 # Gemini Enterprise User Licenses
 # ============================================================================
 
-# List all Gemini Enterprise user licenses
-licenses-list:
-    {{ python }} {{ manage_licenses }} list --env-file {{ env_file }}
+# List all Gemini Enterprise user licenses (use args="--json" for JSON output)
+licenses-list args="":
+    {{ python }} {{ manage_licenses }} list {{ args }} --env-file {{ env_file }}
 
 # Assign Gemini Enterprise licenses to users (use users="email1 email2", subscription="subscription_id")
 licenses-assign users subscription:

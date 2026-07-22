@@ -9,6 +9,7 @@ https://docs.cloud.google.com/gemini/enterprise/docs/licenses
 """
 
 import builtins
+import json
 import os
 import time
 from pathlib import Path
@@ -180,12 +181,13 @@ class LicenseManager:
                 return result
             time.sleep(1)
 
-    def list_licenses(self, location: str) -> bool:
+    def list_licenses(self, location: str, output_json: bool = False) -> bool:
         """
         List all user licenses in the user store.
 
         Args:
             location: API location/region (global, us, eu)
+            output_json: Whether to print raw JSON output
 
         Returns:
             True if successful, False otherwise
@@ -198,13 +200,19 @@ class LicenseManager:
         base_url = self._get_base_url(location)
         url = f"{base_url}/projects/{project}/locations/{location}/userStores/default_user_store/userLicenses"
 
-        typer.echo(
-            f"Fetching user licenses from project '{project}' (location: {location})..."
-        )
+        if not output_json:
+            typer.echo(
+                f"Fetching user licenses from project '{project}' (location: {location})..."
+            )
         response = self._make_request("GET", url)
 
         if response and response.status_code == 200:
             result = response.json()
+
+            if output_json:
+                typer.echo(json.dumps(result, indent=2))
+                return True
+
             user_licenses = result.get("userLicenses", [])
 
             if not user_licenses:
@@ -214,22 +222,33 @@ class LicenseManager:
             typer.echo(f"\nFound {len(user_licenses)} user license(s):\n")
 
             # Print table-like structure
-            header_format = "{:<40} {:<15} {:<60}"
+            header_format = "{:<40} {:<12} {:<30} {:<28} {:<28} {:<28}"
             typer.secho(
                 header_format.format(
-                    "User Principal (Email)", "State", "License Config"
+                    "User Principal (Email)",
+                    "State",
+                    "License Config",
+                    "Create Time",
+                    "Update Time",
+                    "Last Login",
                 ),
                 bold=True,
             )
-            typer.echo("-" * 120)
+            typer.echo("-" * 170)
 
             for ul in user_licenses:
                 user = ul.get("userPrincipal", "N/A")
                 state = ul.get("licenseAssignmentState", "N/A")
                 config = ul.get("licenseConfig", "N/A")
+                create_time = ul.get("createTime", "N/A")
+                update_time = ul.get("updateTime", "N/A")
+                last_login = ul.get("lastLoginTime", "N/A")
 
                 # Format config to display basename config ID for readability
-                config_id = config.split("/")[-1] if "/" in config else config
+                if config and config.startswith("projects/"):
+                    config_id = config.split("/")[-1]
+                else:
+                    config_id = config
 
                 # Add color for assignment state
                 if state == "ASSIGNED":
@@ -240,7 +259,23 @@ class LicenseManager:
                     state_color = typer.colors.RED
 
                 colorized_state = typer.style(state, fg=state_color)
-                typer.echo(f"{user:<40} {colorized_state:<24} {config_id:<60}")
+
+                # Account for ANSI escape character length in layout alignment
+                state_pad = 12 + (len(colorized_state) - len(state))
+                format_str = (
+                    f"{{:<40}} {{:<{state_pad}}} {{:<30}} {{:<28}} {{:<28}} {{:<28}}"
+                )
+
+                typer.echo(
+                    format_str.format(
+                        user,
+                        colorized_state,
+                        config_id,
+                        create_time,
+                        update_time,
+                        last_login,
+                    )
+                )
 
             typer.echo()
             return True
@@ -403,13 +438,17 @@ def list(
         str,
         typer.Option("--location", "-l", help="API Endpoint Location (global, us, eu)"),
     ] = "global",
+    output_json: Annotated[
+        bool,
+        typer.Option("--json", help="Output raw JSON response"),
+    ] = False,
     env_file: Annotated[
         Path, typer.Option(help="Path to the environment file.")
     ] = Path(".env"),
 ) -> None:
     """List all Gemini Enterprise user licenses."""
     manager = LicenseManager(env_file)
-    if not manager.list_licenses(location):
+    if not manager.list_licenses(location, output_json=output_json):
         raise typer.Exit(code=1)
 
 
