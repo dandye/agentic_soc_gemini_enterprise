@@ -9,7 +9,8 @@ __pycache__/
 implementation_plan.md
 .env*
 .env.secops.adc
-investigations/
+investigations/*
+!investigations/similarity_reports/
 *.json
 !evalsets/**/*.json
 worktrees/
