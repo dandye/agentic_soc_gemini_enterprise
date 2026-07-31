@@ -25,6 +25,37 @@ provenance:
   - `detection_entities`: Extracted entities (hosts, IPs, hashes, users, files) with investigation-specific context.
 - **Data Ingestion**: Ingested 258 detection reports, 258 linked alerts, and 1,183 entity records (spanning 38 distinct entity values).
 
+#### Sample Table Inspections
+
+```text
+Table 1: detection_reports (Total Rows: 258, Vector Embeddings: 258/258, Showing 3)
++--------------------------------------+--------------------------------+----------------+-----------------+---------------------+
+| id                                   | display_name                   | verdict        | confidence      | publish_time        |
++--------------------------------------+--------------------------------+----------------+-----------------+---------------------+
+| 03b9b188-6625-4fc1-a8dc-6644eb9856f6 | SCC: Exfiltration with Context | TRUE_POSITIVE  | HIGH_CONFIDENCE | 2026-06-16 00:27:47 |
+| 03cbf404-5858-450f-9f1e-f350ef9c2d1b | MSBuildShell Utility Abuse     | FALSE_POSITIVE | LOW_CONFIDENCE  | 2026-06-16 06:40:14 |
+| 051efbd4-7407-4f81-a6ce-54e4c27a29e4 | Volume Shadow Copy Creation    | FALSE_POSITIVE | HIGH_CONFIDENCE | 2026-06-07 05:07:01 |
++--------------------------------------+--------------------------------+----------------+-----------------+---------------------+
+
+Table 2: detection_alerts (Total Rows: 258, Showing 3)
++-------------------+--------------------------------------+--------------------------------+----------+---------------+-------------------+
+| alert_id          | investigation_id                     | display_name                   | severity | mitre_tactics | mitre_techniques  |
++-------------------+--------------------------------------+--------------------------------+----------+---------------+-------------------+
+| de_36833728-1f... | 12791450-ae06-44ce-8d2b-63a233b8a1c9 | ATI Active Breach Rule Match   | CRITICAL | []            | []                |
+| de_fc1b447b-f9... | 10fbb728-6739-420f-91a3-4f5fcdad1cbc | Encoded Powershell Network Con | MEDIUM   | ["TA0002"]    | ["T1059.001"]     |
+| de_5118d87c-03... | 504b5a06-7c01-4475-8178-0cf752fc996d | MimiKatz Command Arguments     | HIGH     | ["TA0006"]    | ["T1003"]         |
++-------------------+--------------------------------------+--------------------------------+----------+---------------+-------------------+
+
+Table 3: detection_entities (Total Rows: 1,183, Showing 3)
++------+--------------------------------------+-------------+--------------+------------------------------------+
+| id   | investigation_id                     | entity_type | entity_value | context                            |
++------+--------------------------------------+-------------+--------------+------------------------------------+
+| 1184 | 00351f48-2646-4450-ae2d-6fefeae32f2d | HOST        | wins-d19     | Host active in SIEM logs...        |
+| 1185 | 00351f48-2646-4450-ae2d-6fefeae32f2d | USER        | lisawalker   | No enrichment data available...    |
+| 1186 | 00351f48-2646-4450-ae2d-6fefeae32f2d | FILE        | cmd.exe      | No enrichment data available...    |
++------+--------------------------------------+-------------+--------------+------------------------------------+
+```
+
 ---
 
 ### 3. Vertex AI 768-Dimensional Vector Embeddings
