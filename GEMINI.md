@@ -67,6 +67,8 @@ Deploy agent to Agent Engine (using justfile):
 just agent-engine-deploy  # Initial deployment
 just agent-engine-update  # PREFERRED: In-place update of agent code (retains memory/sessions)
 just agent-engine-redeploy  # FULL DESTRUCTIVE REBUILD (Ask user before running this!)
+just agent-engine-deploy-alloydb "SOC Manager (AlloyDB)"  # Deploy dedicated AlloyDB-grounded agent
+just agentspace-register-alloydb "SOC Manager (AlloyDB)"  # Register AlloyDB agent with Gemini Enterprise
 just agentspace-register  # Register with Gemini Enterprise Agent Platform
 just full-deploy-with-oauth  # Complete deployment with OAuth
 ```

@@ -934,6 +934,17 @@ alloydb-start:
 alloydb-stop:
     {{ python }} {{ manage_alloydb }} stop
 
+# Deploy dedicated AlloyDB-grounded Agent Engine instance with unique name
+agent-engine-deploy-alloydb display_name="SOC Manager (AlloyDB)": check-prereqs
+    {{ python }} {{ manage_agent_engine }} create --agent-module agent_soc_manager --display-name {{ quote(display_name) }} --output-var-name AGENT_ENGINE_ALLOYDB_RESOURCE_NAME
+    @echo "========================================"
+    @echo "AlloyDB Agent deployment complete"
+    @echo "========================================"
+
+# Register dedicated AlloyDB Agent with Gemini Enterprise Agent Platform (GEAP)
+agentspace-register-alloydb app_name="SOC Manager (AlloyDB)":
+    {{ python }} manage.py agentspace create-app --name {{ quote(app_name) }} --type SOLUTION_TYPE_CHAT --no-datastore --app-type APP_TYPE_INTRANET --industry-vertical GENERIC
+
 # Run a local-vs-cloud environment parity audit for a campaign
 parity-audit uuid: check-prereqs
     {{ python }} installation_scripts/audit_environment_parity.py {{ uuid }}
