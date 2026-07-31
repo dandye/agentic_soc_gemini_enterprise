@@ -13,3 +13,4 @@ investigations/
 *.json
 !evalsets/**/*.json
 worktrees/
+evalsets/eval_runs
