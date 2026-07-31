@@ -942,8 +942,17 @@ agent-engine-deploy-alloydb display_name="SOC Manager (AlloyDB)": check-prereqs
     @echo "========================================"
 
 # Register dedicated AlloyDB Agent with Gemini Enterprise Agent Platform (GEAP)
-agentspace-register-alloydb app_name="SOC Manager (AlloyDB)":
-    {{ python }} manage.py agentspace create-app --name {{ quote(app_name) }} --type SOLUTION_TYPE_CHAT --no-datastore --app-type APP_TYPE_INTRANET --industry-vertical GENERIC
+agentspace-register-alloydb display_name="SOC Manager (AlloyDB)": check-prereqs
+    {{ python }} {{ manage_agentspace }} link-agent \
+        --display-name {{ quote(display_name) }} \
+        --description "SOC Manager grounded with Google Cloud AlloyDB historical detection reports, similarity engine, and SIEM/SOAR tools" \
+        --tool-description "Multi-modal SOC investigation, historical detection reports grounding, and threat triage" \
+        --reasoning-engine {{ env_var('AGENT_ENGINE_ALLOYDB_RESOURCE_NAME') }} \
+        --output-var-name AGENTSPACE_ALLOYDB_AGENT_ID \
+        --env-file {{ env_file }}
+    @echo "========================================"
+    @echo "AlloyDB Agent registered with Gemini Enterprise"
+    @echo "========================================"
 
 # Run a local-vs-cloud environment parity audit for a campaign
 parity-audit uuid: check-prereqs

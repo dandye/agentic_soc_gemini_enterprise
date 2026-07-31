@@ -212,8 +212,13 @@ class AlloyDBManager:
 
         target_db = dbname or self.database
 
-        # If AlloyDB instance URI is specified, use google-cloud-alloydb-connector
-        if self.instance_uri:
+        # If AlloyDB instance URI is specified and connector is explicitly enabled, use google-cloud-alloydb-connector
+        use_connector = os.environ.get("ALLOYDB_USE_CONNECTOR", "False").lower() in (
+            "true",
+            "1",
+            "yes",
+        )
+        if self.instance_uri and use_connector:
             try:
                 from google.cloud.alloydb.connector import Connector
 

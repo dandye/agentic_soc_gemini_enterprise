@@ -1018,7 +1018,7 @@ class AgentEngineManager:
                     "pydantic",
                     "python-dotenv",
                     "httpx>=0.28.1",
-                    "mcp[cli]>=1.4.1",
+                    "mcp[cli]>=1.4.1,<1.27.0",
                     "secops>=0.18.0",
                     "google-auth>=2.38.0",
                     "google-auth-httplib2>=0.2.0",
