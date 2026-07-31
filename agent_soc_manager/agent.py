@@ -101,6 +101,57 @@ def _apply_runtime_patches():
         "[RUNTIME_PATCH_DEBUG] Applying runtime framework monkeypatches inside Reasoning Engine process..."
     )
 
+    # 0. Monkeypatch Context, InvocationContext, and CallbackContext Pydantic core schemas
+    # and _build_parameters_json_schema to ignore 'ctx', 'context', 'tool_context'
+    try:
+        import google.adk.tools._function_tool_declarations as ftd
+        from google.adk.agents.callback_context import (
+            CallbackContext as AdkCallbackContext,
+        )
+        from google.adk.agents.context import Context as AdkContext
+        from google.adk.agents.invocation_context import (
+            InvocationContext as AdkInvocationContext,
+        )
+        from pydantic_core import core_schema
+
+        def _pydantic_core_schema(cls, source_type, handler):
+            return core_schema.any_schema()
+
+        AdkContext.__get_pydantic_core_schema__ = classmethod(_pydantic_core_schema)
+        AdkInvocationContext.__get_pydantic_core_schema__ = classmethod(
+            _pydantic_core_schema
+        )
+        AdkCallbackContext.__get_pydantic_core_schema__ = classmethod(
+            _pydantic_core_schema
+        )
+
+        orig_build_params = ftd._build_parameters_json_schema
+
+        def _patched_build_parameters_json_schema(func, ignore_params=None):
+            if ignore_params is None:
+                ignore_params = []
+            else:
+                ignore_params = list(ignore_params)
+            for p in [
+                "ctx",
+                "tool_context",
+                "context",
+                "invocation_context",
+                "callback_context",
+            ]:
+                if p not in ignore_params:
+                    ignore_params.append(p)
+            return orig_build_params(func, ignore_params)
+
+        ftd._build_parameters_json_schema = _patched_build_parameters_json_schema
+        logger.warning(
+            "[RUNTIME_PATCH_DEBUG] Successfully patched Context Pydantic core schemas and _build_parameters_json_schema"
+        )
+    except Exception as e:
+        logger.warning(
+            f"[RUNTIME_PATCH_DEBUG] Failed to patch Context Pydantic core schemas: {e}"
+        )
+
     # 1. Monkeypatch validation function to prevent 400 INVALID_ARGUMENT when removing function call IDs
     try:
         import google.adk.flows.llm_flows.contents as adk_contents
@@ -665,6 +716,10 @@ def _apply_runtime_patches():
 
     _runtime_patches_applied = True
     logger.warning("[RUNTIME_PATCH_DEBUG] All runtime patches applied successfully!")
+
+
+# Apply runtime monkeypatches on module import
+_apply_runtime_patches()
 
 
 class PatchedAgent(Agent):
@@ -1370,7 +1425,7 @@ async def query_alloydb_detection_reports(
     entity: str | None = None,
     alert_id: str | None = None,
     limit: int = 5,
-    ctx: Context | None = None,
+    tool_context: Context | None = None,
 ) -> str:
     """Search harvested Chronicle detection reports and historical investigations in AlloyDB.
 
@@ -1524,7 +1579,13 @@ def find_similar_alloydb_investigations(
         profile: The scoring profile to use ('balanced', 'threat-hunt', 'compromise-pivot', 'false-positive', 'semantic').
     """
     try:
-        from installation_scripts.manage_alloydb import AlloyDBManager
+        try:
+            from agent_soc_manager.manage_alloydb import AlloyDBManager
+        except ImportError:
+            try:
+                from installation_scripts.manage_alloydb import AlloyDBManager
+            except ImportError:
+                from manage_alloydb import AlloyDBManager
 
         manager = AlloyDBManager()
         similar_reports = manager.find_similar(
