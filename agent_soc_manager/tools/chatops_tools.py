@@ -3,14 +3,14 @@ import logging
 import os
 
 import httpx
+from google.adk.agents.context import Context
+
+from agent_soc_manager.tools.chatops.card_client import generate_action_url
 
 
 # Explicit webhook timeout (issue #64): httpx's implicit 5s default was relied
 # on before; make it visible and configurable.
 CHATOPS_HTTP_TIMEOUT = float(os.environ.get("CHATOPS_HTTP_TIMEOUT", "30"))
-from google.adk.agents.context import Context
-
-from agent_soc_manager.tools.chatops.card_client import generate_action_url
 
 
 logger = logging.getLogger(__name__)
