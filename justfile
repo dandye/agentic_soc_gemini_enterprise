@@ -885,7 +885,8 @@ neo4j-stop:
 
 # Deploy Neo4j Database on a GCE VM with Firewall Rules configured
 neo4j-gce-deploy:
-    @echo "Creating GCP Firewall Rule: allow-neo4j-bolt..."
+    @test -n "$NEO4J_ALLOWED_CIDR" || { echo "ERROR: set NEO4J_ALLOWED_CIDR to the CIDR allowed to reach Neo4j (e.g. 203.0.113.0/24)."; echo "Refusing to open Bolt/Browser to 0.0.0.0/0 -- an internet-exposed Neo4j with password auth gets scanned within hours."; exit 1; }
+    @echo "Creating GCP Firewall Rule: allow-neo4j-bolt (source: $NEO4J_ALLOWED_CIDR)..."
     -gcloud compute firewall-rules create allow-neo4j-bolt \
         --project=$GCP_PROJECT_ID \
         --direction=INGRESS \
@@ -893,7 +894,7 @@ neo4j-gce-deploy:
         --network=default \
         --action=ALLOW \
         --rules=tcp:7687,tcp:7474 \
-        --source-ranges=0.0.0.0/0 \
+        --source-ranges=$NEO4J_ALLOWED_CIDR \
         --target-tags=neo4j-server
     @echo "Deploying GCE VM instance: neo4j-soc-db..."
     gcloud compute instances create neo4j-soc-db \

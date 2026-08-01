@@ -9,7 +9,10 @@ apt-get install -y podman
 
 echo "Creating Neo4j directory structure..."
 mkdir -p /var/lib/neo4j/data /var/lib/neo4j/logs
-chmod -R 777 /var/lib/neo4j
+# Official neo4j image runs as uid/gid 7474; scope permissions to that user
+# instead of world-writable (chmod 777 let any local process modify the DB).
+chown -R 7474:7474 /var/lib/neo4j
+chmod -R 750 /var/lib/neo4j
 
 echo "Retrieving Neo4j password from GCE metadata server..."
 NEO4J_PASSWORD=$(curl -s "http://metadata.google.internal/computeMetadata/v1/instance/attributes/neo4j-password" -H "Metadata-Flavor: Google")
