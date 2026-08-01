@@ -14,6 +14,7 @@ import google.auth
 import requests
 import typer
 from dotenv import load_dotenv
+from env_migration import apply_legacy_env_aliases, legacy_deprecation_notice
 from google.auth.transport import requests as google_requests
 
 
@@ -44,6 +45,11 @@ class DataStoreManager:
         if self.env_file.exists():
             load_dotenv(self.env_file, override=True)
         env_vars = dict(os.environ)
+        # Gemini Enterprise rebrand (#36): honor legacy AGENTSPACE_* names.
+        used_legacy = apply_legacy_env_aliases(env_vars)
+        if used_legacy:
+            typer.echo(legacy_deprecation_notice(used_legacy))
+
         return env_vars
 
     def _get_access_token(self) -> str | None:
@@ -109,7 +115,7 @@ class DataStoreManager:
             typer.secho(" Missing GCP_PROJECT_NUMBER", fg=typer.colors.RED)
             return False
 
-        collection = self.env_vars.get("AGENTSPACE_COLLECTION", "default_collection")
+        collection = self.env_vars.get("GEM_ENT_COLLECTION", "default_collection")
 
         # Generate data store ID if not provided
         if not data_store_id:
@@ -161,7 +167,7 @@ class DataStoreManager:
             typer.secho(" Missing GCP_PROJECT_NUMBER", fg=typer.colors.RED)
             return False
 
-        collection = self.env_vars.get("AGENTSPACE_COLLECTION", "default_collection")
+        collection = self.env_vars.get("GEM_ENT_COLLECTION", "default_collection")
 
         url = (
             f"{DISCOVERY_ENGINE_API_BASE}/projects/{project_number}/"
@@ -213,7 +219,7 @@ class DataStoreManager:
             typer.secho(" Missing GCP_PROJECT_NUMBER", fg=typer.colors.RED)
             return False
 
-        collection = self.env_vars.get("AGENTSPACE_COLLECTION", "default_collection")
+        collection = self.env_vars.get("GEM_ENT_COLLECTION", "default_collection")
 
         url = (
             f"{DISCOVERY_ENGINE_API_BASE}/projects/{project_number}/"
@@ -254,7 +260,7 @@ class DataStoreManager:
             typer.secho(" Missing GCP_PROJECT_NUMBER", fg=typer.colors.RED)
             return False
 
-        collection = self.env_vars.get("AGENTSPACE_COLLECTION", "default_collection")
+        collection = self.env_vars.get("GEM_ENT_COLLECTION", "default_collection")
 
         url = (
             f"{DISCOVERY_ENGINE_API_BASE}/projects/{project_number}/"

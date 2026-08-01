@@ -64,8 +64,8 @@ These variables are required to connect the Orchestrator and Threat Hunter to yo
 ### Stage 3: Deployment & Integration Outputs
 These variables are auto-populated after running deployment and registration scripts:
 - `AGENT_ENGINE_RESOURCE_NAME`: The deployed Orchestrator reasoning engine path.
-- `AGENTSPACE_AGENT_ID`: The registered Gemini Enterprise Agent Platform ID.
-- `AGENTSPACE_APP_ID`: The target Gemini Enterprise application ID.
+- `GEM_ENT_AGENT_ID`: The registered Gemini Enterprise Agent Platform ID.
+- `GEM_ENT_APP_ID`: The target Gemini Enterprise application ID.
 
 ### Stage 4: OAuth Outputs
 These variables are required to link your agent with the Gemini Enterprise Agent Platform using secure user authentication:
@@ -94,7 +94,7 @@ Enable these on the project before deploying:
 
 ### 1. The deployer (you)
 
-The human or CI identity that runs `just agent-engine-deploy` and `manage.py agentspace register` needs:
+The human or CI identity that runs `just agent-engine-deploy` and `manage.py gem-ent register` needs:
 
 | Role | Why |
 |---|---|

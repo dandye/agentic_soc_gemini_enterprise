@@ -14,6 +14,7 @@ import google.auth
 import requests
 import typer
 from dotenv import load_dotenv
+from env_migration import apply_legacy_env_aliases, legacy_deprecation_notice
 from google.auth.transport import requests as google_requests
 
 # Import validation utilities
@@ -67,6 +68,11 @@ class AgentSpaceManager:
         # Get all environment variables (includes both .env and system env vars)
         # dotenv handles quotes, comments, and spaces properly
         env_vars = dict(os.environ)
+        # Gemini Enterprise rebrand (#36): honor legacy AGENTSPACE_* names.
+        used_legacy = apply_legacy_env_aliases(env_vars)
+        if used_legacy:
+            typer.echo(legacy_deprecation_notice(used_legacy))
+
         return env_vars
 
     def _update_env_var(self, key: str, value: str) -> None:
@@ -114,7 +120,7 @@ class AgentSpaceManager:
         required_vars = [
             "GCP_PROJECT_ID",
             "GCP_PROJECT_NUMBER",
-            "AGENTSPACE_APP_ID",
+            "GEM_ENT_APP_ID",
             "AGENT_ENGINE_RESOURCE_NAME",
             "GCP_LOCATION",
         ]
@@ -181,9 +187,9 @@ class AgentSpaceManager:
     def _get_agent_api_url(self, agent_id: str | None = None) -> str:
         """Construct the API URL for AgentSpace agents."""
         project_number = self.env_vars["GCP_PROJECT_NUMBER"]
-        app_id = self.env_vars["AGENTSPACE_APP_ID"]
-        collection = self.env_vars.get("AGENTSPACE_COLLECTION", "default_collection")
-        assistant = self.env_vars.get("AGENTSPACE_ASSISTANT", "default_assistant")
+        app_id = self.env_vars["GEM_ENT_APP_ID"]
+        collection = self.env_vars.get("GEM_ENT_COLLECTION", "default_collection")
+        assistant = self.env_vars.get("GEM_ENT_ASSISTANT", "default_assistant")
 
         url = (
             f"{DISCOVERY_ENGINE_API_BASE}/projects/{project_number}/"
@@ -234,7 +240,7 @@ class AgentSpaceManager:
             typer.echo(format_validation_errors(errors))
             return False
 
-        if self.env_vars.get("AGENTSPACE_AGENT_ID") and not force:
+        if self.env_vars.get("GEM_ENT_AGENT_ID") and not force:
             typer.secho(
                 " Agent already registered. Use --force to re-register.",
                 fg=typer.colors.YELLOW,
@@ -272,14 +278,14 @@ class AgentSpaceManager:
             typer.echo(f"  Agent Name: {agent_name}")
             typer.echo(f"  Agent ID: {agent_id}")
             if agent_id:
-                self._update_env_var("AGENTSPACE_AGENT_ID", agent_id)
+                self._update_env_var("GEM_ENT_AGENT_ID", agent_id)
             return True
         return False
 
     def update_agent(self) -> bool:
         """Update existing Gemini Enterprise Agent Platform agent configuration."""
         typer.echo("Updating Gemini Enterprise Agent Platform agent...")
-        agent_id = self.env_vars.get("AGENTSPACE_AGENT_ID")
+        agent_id = self.env_vars.get("GEM_ENT_AGENT_ID")
         if not agent_id:
             typer.secho(
                 " No agent registered yet. Run 'register' first.", fg=typer.colors.RED
@@ -305,7 +311,7 @@ class AgentSpaceManager:
             typer.echo(format_validation_errors(errors))
             return False
 
-        agent_id = self.env_vars.get("AGENTSPACE_AGENT_ID")
+        agent_id = self.env_vars.get("GEM_ENT_AGENT_ID")
         if not agent_id:
             typer.secho(" No agent registered yet.", fg=typer.colors.YELLOW)
             return False
@@ -323,7 +329,7 @@ class AgentSpaceManager:
     def delete_agent(self, force: bool = False, agent_id: str | None = None) -> bool:
         """Delete agent from Gemini Enterprise Agent Platform."""
         if not agent_id:
-            agent_id = self.env_vars.get("AGENTSPACE_AGENT_ID")
+            agent_id = self.env_vars.get("GEM_ENT_AGENT_ID")
 
         if not agent_id:
             typer.secho(" No agent registered to delete.", fg=typer.colors.RED)
@@ -340,8 +346,8 @@ class AgentSpaceManager:
         if response and response.status_code in [200, 204]:
             typer.secho(" Agent deleted successfully!", fg=typer.colors.GREEN)
             # Only clear env var if we deleted the agent that was in .env
-            if agent_id == self.env_vars.get("AGENTSPACE_AGENT_ID"):
-                self._update_env_var("AGENTSPACE_AGENT_ID", "")
+            if agent_id == self.env_vars.get("GEM_ENT_AGENT_ID"):
+                self._update_env_var("GEM_ENT_AGENT_ID", "")
             return True
         return False
 
@@ -417,7 +423,7 @@ class AgentSpaceManager:
         app_id = f"{clean_slug}_{int(time.time())}"
 
         project_number = self.env_vars["GCP_PROJECT_NUMBER"]
-        collection = self.env_vars.get("AGENTSPACE_COLLECTION", "default_collection")
+        collection = self.env_vars.get("GEM_ENT_COLLECTION", "default_collection")
 
         # Build the API URL
         url = (
@@ -507,11 +513,11 @@ class AgentSpaceManager:
             typer.echo(f"  Display Name: {app_name}")
 
             # Update environment file with new app ID
-            self._update_env_var("AGENTSPACE_APP_ID", app_id)
+            self._update_env_var("GEM_ENT_APP_ID", app_id)
 
             typer.echo("\n" + "=" * 80)
             typer.echo("IMPORTANT: Save this app ID to your .env file:")
-            typer.echo(f"AGENTSPACE_APP_ID={app_id}")
+            typer.echo(f"GEM_ENT_APP_ID={app_id}")
             typer.echo("=" * 80)
 
             return True
@@ -543,7 +549,7 @@ class AgentSpaceManager:
             typer.secho(" Missing GCP_PROJECT_NUMBER in .env", fg=typer.colors.RED)
             return False
 
-        collection = self.env_vars.get("AGENTSPACE_COLLECTION", "default_collection")
+        collection = self.env_vars.get("GEM_ENT_COLLECTION", "default_collection")
 
         # Build the API URL for the specific app
         url = (
@@ -557,9 +563,9 @@ class AgentSpaceManager:
         if response and response.status_code in [200, 204]:
             typer.secho(" App deleted successfully!", fg=typer.colors.GREEN)
             # Clear from .env if it was the active app
-            if self.env_vars.get("AGENTSPACE_APP_ID") == app_id:
-                self._update_env_var("AGENTSPACE_APP_ID", "")
-                typer.echo("  Cleared AGENTSPACE_APP_ID from .env")
+            if self.env_vars.get("GEM_ENT_APP_ID") == app_id:
+                self._update_env_var("GEM_ENT_APP_ID", "")
+                typer.echo("  Cleared GEM_ENT_APP_ID from .env")
             return True
         else:
             typer.secho(" Failed to delete app", fg=typer.colors.RED)
@@ -570,7 +576,7 @@ class AgentSpaceManager:
     def display_url(self) -> None:
         """Display Gemini Enterprise Agent Platform UI URL."""
         project_id = self.env_vars.get("GCP_PROJECT_ID")
-        app_id = self.env_vars.get("AGENTSPACE_APP_ID")
+        app_id = self.env_vars.get("GEM_ENT_APP_ID")
         if not all([project_id, app_id]):
             typer.secho(
                 " Cannot generate URL - missing configuration.", fg=typer.colors.RED
@@ -586,8 +592,8 @@ class AgentSpaceManager:
     def _ensure_data_store_exists(self) -> bool:
         """Ensure the engine has at least one data store configured."""
         project_number = self.env_vars["GCP_PROJECT_NUMBER"]
-        app_id = self.env_vars["AGENTSPACE_APP_ID"]
-        collection = self.env_vars.get("AGENTSPACE_COLLECTION", "default_collection")
+        app_id = self.env_vars["GEM_ENT_APP_ID"]
+        collection = self.env_vars.get("GEM_ENT_COLLECTION", "default_collection")
 
         # Check if engine has data stores
         engine_url = (
@@ -641,8 +647,8 @@ class AgentSpaceManager:
     def _create_website_datastore(self) -> bool:
         """Create an unstructured data store for search."""
         project_number = self.env_vars["GCP_PROJECT_NUMBER"]
-        app_id = self.env_vars["AGENTSPACE_APP_ID"]
-        collection = self.env_vars.get("AGENTSPACE_COLLECTION", "default_collection")
+        app_id = self.env_vars["GEM_ENT_APP_ID"]
+        collection = self.env_vars.get("GEM_ENT_COLLECTION", "default_collection")
 
         # Create an unstructured data store
         data_store_id = f"{app_id}_unstructured_datastore"
@@ -717,7 +723,7 @@ class AgentSpaceManager:
         tool_description: str | None = None,
         auth_id: str | None = None,
         reasoning_engine: str | None = None,
-        output_var_name: str = "AGENTSPACE_AGENT_ID",
+        output_var_name: str = "GEM_ENT_AGENT_ID",
     ) -> bool:
         """
         Link an existing agent engine to Gemini Enterprise Agent Platform with OAuth authorization.
@@ -757,7 +763,7 @@ class AgentSpaceManager:
             auth_id = self.env_vars.get("OAUTH_AUTH_ID")
 
         project_number = self.env_vars["GCP_PROJECT_NUMBER"]
-        as_app = self.env_vars["AGENTSPACE_APP_ID"]
+        as_app = self.env_vars["GEM_ENT_APP_ID"]
         if not reasoning_engine:
             reasoning_engine = self.env_vars.get(
                 "AGENT_ENGINE_ALLOYDB_RESOURCE_NAME"
@@ -836,7 +842,7 @@ class AgentSpaceManager:
         Unlink (remove) an agent from AgentSpace while keeping the app intact.
 
         Args:
-            agent_id: ID of the agent to unlink (defaults to AGENTSPACE_AGENT_ID from env)
+            agent_id: ID of the agent to unlink (defaults to GEM_ENT_AGENT_ID from env)
             force: Skip confirmation prompt if True
 
         Returns:
@@ -844,14 +850,14 @@ class AgentSpaceManager:
         """
         # Get agent ID from parameter or environment
         if not agent_id:
-            agent_id = self.env_vars.get("AGENTSPACE_AGENT_ID")
+            agent_id = self.env_vars.get("GEM_ENT_AGENT_ID")
 
         if not agent_id:
             typer.secho(" No agent ID found to unlink.", fg=typer.colors.RED)
             return False
 
         # Validate required environment variables
-        required_vars = ["GCP_PROJECT_NUMBER", "AGENTSPACE_APP_ID"]
+        required_vars = ["GCP_PROJECT_NUMBER", "GEM_ENT_APP_ID"]
         missing = [var for var in required_vars if not self.env_vars.get(var)]
         if missing:
             typer.secho(
@@ -868,9 +874,9 @@ class AgentSpaceManager:
             return False
 
         project_number = self.env_vars["GCP_PROJECT_NUMBER"]
-        as_app = self.env_vars["AGENTSPACE_APP_ID"]
-        collection = self.env_vars.get("AGENTSPACE_COLLECTION", "default_collection")
-        assistant = self.env_vars.get("AGENTSPACE_ASSISTANT", "default_assistant")
+        as_app = self.env_vars["GEM_ENT_APP_ID"]
+        collection = self.env_vars.get("GEM_ENT_COLLECTION", "default_collection")
+        assistant = self.env_vars.get("GEM_ENT_ASSISTANT", "default_assistant")
 
         url = (
             f"{DISCOVERY_ENGINE_API_BASE}/projects/{project_number}/"
@@ -902,9 +908,9 @@ class AgentSpaceManager:
             )
 
             # Clear agent ID from environment if it matches
-            if agent_id == self.env_vars.get("AGENTSPACE_AGENT_ID"):
-                self._update_env_var("AGENTSPACE_AGENT_ID", "")
-                typer.echo("  Cleared AGENTSPACE_AGENT_ID from environment")
+            if agent_id == self.env_vars.get("GEM_ENT_AGENT_ID"):
+                self._update_env_var("GEM_ENT_AGENT_ID", "")
+                typer.echo("  Cleared GEM_ENT_AGENT_ID from environment")
 
             return True
 
@@ -937,7 +943,7 @@ class AgentSpaceManager:
             True if successful, False otherwise
         """
         if not agent_id:
-            agent_id = self.env_vars.get("AGENTSPACE_AGENT_ID")
+            agent_id = self.env_vars.get("GEM_ENT_AGENT_ID")
             if not agent_id:
                 typer.echo(
                     "Error: No agent ID provided or found in environment", err=True
@@ -949,9 +955,9 @@ class AgentSpaceManager:
             typer.echo("Error: GCP_PROJECT_NUMBER not found in environment", err=True)
             return False
 
-        as_app = self.env_vars.get("AGENTSPACE_APP_ID")
+        as_app = self.env_vars.get("GEM_ENT_APP_ID")
         if not as_app:
-            typer.echo("Error: AGENTSPACE_APP_ID not found in environment", err=True)
+            typer.echo("Error: GEM_ENT_APP_ID not found in environment", err=True)
             return False
 
         access_token = self._get_access_token()
@@ -1028,7 +1034,7 @@ class AgentSpaceManager:
             typer.echo("Error: Failed to get access token", err=True)
             return False
 
-        collection = self.env_vars.get("AGENTSPACE_COLLECTION", "default_collection")
+        collection = self.env_vars.get("GEM_ENT_COLLECTION", "default_collection")
         url = (
             f"{DISCOVERY_ENGINE_API_BASE}/projects/{project_number}/"
             f"locations/global/collections/{collection}/engines"
@@ -1111,9 +1117,9 @@ class AgentSpaceManager:
             typer.echo("Error: GCP_PROJECT_NUMBER not found in environment", err=True)
             return False
 
-        as_app = self.env_vars.get("AGENTSPACE_APP_ID")
+        as_app = self.env_vars.get("GEM_ENT_APP_ID")
         if not as_app:
-            typer.echo("Error: AGENTSPACE_APP_ID not found in environment", err=True)
+            typer.echo("Error: GEM_ENT_APP_ID not found in environment", err=True)
             return False
 
         access_token = self._get_access_token()
@@ -1221,7 +1227,7 @@ class AgentSpaceManager:
             typer.echo("Error: Failed to get access token", err=True)
             return False
 
-        collection = self.env_vars.get("AGENTSPACE_COLLECTION", "default_collection")
+        collection = self.env_vars.get("GEM_ENT_COLLECTION", "default_collection")
 
         # Build the URL for a specific engine
         url = (
@@ -1295,7 +1301,7 @@ class AgentSpaceManager:
         )
 
         # Validate required environment variables
-        required_vars = ["GCP_PROJECT_NUMBER", "AGENTSPACE_APP_ID"]
+        required_vars = ["GCP_PROJECT_NUMBER", "GEM_ENT_APP_ID"]
         missing = [var for var in required_vars if not self.env_vars.get(var)]
         if missing:
             typer.secho(
@@ -1310,8 +1316,8 @@ class AgentSpaceManager:
             return False
 
         project_number = self.env_vars["GCP_PROJECT_NUMBER"]
-        app_id = self.env_vars["AGENTSPACE_APP_ID"]
-        collection = self.env_vars.get("AGENTSPACE_COLLECTION", "default_collection")
+        app_id = self.env_vars["GEM_ENT_APP_ID"]
+        collection = self.env_vars.get("GEM_ENT_COLLECTION", "default_collection")
 
         # Build the Discovery Engine search URL
         url = (
@@ -1495,7 +1501,7 @@ def link_agent(
             "--output-var-name",
             help="Environment variable name to store the resulting Agent ID.",
         ),
-    ] = "AGENTSPACE_AGENT_ID",
+    ] = "GEM_ENT_AGENT_ID",
     env_file: Annotated[
         Path, typer.Option(help="Path to the environment file.")
     ] = Path(".env"),
