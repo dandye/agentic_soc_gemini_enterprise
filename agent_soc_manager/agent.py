@@ -1249,7 +1249,11 @@ async def search_knowledge_base(query: str, ctx: Context) -> str:
         if not verify_certs:
             urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-        client_kwargs = {"verify_certs": verify_certs, "ssl_show_warn": verify_certs}
+        client_kwargs = {
+            "verify_certs": verify_certs,
+            "ssl_show_warn": verify_certs,
+            "request_timeout": 60.0,
+        }
 
         if es_api_key:
             es = Elasticsearch(es_url, api_key=es_api_key, **client_kwargs)

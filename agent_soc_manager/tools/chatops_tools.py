@@ -8,6 +8,11 @@ from google.adk.agents.context import Context
 from agent_soc_manager.tools.chatops.card_client import generate_action_url
 
 
+# Explicit webhook timeout (issue #64): httpx's implicit 5s default was relied
+# on before; make it visible and configurable.
+CHATOPS_HTTP_TIMEOUT = float(os.environ.get("CHATOPS_HTTP_TIMEOUT", "30"))
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -90,7 +95,7 @@ async def send_raw_card(payload: dict) -> str:
         return "Error: WEBHOOK_URL environment variable is not set."
 
     try:
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=CHATOPS_HTTP_TIMEOUT) as client:
             response = await client.post(
                 webhook_url,
                 json=payload,
@@ -255,7 +260,7 @@ async def send_chatops_card(
     }
 
     try:
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=CHATOPS_HTTP_TIMEOUT) as client:
             response = await client.post(
                 webhook_url,
                 json=payload,
@@ -264,6 +269,12 @@ async def send_chatops_card(
             response.raise_for_status()
             logger.info(f"ChatOps card sent successfully: {card_id}")
             return f"Successfully sent ChatOps card to human analyst. (Status: {response.status_code})"
+    except httpx.TimeoutException:
+        logger.error(f"ChatOps webhook timed out after {CHATOPS_HTTP_TIMEOUT}s")
+        return (
+            f"Error: ChatOps webhook timed out after {CHATOPS_HTTP_TIMEOUT}s. "
+            "No human analyst was notified."
+        )
     except Exception as e:
         # Never fabricate delivery success: request_human_confirmation and
         # notify_human_incident route through this function, and a false

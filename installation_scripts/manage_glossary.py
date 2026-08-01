@@ -57,7 +57,7 @@ class GlossaryManager:
         url = (
             f"https://cloudresourcemanager.googleapis.com/v1/projects/{self.project_id}"
         )
-        response = requests.get(url, headers=self._get_headers())
+        response = requests.get(url, headers=self._get_headers(), timeout=60)
         if response.status_code == 200:
             return response.json().get("projectNumber", "")
         # Fall back to project ID if we can't fetch it, although number is preferred for entry links
@@ -75,7 +75,7 @@ class GlossaryManager:
         }
 
         response = requests.post(
-            url, headers=self._get_headers(), params=params, json=payload
+            url, headers=self._get_headers(), params=params, json=payload, timeout=60
         )
         if response.status_code in [200, 201]:
             return response.json()
@@ -90,7 +90,7 @@ class GlossaryManager:
     def get_glossary(self, glossary_id: str) -> dict:
         """Gets details of an existing glossary."""
         url = f"https://dataplex.googleapis.com/v1/projects/{self.project_id}/locations/{self.location}/glossaries/{glossary_id}"
-        response = requests.get(url, headers=self._get_headers())
+        response = requests.get(url, headers=self._get_headers(), timeout=60)
         if response.status_code == 200:
             return response.json()
         raise Exception(
@@ -109,7 +109,7 @@ class GlossaryManager:
         }
 
         response = requests.post(
-            url, headers=self._get_headers(), params=params, json=payload
+            url, headers=self._get_headers(), params=params, json=payload, timeout=60
         )
         if response.status_code in [200, 201]:
             return response.json()
@@ -124,7 +124,7 @@ class GlossaryManager:
     def get_term(self, glossary_id: str, term_id: str) -> dict:
         """Gets details of an existing glossary term."""
         url = f"https://dataplex.googleapis.com/v1/projects/{self.project_id}/locations/{self.location}/glossaries/{glossary_id}/terms/{term_id}"
-        response = requests.get(url, headers=self._get_headers())
+        response = requests.get(url, headers=self._get_headers(), timeout=60)
         if response.status_code == 200:
             return response.json()
         raise Exception(
@@ -152,7 +152,7 @@ class GlossaryManager:
         }
 
         response = requests.post(
-            url, headers=self._get_headers(), params=params, json=payload
+            url, headers=self._get_headers(), params=params, json=payload, timeout=60
         )
         if response.status_code in [200, 201]:
             return response.json()

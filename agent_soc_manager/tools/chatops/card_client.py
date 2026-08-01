@@ -20,6 +20,7 @@ def send_card(card_json: dict, webhook_url: str = None):
         webhook_url,
         json=card_json,
         headers={"Content-Type": "application/json; charset=UTF-8"},
+        timeout=float(os.environ.get("HTTP_REQUEST_TIMEOUT", "30")),
     )
     response.raise_for_status()
     return response.json()
