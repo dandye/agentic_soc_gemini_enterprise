@@ -1,4 +1,9 @@
 ---
+type: "Architecture"
+title: "System Architecture Overview"
+description: "The system is designed as a Coordinated Agent-to-Agent (A2A) Network consisting of five specialized agents, each packaged as a standalone."
+resource: "docs/architecture.md"
+timestamp: "2026-08-01T16:24:01Z"
 provenance:
   source_type: "generative_ai"
   source_tool: "Antigravity"

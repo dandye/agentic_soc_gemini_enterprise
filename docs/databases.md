@@ -1,4 +1,9 @@
 ---
+type: "Architecture"
+title: "Grounding Databases: Neo4j, Elasticsearch, AlloyDB"
+description: "To provide high-performance grounding for security playbooks and historical threat relationships, the Orchestrator and Threat Hunter."
+resource: "docs/databases.md"
+timestamp: "2026-08-01T16:24:01Z"
 provenance:
   source_type: "generative_ai"
   source_tool: "Antigravity"

@@ -1461,7 +1461,7 @@ class AgentEngineManager:
                     # Silently consume events - we just want to trigger MCP connections
 
                 typer.secho(
-                    f"  ✓ {target_mcp} warmed up ({event_count} events)",
+                    f"  {target_mcp} warmed up ({event_count} events)",
                     fg=typer.colors.GREEN,
                 )
             except Exception as e:

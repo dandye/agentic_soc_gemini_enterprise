@@ -1,4 +1,9 @@
 ---
+type: "Architecture"
+title: "Knowledge Catalog vs Neo4j: Roles and Tradeoffs"
+description: "This document outlines the architectural relationship, functional comparison, and coexistence strategy for Google Cloud's Knowledge Catalog."
+resource: "docs/knowledge_catalog_vs_neo4j.md"
+timestamp: "2026-08-01T16:24:01Z"
 provenance:
   source_type: "generative_ai"
   source_tool: "Antigravity"

@@ -157,12 +157,12 @@ def main():
 
             # Extract specific audit verdict and weaknesses if present
             verdict_match = re.search(
-                r"## ⚖️ Blind Audit Verdict Summary\n\n(.*?)\n\n---",
+                r"## Blind Audit Verdict Summary\n\n(.*?)\n\n---",
                 content,
                 re.DOTALL,
             )
             weaknesses_match = re.search(
-                r"## 🔴 AI Weaknesses \(Missed Details / Hallucinations\)\n\n(.*?)\n\n---",
+                r"## AI Weaknesses \(Missed Details / Hallucinations\)\n\n(.*?)\n\n---",
                 content,
                 re.DOTALL,
             )
@@ -357,12 +357,12 @@ Return ONLY the raw markdown content. Do not wrap the response in ```markdown ta
                     attempt_verdict = "Unknown"
                     attempt_weaknesses = "None"
                     verdict_m = re.search(
-                        r"## ⚖️ Blind Audit Verdict Summary\n\n(.*?)\n\n---",
+                        r"## Blind Audit Verdict Summary\n\n(.*?)\n\n---",
                         new_report_content,
                         re.DOTALL,
                     )
                     weaknesses_m = re.search(
-                        r"## 🔴 AI Weaknesses \(Missed Details / Hallucinations\)\n\n(.*?)\n\n---",
+                        r"## AI Weaknesses \(Missed Details / Hallucinations\)\n\n(.*?)\n\n---",
                         new_report_content,
                         re.DOTALL,
                     )
@@ -437,12 +437,12 @@ provenance:
 - **Alert Type:** {alert_type}
 - **Target Playbook:** `{playbook_name}`
 
-## 📊 Score Progression History
+## Score Progression History
 - Initial Benchmark Score: **{initial_score}%**
 - Final Peak Score: **{current_score}%**
 - Net Improvement: **+{improvement}%**
 
-## 🧪 Iteration Registry
+## Iteration Registry
 
 """
         experiment_file_path.write_text(log_header + "\n\n".join(experiment_entries))

@@ -1,4 +1,9 @@
 ---
+type: "Glossary"
+title: "Threat Actor Glossary"
+description: "This document outlines the architectural design and implementation plan for using Google Cloud's Knowledge Catalog Glossaries to natively."
+resource: "docs/threat_actor_glossary.md"
+timestamp: "2026-08-01T16:24:01Z"
 provenance:
   source_type: "generative_ai"
   source_tool: "Antigravity"

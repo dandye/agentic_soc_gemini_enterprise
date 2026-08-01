@@ -1,4 +1,9 @@
 ---
+type: "Documentation"
+title: "Welcome and Orientation"
+description: "Welcome to the official developer documentation for the Agentic Security Operations Center (SOC) System. This project implements a."
+resource: "docs/welcome.md"
+timestamp: "2026-08-01T16:24:01Z"
 provenance:
   source_type: "generative_ai"
   source_tool: "Antigravity"

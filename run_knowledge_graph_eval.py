@@ -267,7 +267,7 @@ async def main():
     report_content.append("|---|---|---|---|---|")
 
     for r in results:
-        status = "✅ PASS" if r["score"] >= 3 else "❌ FAIL"
+        status = "PASS" if r["score"] >= 3 else "FAIL"
         report_content.append(
             f"| {r['id']} | {r['name']} | **{r['score']}/5** | `{', '.join(r['tool_calls'])}` | {status} |"
         )

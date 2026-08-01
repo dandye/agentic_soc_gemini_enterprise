@@ -1,4 +1,9 @@
 ---
+type: "Troubleshooting"
+title: "Troubleshooting Guide"
+description: "This section outlines common errors encountered during local development, database connection setups, and cloud deployments, along with."
+resource: "docs/troubleshooting.md"
+timestamp: "2026-08-01T16:24:01Z"
 provenance:
   source_type: "generative_ai"
   source_tool: "Antigravity"

@@ -1,4 +1,9 @@
 ---
+type: "Documentation"
+title: "Command Reference"
+description: "This project implements a Dual CLI Interface with identical capabilities. Developers can manage deployments, database connections, and."
+resource: "docs/commands.md"
+timestamp: "2026-08-01T16:24:01Z"
 provenance:
   source_type: "generative_ai"
   source_tool: "Antigravity"

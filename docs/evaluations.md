@@ -72,7 +72,7 @@ To treat prompt engineering and agent optimization as a rigorous science, the re
 
 ### B. Standardized Schema (OKF Compliant)
 Every experiment log must conform to Google's **Open Knowledge Format (OKF)** and use the standardized template:
-👉 **[evalsets/experiments/template.md](file:///Users/dandye/Projects/agentic_soc_agentspace__worktrees/harvest_detection_reports/evalsets/experiments/template.md)**
+**[evalsets/experiments/template.md](../evalsets/experiments/template.md)**
 
 It documents five key blocks:
 1. **Metadata:** Target agent, evaluation set, baseline Git commit, and baseline score.

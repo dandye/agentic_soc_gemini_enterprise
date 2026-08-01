@@ -74,7 +74,7 @@ class SecretManager:
             Full secret version name
         """
         if not self.project_id:
-            typer.secho("✗ GCP_PROJECT_ID not set", fg=typer.colors.RED)
+            typer.secho("ERROR: GCP_PROJECT_ID not set", fg=typer.colors.RED)
             raise typer.Exit(1)
 
         client = self._get_client(credentials_path)
@@ -91,7 +91,7 @@ class SecretManager:
         if secret_exists:
             if not force:
                 typer.secho(
-                    f"⚠️  Secret '{secret_id}' already exists in project '{self.project_id}'",
+                    f"WARNING: Secret '{secret_id}' already exists in project '{self.project_id}'",
                     fg=typer.colors.YELLOW,
                 )
                 if not typer.confirm("Do you want to add a new version?", default=True):
@@ -112,7 +112,7 @@ class SecretManager:
                     },
                 }
             )
-            typer.secho(f"✓ Created secret: {secret.name}", fg=typer.colors.GREEN)
+            typer.secho(f"Created secret: {secret.name}", fg=typer.colors.GREEN)
 
         # Add secret version
         version = client.add_secret_version(
@@ -122,7 +122,7 @@ class SecretManager:
             }
         )
 
-        typer.secho(f"✓ Added secret version: {version.name}", fg=typer.colors.GREEN)
+        typer.secho(f"Added secret version: {version.name}", fg=typer.colors.GREEN)
         return version.name
 
     def upload_service_account(
@@ -134,7 +134,7 @@ class SecretManager:
         """Upload the Chronicle service account JSON to Secret Manager."""
         if not self.sa_path:
             typer.secho(
-                "✗ CHRONICLE_SERVICE_ACCOUNT_PATH not set in environment",
+                "ERROR: CHRONICLE_SERVICE_ACCOUNT_PATH not set in environment",
                 fg=typer.colors.RED,
             )
             raise typer.Exit(1)
@@ -142,7 +142,7 @@ class SecretManager:
         sa_file = Path(self.sa_path)
         if not sa_file.exists():
             typer.secho(
-                f"✗ Service account file not found: {self.sa_path}", fg=typer.colors.RED
+                f"ERROR: Service account file not found: {self.sa_path}", fg=typer.colors.RED
             )
             raise typer.Exit(1)
 
@@ -153,18 +153,18 @@ class SecretManager:
 
             if "type" not in sa_data or sa_data["type"] != "service_account":
                 typer.secho(
-                    "✗ File does not appear to be a service account JSON",
+                    "ERROR: File does not appear to be a service account JSON",
                     fg=typer.colors.RED,
                 )
                 raise typer.Exit(1)
 
             sa_json_str = json.dumps(sa_data)
-            typer.secho("✓ Valid service account JSON", fg=typer.colors.GREEN)
+            typer.secho("Valid service account JSON", fg=typer.colors.GREEN)
             typer.echo(f"  Project: {sa_data.get('project_id', 'N/A')}")
             typer.echo(f"  Client Email: {sa_data.get('client_email', 'N/A')}")
 
         except json.JSONDecodeError as e:
-            typer.secho(f"✗ Invalid JSON file: {e}", fg=typer.colors.RED)
+            typer.secho(f"ERROR: Invalid JSON file: {e}", fg=typer.colors.RED)
             raise typer.Exit(1)
 
         typer.echo("\nUploading to Secret Manager...")
@@ -179,7 +179,7 @@ class SecretManager:
         )
 
         typer.echo("\n" + "=" * 80)
-        typer.secho("✓ Upload Complete!", fg=typer.colors.GREEN, bold=True)
+        typer.secho("Upload Complete!", fg=typer.colors.GREEN, bold=True)
         typer.echo("=" * 80 + "\n")
 
         secret_resource = (
@@ -203,7 +203,7 @@ class SecretManager:
     ) -> None:
         """Verify that the Chronicle service account secret exists and is accessible."""
         if not self.project_id:
-            typer.secho("✗ GCP_PROJECT_ID not set", fg=typer.colors.RED)
+            typer.secho("ERROR: GCP_PROJECT_ID not set", fg=typer.colors.RED)
             raise typer.Exit(1)
 
         client = self._get_client(credentials_path)
@@ -216,22 +216,22 @@ class SecretManager:
             secret_data = response.payload.data.decode("UTF-8")
             sa_json = json.loads(secret_data)
 
-            typer.secho("✓ Secret accessible!", fg=typer.colors.GREEN)
+            typer.secho("Secret accessible!", fg=typer.colors.GREEN)
             typer.echo(f"  Project: {sa_json.get('project_id', 'N/A')}")
             typer.echo(f"  Client Email: {sa_json.get('client_email', 'N/A')}")
             typer.echo(f"  Size: {len(secret_data)} bytes")
 
         except exceptions.NotFound:
-            typer.secho(f"✗ Secret not found: {secret_name}", fg=typer.colors.RED)
+            typer.secho(f"ERROR: Secret not found: {secret_name}", fg=typer.colors.RED)
             raise typer.Exit(1)
         except exceptions.PermissionDenied:
-            typer.secho("✗ Permission denied accessing secret", fg=typer.colors.RED)
+            typer.secho("ERROR: Permission denied accessing secret", fg=typer.colors.RED)
             typer.echo(
                 "  Ensure your credentials have 'secretmanager.versions.access' permission"
             )
             raise typer.Exit(1)
         except Exception as e:
-            typer.secho(f"✗ Error accessing secret: {e}", fg=typer.colors.RED)
+            typer.secho(f"ERROR: Error accessing secret: {e}", fg=typer.colors.RED)
             raise typer.Exit(1)
 
     def sync_env_secrets(
@@ -273,11 +273,11 @@ class SecretManager:
                 )
                 synced_count += 1
             except Exception as e:
-                typer.secho(f"✗ Failed to sync '{secret_id}': {e}", fg=typer.colors.RED)
+                typer.secho(f"ERROR: Failed to sync '{secret_id}': {e}", fg=typer.colors.RED)
 
         typer.echo("\n" + "=" * 80)
         typer.secho(
-            f"✓ Sync Complete! Successfully synced {synced_count} secrets.",
+            f"Sync Complete! Successfully synced {synced_count} secrets.",
             fg=typer.colors.GREEN,
             bold=True,
         )

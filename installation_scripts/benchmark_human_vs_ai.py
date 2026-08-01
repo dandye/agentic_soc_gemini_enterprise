@@ -244,7 +244,7 @@ async def async_run_benchmark(incident_uuid: str, verbose: bool, local: bool = F
     )
 
     typer.secho(
-        "🤖 [AI Agent] Launching autonomous investigation query...",
+        "[AI Agent] Launching autonomous investigation query...",
         fg=typer.colors.CYAN,
     )
     if verbose:
@@ -252,7 +252,7 @@ async def async_run_benchmark(incident_uuid: str, verbose: bool, local: bool = F
 
     if local:
         typer.secho(
-            "🤖 [AI Agent] Initializing Local Orchestrator Agent (in-process)...",
+            "[AI Agent] Initializing Local Orchestrator Agent (in-process)...",
             fg=typer.colors.CYAN,
         )
         os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "True"
@@ -281,7 +281,7 @@ async def async_run_benchmark(incident_uuid: str, verbose: bool, local: bool = F
         )
     else:
         typer.secho(
-            f"🤖 [AI Agent] Initializing Orchestrator Agent session ({target_location})...",
+            f"[AI Agent] Initializing Orchestrator Agent session ({target_location})...",
             fg=typer.colors.CYAN,
         )
         remote_app = agent_engines.get(agent_resource)
@@ -344,13 +344,13 @@ async def async_run_benchmark(incident_uuid: str, verbose: bool, local: bool = F
         pass
     except Exception as e:
         typer.secho(
-            f"❌ [AI Error] Investigation failed during execution: {e}",
+            f"[AI Error] Investigation failed during execution: {e}",
             fg=typer.colors.RED,
         )
         raise typer.Exit(1)
 
     typer.secho(
-        "🟢 [AI Agent] Autonomous investigation complete! Report generated.",
+        "[AI Agent] Autonomous investigation complete! Report generated.",
         fg=typer.colors.GREEN,
     )
 
@@ -359,7 +359,7 @@ async def async_run_benchmark(incident_uuid: str, verbose: bool, local: bool = F
 
     # 4. Invoke the Comparative Judge
     typer.secho(
-        "\n⚖️  [Comparative Judge] Invoking Senior SOC QA Judge to compare AI vs. Human...",
+        "\n[Comparative Judge] Invoking Senior SOC QA Judge to compare AI vs. Human...",
         fg=typer.colors.CYAN,
     )
     judge = ComparativeJudge(project_id, "us-central1")
@@ -407,7 +407,7 @@ provenance:
 
 This report documents the blind comparative audit of the autonomous **AI Multi-Agent SOC Network** against a **Gold-Standard Human Analyst** on historical incident **`{incident_uuid}`**.
 
-## 📊 Performance Scorecard
+## Performance Scorecard
 
 | Assessment Dimension | Benchmark Score | Rating / Verdict |
 | :--- | :---: | :---: |
@@ -418,23 +418,23 @@ This report documents the blind comparative audit of the autonomous **AI Multi-A
 
 ---
 
-## ⚖️ Blind Audit Verdict Summary
+## Blind Audit Verdict Summary
 
 {grade.detailed_analysis}
 
 ---
 
-## 🟢 AI Strengths (Matched / Exceeded Human Analyst)
+## AI Strengths (Matched / Exceeded Human Analyst)
 
 {strengths_md if grade.strengths else "- None documented."}
 
-## 🔴 AI Weaknesses (Missed Details / Hallucinations)
+## AI Weaknesses (Missed Details / Hallucinations)
 
 {weaknesses_md if grade.weaknesses else "- None documented."}
 
 ---
 
-## 🛠️ Execution Trace & Raw Reports
+## Execution Trace & Raw Reports
 
 ### AI Tool Trajectory
 ```json
@@ -469,7 +469,7 @@ This report documents the blind comparative audit of the autonomous **AI Multi-A
     typer.echo("=" * 80 + "\n")
 
     typer.secho(
-        f"📝 Benchmark Report Saved as Artifact: {artifact_path.name}",
+        f"Benchmark Report Saved as Artifact: {artifact_path.name}",
         fg=typer.colors.GREEN,
         bold=True,
     )
@@ -485,12 +485,12 @@ def pd_timestamp() -> str:
 
 def rating_label(score: float) -> str:
     if score >= 0.9:
-        return "🏆 EXPERT (Exceeds Human)"
+        return "EXPERT (Exceeds Human)"
     elif score >= 0.8:
-        return "🟢 PROFICIENT (Human-Grade)"
+        return "PROFICIENT (Human-Grade)"
     elif score >= 0.6:
-        return "🟡 COMPETENT (Needs Triage)"
-    return "🔴 INSUFFICIENT (Buggy/Hallucinated)"
+        return "COMPETENT (Needs Triage)"
+    return "INSUFFICIENT (Buggy/Hallucinated)"
 
 
 def print_row(label: str, score: float, bold: bool = False):

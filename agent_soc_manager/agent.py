@@ -479,7 +479,7 @@ def _apply_runtime_patches():
                 summary_lines.append("#### Authentication Activity Summary")
                 for (user, src, target, status, ltype), stats in logins.items():
                     status_color = (
-                        "🟢 SUCCESS" if status == "SUCCESS" else f"🔴 FAILED ({status})"
+                        "SUCCESS" if status == "SUCCESS" else f"FAILED ({status})"
                     )
                     summary_lines.append(
                         f"- **User:** `{user}` | **Source:** `{src}` -> **Target:** `{target}`\n"

@@ -1347,7 +1347,7 @@ async def async_optimize(evalset_path: Path, max_iterations: int):
 
     for cycle in range(1, max_iterations + 1):
         typer.secho(
-            f"\n📊 [CYCLE {cycle}/{max_iterations}] Running Evaluation Suite...",
+            f"\n[CYCLE {cycle}/{max_iterations}] Running Evaluation Suite...",
             fg=typer.colors.MAGENTA,
             bold=True,
         )
@@ -1391,14 +1391,14 @@ async def async_optimize(evalset_path: Path, max_iterations: int):
             best_prompt = prompt_file.read_text()
             best_cases_failed = {fc["id"] for fc in failed_cases}
             typer.secho(
-                f"🌟 [New Best Score] Saved new optimal prompt with score {best_score:.1f}%",
+                f"[New Best Score] Saved new optimal prompt with score {best_score:.1f}%",
                 fg=typer.colors.GREEN,
                 bold=True,
             )
 
         if not failed_cases:
             typer.secho(
-                "\n🟢 [SUCCESS] All cases passed! Optimization complete!",
+                "\n[SUCCESS] All cases passed! Optimization complete!",
                 fg=typer.colors.GREEN,
                 bold=True,
             )
@@ -1407,7 +1407,7 @@ async def async_optimize(evalset_path: Path, max_iterations: int):
         # Check if we should continue optimizing
         if cycle == max_iterations:
             typer.secho(
-                "\n🟡 [LIMIT REACHED] Reached maximum optimization cycles.",
+                "\n[LIMIT REACHED] Reached maximum optimization cycles.",
                 fg=typer.colors.YELLOW,
             )
             break
@@ -1419,17 +1419,17 @@ async def async_optimize(evalset_path: Path, max_iterations: int):
         ]
         if regressions:
             typer.secho(
-                f"⚠️ [REGRESSION DETECTED] Prompt cycle introduced regressions in: {', '.join(regressions)}",
+                f"[REGRESSION DETECTED] Prompt cycle introduced regressions in: {', '.join(regressions)}",
                 fg=typer.colors.YELLOW,
             )
             typer.echo(
-                "🔄 Reverting prompt back to best known state before next tuning..."
+                "Reverting prompt back to best known state before next tuning..."
             )
             prompt_file.write_text(best_prompt)
 
         # Trigger Prompt Optimizer Agent
         typer.secho(
-            "\n🤖 [Optimizer] Engage Prompt Optimizer Agent to compile new instructions...",
+            "\n[Optimizer] Engage Prompt Optimizer Agent to compile new instructions...",
             fg=typer.colors.CYAN,
         )
         optimizer = PromptOptimizer(runner.project_id, "us-central1")
@@ -1443,7 +1443,7 @@ async def async_optimize(evalset_path: Path, max_iterations: int):
             # Write prompt
             prompt_file.write_text(refined_instructions)
             typer.secho(
-                "📝 [Optimizer] Refined instructions written to prompt file.",
+                "[Optimizer] Refined instructions written to prompt file.",
                 fg=typer.colors.GREEN,
             )
 
@@ -1451,17 +1451,17 @@ async def async_optimize(evalset_path: Path, max_iterations: int):
             redeploy_agent(evalset_id)
         except Exception as e:
             typer.secho(
-                f"❌ [Optimizer Error] Failed to optimize or redeploy: {e}",
+                f"[Optimizer Error] Failed to optimize or redeploy: {e}",
                 fg=typer.colors.RED,
             )
-            typer.echo("🔄 Restoring best known prompt...")
+            typer.echo("Restoring best known prompt...")
             prompt_file.write_text(best_prompt)
             break
 
     # Revert to best known prompt if the final iteration was not the best
     current_prompt = prompt_file.read_text()
     if current_prompt != best_prompt:
-        typer.echo("\n🔄 Restoring best performing prompt to files...")
+        typer.echo("\nRestoring best performing prompt to files...")
         prompt_file.write_text(best_prompt)
         redeploy_agent(evalset_id)
 

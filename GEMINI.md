@@ -1,4 +1,9 @@
 ---
+type: "Documentation"
+title: "Project Guidance for AI Coding Agents"
+description: "Conventions, commands, environment staging, and content rules for agents working in this repository"
+resource: "GEMINI.md"
+timestamp: "2026-08-01T16:24:01Z"
 provenance:
   source_type: "generative_ai"
   source_tool: "Antigravity"
@@ -25,7 +30,7 @@ All Markdown (`.md`) files created or modified in the workspace must include a s
 type: "Playbook" | "Evaluation Report" | "Glossary" | "Architecture" | "Troubleshooting" | "Documentation" | "other"
 title: "Descriptive Document Title"
 description: "A concise summary of the document's purpose and contents"
-resource: "file:///absolute/path/to/file.md"
+resource: "repo-relative/path/to/file.md"  # repo-relative preferred; absolute file:// URIs break on other machines
 timestamp: "ISO-8601-UTC-timestamp-of-creation-or-last-update"
 provenance:
   source_type: "api_response" | "python_generated" | "generative_ai" | "manual" | "mcp_tool"
@@ -34,7 +39,7 @@ provenance:
 ---
 ```
 
-
+**Exemptions.** Files consumed verbatim as LLM system prompts (`*/prompts/*.md`) are exempt -- frontmatter there would leak into the model prompt. `CHANGELOG.md` keeps its conventional format. Recorded evaluation artifacts under `evalsets/eval_runs/` and `evalsets/experiments/` are historical evidence and are not retrofitted.
 
 ## Project Overview
 

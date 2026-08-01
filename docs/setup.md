@@ -1,4 +1,9 @@
 ---
+type: "Documentation"
+title: "Setup Guide"
+description: "This guide will walk you through setting up your local Python environment, resolving dependency locks, and configuring the staged."
+resource: "docs/setup.md"
+timestamp: "2026-08-01T16:24:01Z"
 provenance:
   source_type: "generative_ai"
   source_tool: "Antigravity"

@@ -1,4 +1,9 @@
 ---
+type: "Documentation"
+title: "Future Work and Roadmap"
+description: "This document outlines the vision, architectural considerations, and implementation plan for evolving the Security Operations Knowledge."
+resource: "docs/future_work.md"
+timestamp: "2026-08-01T16:24:01Z"
 provenance:
   source_type: "generative_ai"
   source_tool: "Antigravity"
