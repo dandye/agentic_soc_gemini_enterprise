@@ -194,8 +194,10 @@ class EvaluationRunner:
                         path = parts[1]
                         submodules[path] = commit_hash
             except Exception:
-                # Submodule lookup failed or not a git repository
-                return submodules
+                # Submodule lookup failed; keep whatever was parsed and fall
+                # through so commit/branch/dirty are still returned (an early
+                # `return submodules` here made git_meta["commit"] KeyError).
+                pass
 
             return {
                 "commit": commit,
@@ -926,7 +928,7 @@ Use this log to correlate codebase modifications directly to prompt performance 
     )
 
 
-async def async_run_all(directory: Path, concurrency: int, verbose: bool):
+async def async_run_all(directory: Path, verbose: bool):
     """Run all evaluation sets in the directory sequentially to guarantee stability in gcert/fork-restricted environments."""
     if not directory.exists() or not directory.is_dir():
         typer.secho(f"[ERROR] Directory not found: {directory}", fg=typer.colors.RED)
@@ -1011,12 +1013,6 @@ def run_all(
         Path,
         typer.Option("--dir", "-d", help="Directory containing evalset JSON files"),
     ] = Path("evalsets"),
-    concurrency: Annotated[
-        int,
-        typer.Option(
-            "--concurrency", "-c", help="Maximum concurrent evaluation suites"
-        ),
-    ] = 3,
     verbose: Annotated[
         bool,
         typer.Option(
@@ -1024,8 +1020,12 @@ def run_all(
         ),
     ] = False,
 ) -> None:
-    """Run all evaluation sets in a directory concurrently with rate-limiting."""
-    asyncio.run(async_run_all(directory, concurrency, verbose))
+    """Run all evaluation sets in a directory sequentially.
+
+    Execution is deliberately serialized for gRPC stability (see commit
+    07947be); a concurrency flag existed but was silently ignored.
+    """
+    asyncio.run(async_run_all(directory, verbose))
 
 
 @app.command("compare")

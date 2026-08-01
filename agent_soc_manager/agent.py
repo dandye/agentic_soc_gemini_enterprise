@@ -30,7 +30,7 @@ tasks to specialized sub-agents using LLM-based delegation (sub_agents pattern).
 
 ARCHITECTURE:
 - Main orchestrator (gemini-3.1-pro-preview): Routes requests to appropriate specialists via LLM delegation
-  - Direct tool: RAG retrieval (VertexAiRagRetrieval) for runbooks and procedures
+  - Direct tool: RAG retrieval (retrieve_agentic_soc_runbooks via rag.retrieval_query) for runbooks and procedures
   - Delegates to: CTI sub-agent and Tier 1 sub-agent or AgentTool
 - CTI sub-agent (gemini-3.1-flash-preview): Threat intelligence research with MCP tools (GTI, SecOps SIEM, SecOps SOAR, SCC)
 - Tier 1 sub-agent (gemini-3.1-flash-preview): Alert triage with MCP tools (SecOps SIEM, SecOps SOAR, GTI)
@@ -986,18 +986,41 @@ AgentTool.version = "1.0"
 # forces user_id="global_soc_team" does NOT apply.
 # This subclass overrides process_llm_request to call the memory service
 # directly with the shared team scope.
+def _rag_similarity_top_k(default: int = 10) -> int:
+    """Guarded RAG_SIMILARITY_TOP_K parse, matching the specialist agents
+    (they default to 10 with a ValueError fallback; the orchestrator
+    previously used an unguarded default of 3)."""
+    try:
+        return int(os.environ.get("RAG_SIMILARITY_TOP_K", str(default)))
+    except ValueError:
+        return default
+
+
+def _get_memory_scope() -> str:
+    """Single source of truth for the shared memory scope.
+
+    Configurable via MEMORY_SCOPE; defaults to the shared team scope. Every
+    memory read/write path must use this -- a hardcoded "global_soc_team"
+    literal on one path silently splits the memory bank when MEMORY_SCOPE
+    is set (writes land in one scope, reads happen in another).
+    """
+    return os.environ.get("MEMORY_SCOPE", "global_soc_team")
+
+
 class SharedScopePreloadMemoryTool(PreloadMemoryTool):
     """PreloadMemoryTool that always searches under the shared team scope.
 
     The default PreloadMemoryTool uses the per-user scope from the
     invocation context. This subclass overrides the memory search to
-    use user_id='global_soc_team' so that all analysts share the same
-    memory bank.
+    use the shared scope from _get_memory_scope() (MEMORY_SCOPE env var,
+    default 'global_soc_team') so that all analysts share the same memory
+    bank. Eval/benchmark user ids (containing "benchmark", "eval", or
+    "turing") bypass the shared scope so test runs stay isolated.
     """
 
     @property
     def SHARED_USER_ID(self) -> str:
-        return os.environ.get("MEMORY_SCOPE", "global_soc_team")
+        return _get_memory_scope()
 
     async def process_llm_request(self, *, tool_context, llm_request) -> None:
         from google.adk.tools import _memory_entry_utils
@@ -1019,9 +1042,9 @@ class SharedScopePreloadMemoryTool(PreloadMemoryTool):
 
             invocation_ctx = getattr(tool_context, "_invocation_context", None)
             active_user_id = (
-                getattr(invocation_ctx, "user_id", "global_soc_team")
+                getattr(invocation_ctx, "user_id", _get_memory_scope())
                 if invocation_ctx
-                else "global_soc_team"
+                else _get_memory_scope()
             )
 
             if any(
@@ -1294,7 +1317,7 @@ async def retrieve_agentic_soc_runbooks(query: str, ctx: Context) -> str:
         response = rag.retrieval_query(
             text=query,
             rag_resources=[rag.RagResource(rag_corpus=rag_corpus_id)],
-            similarity_top_k=int(os.environ.get("RAG_SIMILARITY_TOP_K", "3")),
+            similarity_top_k=_rag_similarity_top_k(),
         )
 
         contexts = (
@@ -1818,16 +1841,16 @@ async def generate_memory(
 
             invocation_ctx = getattr(ctx, "_invocation_context", None)
             active_user_id = (
-                getattr(invocation_ctx, "user_id", "global_soc_team")
+                getattr(invocation_ctx, "user_id", _get_memory_scope())
                 if invocation_ctx
-                else "global_soc_team"
+                else _get_memory_scope()
             )
             if any(
                 k in active_user_id.lower() for k in ["benchmark", "eval", "turing"]
             ):
                 target_user_id = active_user_id
             else:
-                target_user_id = os.environ.get("MEMORY_SCOPE", "global_soc_team")
+                target_user_id = _get_memory_scope()
 
             await ctx._invocation_context.memory_service.add_events_to_memory(
                 app_name=ctx._invocation_context.app_name,
@@ -1875,7 +1898,7 @@ async def before_tool_cache(tool, args, tool_context: Context, **kwargs):
             async def _shared_search_memory(self, query: str):
                 return await self._invocation_context.memory_service.search_memory(
                     app_name=self._invocation_context.app_name,
-                    user_id="global_soc_team",
+                    user_id=_get_memory_scope(),
                     query=query,
                 )
 

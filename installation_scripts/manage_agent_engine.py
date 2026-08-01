@@ -75,6 +75,25 @@ if DEBUG:
     logging.getLogger("google.api_core").setLevel(logging.DEBUG)
 
 
+# Single source of truth for agent-module -> Agent Engine display name.
+# Flagged in PR #25 review and again in PR #72: this mapping previously lived
+# in two (then three) divergent if/elif chains.
+AGENT_DISPLAY_NAMES = {
+    "agent_a2a_tier2": "SecOps Security Agent - Tier 2",
+    "agent_a2a_threat_hunter": "SecOps Security Agent - Threat Hunter",
+    "agent_a2a_cti_researcher": "SecOps Security Agent - CTI Researcher",
+    "agent_a2a_detection_engineer": "SecOps Security Agent - Detection Engineer",
+    "agent_soc_manager": "SecOps Security Agent - Orchestrator",
+}
+
+
+def agent_display_name(agent_module: str) -> str:
+    """Display name for an agent module; falls back to the module name."""
+    return AGENT_DISPLAY_NAMES.get(
+        agent_module, f"SecOps Security Agent - {agent_module}"
+    )
+
+
 class AgentEngineManager:
     """Manages Agent Engine operations in Gemini Enterprise Agent Platform."""
 
@@ -664,7 +683,7 @@ class AgentEngineManager:
                 typer.echo()
                 typer.echo("Option 1 (Recommended): Use Secret Manager")
                 typer.echo(
-                    "  1. Upload SA file: python installation_scripts/upload_secret.py upload"
+                    "  1. Upload SA file: python installation_scripts/manage_secret.py upload"
                 )
                 typer.echo(
                     "  2. Add to .env: CHRONICLE_SERVICE_ACCOUNT_SECRET=projects/PROJECT/secrets/SECRET/versions/latest"
@@ -941,19 +960,8 @@ class AgentEngineManager:
             # Determine display name based on custom input or agent module
             if custom_display_name:
                 base_name = custom_display_name
-            elif agent_module == "agent_a2a_tier2":
-                base_name = "SecOps Security Agent - Tier 2"
-            elif agent_module == "agent_a2a_threat_hunter":
-                base_name = "SecOps Security Agent - Threat Hunter"
-            elif agent_module == "agent_a2a_cti_researcher":
-                base_name = "SecOps Security Agent - CTI Researcher"
-            elif agent_module == "agent_a2a_detection_engineer":
-                base_name = "SecOps Security Agent - Detection Engineer"
-            elif agent_module == "agent_soc_manager":
-                base_name = "SecOps Security Agent - Orchestrator"
             else:
-                # For any future agent modules, use the module name as-is
-                base_name = f"SecOps Security Agent - {agent_module}"
+                base_name = agent_display_name(agent_module)
 
             # Append timestamp to display name
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -1920,18 +1928,7 @@ def deploy(
     manager = AgentEngineManager(env_file)
 
     # Determine what the display name will be so we can find orphans later
-    if agent_module == "agent_a2a_tier2":
-        display_name = "SecOps Security Agent - Tier 2"
-    elif agent_module == "agent_a2a_threat_hunter":
-        display_name = "SecOps Security Agent - Threat Hunter"
-    elif agent_module == "agent_a2a_cti_researcher":
-        display_name = "SecOps Security Agent - CTI Researcher"
-    elif agent_module == "agent_a2a_detection_engineer":
-        display_name = "SecOps Security Agent - Detection Engineer"
-    elif agent_module == "agent_soc_manager":
-        display_name = "SecOps Security Agent - Orchestrator"
-    else:
-        display_name = f"SecOps Security Agent - {agent_module}"
+    display_name = agent_display_name(agent_module)
 
     typer.echo(f"Targeting logic for: {display_name}")
 

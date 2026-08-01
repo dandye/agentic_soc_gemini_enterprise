@@ -750,10 +750,12 @@ eval-tier1:
     {{ python }} -m google.adk.cli eval {{ agent_module }} evalsets/tier1_triage.evalset.json
 
 # Run multi-specialist evalset
-eval-tier2:  # alias
+alias eval-multi := eval-tier2
+
+eval-tier2:
     {{ python }} -m google.adk.cli eval {{ agent_module }} evalsets/multi_specialist.evalset.json
 
-# Run all 7 evaluation sets concurrently (concurrency limit = 3)
+# Run all 7 evaluation sets sequentially (serialized for gRPC stability)
 test-eval-all:
     {{ python }} {{ manage_eval }} run-all --dir evalsets --concurrency 3
 
