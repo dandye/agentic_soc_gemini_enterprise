@@ -12,6 +12,18 @@ implementation_plan.md
 investigations/*
 !investigations/similarity_reports/
 *.json
+
+# Evaluation ledgers are tracked deliberately — they are the evidence trail for
+# agent performance over time, not build output. The `*.json` rule above is a
+# blanket ignore, so evalsets JSON has to be re-included explicitly. Markdown
+# reports under evalsets/ are not matched by any ignore rule and stay tracked.
+#
+# Do NOT re-add an `evalsets/eval_runs` ignore here: git cannot re-include files
+# inside an ignored directory, so that rule silently overrode the whitelist below
+# and meant new .md runs were dropped without warning.
 !evalsets/**/*.json
+
 worktrees/
-evalsets/eval_runs
+
+# Built documentation output — regenerated from docs/, never edited by hand.
+docs/docs-dist/

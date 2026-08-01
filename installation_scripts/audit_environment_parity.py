@@ -1,4 +1,5 @@
 import json
+import os
 import re
 import subprocess
 import sys
@@ -7,11 +8,19 @@ from pathlib import Path
 
 
 # Paths
+#
+# PROJECT_ROOT is derived from this file's location so the audit runs from any
+# checkout, any machine, and CI. Override with PARITY_PROJECT_ROOT if you are
+# auditing a checkout other than the one this script lives in.
 PROJECT_ROOT = Path(
-    "/Users/dandye/Projects/agentic_soc_agentspace__worktrees/harvest_detection_reports"
+    os.environ.get("PARITY_PROJECT_ROOT", Path(__file__).resolve().parent.parent)
 )
+
+# Where audit artifacts are written. Defaults to evalsets/parity/ inside the
+# repo so results are versioned alongside the eval ledgers; point
+# PARITY_ARTIFACT_DIR at an external vault to keep them out of git.
 ART_DIR = Path(
-    "/Users/dandye/.gemini/jetski/brain/39525e8a-aae4-4a3e-8010-e6cbe24b229d"
+    os.environ.get("PARITY_ARTIFACT_DIR", PROJECT_ROOT / "evalsets" / "parity")
 )
 EXPERIMENTS_DIR = ART_DIR / "experiments"
 PARITY_LEDGER_PATH = ART_DIR / "parity_ledger.md"
@@ -254,11 +263,12 @@ def update_parity_ledger(
     """
     Updates the central parity_ledger.md file, adding or replacing the row for this campaign.
     """
-    header = """---
+    ledger_uri = PARITY_LEDGER_PATH.resolve().as_uri()
+    header = f"""---
 type: "Documentation"
 title: "Multi-Agent SOC Network: Master Parity Ledger"
 description: "Aggregated registry of local vs. cloud environment parity audits and production regression tracking."
-resource: "file:///Users/dandye/.gemini/jetski/brain/39525e8a-aae4-4a3e-8010-e6cbe24b229d/parity_ledger.md"
+resource: "{ledger_uri}"
 timestamp: "2026-06-22T12:00:00Z"
 provenance:
   source_type: "manual"
