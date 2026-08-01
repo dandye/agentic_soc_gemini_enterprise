@@ -145,3 +145,59 @@ def model_info(
 
 if __name__ == "__main__":
     app()
+
+
+# Agent model env vars and the in-code defaults they fall back to. Keep in
+# sync with the create_agent() defaults in each agent module.
+AGENT_MODEL_ENV_DEFAULTS = {
+    "ORCHESTRATOR_MODEL": "gemini-3.1-pro-preview",
+    "CTI_RESEARCHER_MODEL": "gemini-2.5-flash",
+    "THREAT_HUNTER_MODEL": "gemini-2.5-flash",
+    "DETECTION_ENGINEER_MODEL": "gemini-3.5-flash",
+    "TIER1_ANALYST_MODEL": "gemini-3.5-flash",
+    "TIER2_RESPONDER_MODEL": "gemini-2.5-pro",
+}
+
+
+@app.command("validate")
+def validate_models(
+    env_file: Annotated[
+        Path, typer.Option(help="Path to the environment file.")
+    ] = Path(".env"),
+) -> None:
+    """
+    Validate every configured (or defaulted) agent model against the models
+    actually available to this project, so an invalid model name fails here
+    instead of at first agent invocation after deploy (issue #19).
+    """
+    if env_file.exists():
+        load_dotenv(env_file)
+
+    client = get_genai_client()
+    available = set()
+    for m in client.models.list():
+        name = getattr(m, "name", "") or ""
+        # API returns fully-qualified names like models/gemini-2.5-flash or
+        # publishers/google/models/gemini-2.5-flash; index the short form too.
+        available.add(name)
+        available.add(name.rsplit("/", 1)[-1])
+
+    failures = []
+    for env_var, default in AGENT_MODEL_ENV_DEFAULTS.items():
+        configured = os.environ.get(env_var, default)
+        source = "env" if env_var in os.environ else "default"
+        if configured in available:
+            console.print(f"[green]OK[/green]      {env_var}={configured} ({source})")
+        else:
+            failures.append((env_var, configured, source))
+            console.print(
+                f"[red]INVALID[/red] {env_var}={configured} ({source}) -- not in models.list()"
+            )
+
+    if failures:
+        console.print(
+            f"[red]{len(failures)} invalid model name(s). "
+            "Run 'manage.py models list' to see what this project can use.[/red]"
+        )
+        raise typer.Exit(code=1)
+    console.print("[green]All agent models are available to this project.[/green]")

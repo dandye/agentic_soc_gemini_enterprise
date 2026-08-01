@@ -530,6 +530,10 @@ vertex-ai-quota:
 models-list:
     {{ python }} {{ manage_models }} list --env-file {{ env_file }}
 
+# Validate configured agent models against what the project can actually use
+models-validate:
+    {{ python }} {{ manage_models }} validate --env-file {{ env_file }}
+
 # Interactive OAuth client setup from client_secret.json (use: just client_secret=path/to/client_secret.json oauth-setup)
 oauth-setup:
     #!/usr/bin/env bash
