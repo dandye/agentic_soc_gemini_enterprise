@@ -860,10 +860,10 @@ def validate(
         is_valid, message = manager.validate_file(file_path)
 
         if is_valid:
-            typer.secho(f"✓ {file_path.name}: {message}", fg=typer.colors.GREEN)
+            typer.secho(f"{file_path.name}: {message}", fg=typer.colors.GREEN)
             valid_count += 1
         else:
-            typer.secho(f"✗ {file_path.name}: {message}", fg=typer.colors.RED)
+            typer.secho(f"ERROR: {file_path.name}: {message}", fg=typer.colors.RED)
             invalid_count += 1
 
     typer.echo()

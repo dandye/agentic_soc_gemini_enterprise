@@ -145,13 +145,13 @@ class VertexAIManager:
         # Final summary
         typer.secho("=" * 80, fg=typer.colors.BLUE)
         if all_passed:
-            typer.secho("✓ All checks passed!", fg=typer.colors.GREEN, bold=True)
+            typer.secho("All checks passed!", fg=typer.colors.GREEN, bold=True)
             typer.secho(
                 "Gemini Enterprise Agent Platform is properly configured.",
                 fg=typer.colors.GREEN,
             )
         else:
-            typer.secho("✗ Some checks failed", fg=typer.colors.RED, bold=True)
+            typer.secho("ERROR: Some checks failed", fg=typer.colors.RED, bold=True)
             typer.secho(
                 "Please fix the issues above before proceeding.", fg=typer.colors.RED
             )
@@ -168,19 +168,19 @@ class VertexAIManager:
         for var in required_vars:
             value = self.env_vars.get(var)
             if not value:
-                typer.secho(f"  ✗ {var}: Not set", fg=typer.colors.RED)
+                typer.secho(f"  ERROR: {var}: Not set", fg=typer.colors.RED)
                 all_valid = False
             else:
                 # Check if it's a placeholder value
                 is_placeholder, reason = is_placeholder_value(var, value)
                 if is_placeholder:
                     typer.secho(
-                        f"  ✗ {var}: {value} ({reason})",
+                        f"  ERROR: {var}: {value} ({reason})",
                         fg=typer.colors.RED,
                     )
                     all_valid = False
                 else:
-                    typer.secho(f"  ✓ {var}: {value}", fg=typer.colors.GREEN)
+                    typer.secho(f"  {var}: {value}", fg=typer.colors.GREEN)
                     if var == "GCP_PROJECT_ID":
                         self.project_id = value
                     elif var == "GCP_LOCATION":
@@ -194,13 +194,13 @@ class VertexAIManager:
             )
             if is_placeholder:
                 typer.secho(
-                    f"  ✗ RAG_GCP_LOCATION: {rag_location} ({reason})",
+                    f"  ERROR: RAG_GCP_LOCATION: {rag_location} ({reason})",
                     fg=typer.colors.RED,
                 )
                 all_valid = False
             else:
                 typer.secho(
-                    f"  ✓ RAG_GCP_LOCATION: {rag_location}", fg=typer.colors.GREEN
+                    f"  RAG_GCP_LOCATION: {rag_location}", fg=typer.colors.GREEN
                 )
         else:
             typer.secho(
@@ -216,15 +216,15 @@ class VertexAIManager:
             credentials, project = default()
             self.credentials = credentials
             typer.secho(
-                "  ✓ Application Default Credentials found", fg=typer.colors.GREEN
+                "  Application Default Credentials found", fg=typer.colors.GREEN
             )
             if project:
                 typer.secho(
-                    f"  ✓ Authenticated project: {project}", fg=typer.colors.GREEN
+                    f"  Authenticated project: {project}", fg=typer.colors.GREEN
                 )
             return True
         except DefaultCredentialsError as e:
-            typer.secho(f"  ✗ Authentication failed: {e}", fg=typer.colors.RED)
+            typer.secho(f"  ERROR: Authentication failed: {e}", fg=typer.colors.RED)
             typer.echo()
             typer.echo("  To fix, run:")
             typer.secho(
@@ -252,20 +252,20 @@ class VertexAIManager:
             project = projects_client.get_project(request=request)
 
             typer.secho(
-                f"  ✓ Project accessible: {project.display_name or self.project_id}",
+                f"  Project accessible: {project.display_name or self.project_id}",
                 fg=typer.colors.GREEN,
             )
             return True
 
         except ImportError:
             typer.secho(
-                "  ⚠ google-cloud-resource-manager not installed (skipping project check)",
+                "  WARNING: google-cloud-resource-manager not installed (skipping project check)",
                 fg=typer.colors.YELLOW,
             )
             return True
         except Exception as e:
             typer.secho(
-                f"  ✗ Cannot access project: {self.project_id}", fg=typer.colors.RED
+                f"  ERROR: Cannot access project: {self.project_id}", fg=typer.colors.RED
             )
             typer.secho(f"    Error: {str(e)}", fg=typer.colors.RED)
             typer.echo()
@@ -286,9 +286,9 @@ class VertexAIManager:
 
         for api in self.REQUIRED_APIS:
             if self._is_api_enabled(api):
-                typer.secho(f"  ✓ {api}", fg=typer.colors.GREEN)
+                typer.secho(f"  {api}", fg=typer.colors.GREEN)
             else:
-                typer.secho(f"  ✗ {api} (not enabled)", fg=typer.colors.RED)
+                typer.secho(f"  ERROR: {api} (not enabled)", fg=typer.colors.RED)
                 all_enabled = False
 
         if not all_enabled:
@@ -340,7 +340,7 @@ class VertexAIManager:
                 project=self.project_id, location=location, credentials=self.credentials
             )
             typer.secho(
-                "  ✓ Gemini Enterprise Agent Platform initialized successfully",
+                "  Gemini Enterprise Agent Platform initialized successfully",
                 fg=typer.colors.GREEN,
             )
             typer.secho(f"    Project: {self.project_id}", fg=typer.colors.GREEN)
@@ -348,7 +348,7 @@ class VertexAIManager:
             return True
         except Exception as e:
             typer.secho(
-                f"  ✗ Gemini Enterprise Agent Platform initialization failed: {e}",
+                f"  ERROR: Gemini Enterprise Agent Platform initialization failed: {e}",
                 fg=typer.colors.RED,
             )
             return False
@@ -364,7 +364,7 @@ class VertexAIManager:
             # Get current user identity from credentials
             if not self.credentials:
                 typer.secho(
-                    "  ⚠ No credentials available to check permissions",
+                    "  WARNING: No credentials available to check permissions",
                     fg=typer.colors.YELLOW,
                 )
                 return True
@@ -427,9 +427,9 @@ class VertexAIManager:
             typer.echo("  Required roles:")
             for role in self.REQUIRED_ROLES:
                 if role in user_roles:
-                    typer.secho(f"    ✓ {role}", fg=typer.colors.GREEN)
+                    typer.secho(f"    {role}", fg=typer.colors.GREEN)
                 else:
-                    typer.secho(f"    ✗ {role} (not granted)", fg=typer.colors.RED)
+                    typer.secho(f"    ERROR: {role} (not granted)", fg=typer.colors.RED)
                     all_roles_present = False
 
             if not all_roles_present:
@@ -449,12 +449,12 @@ class VertexAIManager:
 
         except ImportError:
             typer.secho(
-                "  ⚠ google-cloud-resource-manager not installed (skipping permission check)",
+                "  WARNING: google-cloud-resource-manager not installed (skipping permission check)",
                 fg=typer.colors.YELLOW,
             )
             return True
         except Exception as e:
-            typer.secho(f"  ⚠ Could not check permissions: {e}", fg=typer.colors.YELLOW)
+            typer.secho(f"  WARNING: Could not check permissions: {e}", fg=typer.colors.YELLOW)
             typer.echo(
                 "    Note: Use GCP Console IAM page to verify permissions manually"
             )

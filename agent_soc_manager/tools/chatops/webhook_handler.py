@@ -79,7 +79,7 @@ async def handle_action(t: str = Query(..., description="Signed action token")):
             </head>
             <body>
                 <div class="card">
-                    <div class="icon">✓</div>
+                    <div class="icon">OK</div>
                     <h1>Action Confirmed</h1>
                     <p>The action <b>{action}</b> has been successfully processed by the AI Agent.</p>
                     <p>You can close this tab and return to Google Chat.</p>

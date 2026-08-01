@@ -1243,9 +1243,15 @@ async def search_knowledge_base(query: str, ctx: Context) -> str:
         import urllib3
         from elasticsearch import Elasticsearch
 
-        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+        verify_certs = os.getenv("ELASTICSEARCH_VERIFY_CERTS", "false").lower() in (
+            "1",
+            "true",
+            "yes",
+        )
+        if not verify_certs:
+            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-        client_kwargs = {"verify_certs": False, "ssl_show_warn": False}
+        client_kwargs = {"verify_certs": verify_certs, "ssl_show_warn": verify_certs}
 
         if es_api_key:
             es = Elasticsearch(es_url, api_key=es_api_key, **client_kwargs)

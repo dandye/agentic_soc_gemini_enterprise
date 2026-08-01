@@ -17,6 +17,21 @@ from dotenv import load_dotenv
 from elasticsearch import Elasticsearch, NotFoundError
 
 
+def _es_verify_certs() -> bool:
+    """TLS verification for Elasticsearch, configurable via env.
+
+    Defaults to disabled to preserve existing self-signed-cert deployments
+    (see .env.example); set ELASTICSEARCH_VERIFY_CERTS=true wherever a real
+    CA-signed endpoint is in use.
+    """
+    return os.getenv("ELASTICSEARCH_VERIFY_CERTS", "false").lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+
+
+
 app = typer.Typer(
     add_completion=False,
     help="Manage Elasticsearch index for the Google MCP Security Agent.",
@@ -115,9 +130,10 @@ class ElasticsearchManager:
 
         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
+        verify = _es_verify_certs()
         client_kwargs = {
-            "verify_certs": False,
-            "ssl_show_warn": False,
+            "verify_certs": verify,
+            "ssl_show_warn": verify,
             "request_timeout": 60.0,
         }
 

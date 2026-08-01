@@ -8,12 +8,29 @@ of nodes and edges from the investigations/knowledge_graph.json file.
 
 import json
 import os
+import re
 from pathlib import Path
 from typing import Annotated
 
 import typer
 from dotenv import load_dotenv
 from neo4j import GraphDatabase, exceptions
+
+
+_CYPHER_IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
+
+
+def _safe_cypher_ident(name, kind="label"):
+    """Validate a dynamic Cypher label/relationship-type token.
+
+    Labels and relationship types cannot be query parameters in Cypher, so
+    they are f-string interpolated into MERGE/MATCH statements. Today the
+    upstream graph compiler (recalc_graph.py) emits only hardcoded enum
+    values, but this boundary must not rely on that staying true: a value
+    containing backticks/braces/colons would break out of the intended
+    token. Returns None (caller skips + warns) when the token is unsafe.
+    """
+    return name if _CYPHER_IDENT.match(name or "") else None
 
 
 app = typer.Typer(
@@ -139,6 +156,11 @@ class Neo4jManager:
                         grouped_nodes.setdefault(lbl_clean, []).append(node)
 
                     for label_clean, label_nodes in grouped_nodes.items():
+                        if _safe_cypher_ident(label_clean) is None:
+                            print(
+                                f"WARNING: skipping {len(label_nodes)} node(s) with unsafe label {label_clean!r}"
+                            )
+                            continue
                         # Determine unique identifier property name
                         prop_name = (
                             "name"
@@ -190,6 +212,11 @@ class Neo4jManager:
                         grouped_edges.setdefault(etype, []).append(edge)
 
                     for etype_clean, etype_edges in grouped_edges.items():
+                        if _safe_cypher_ident(etype_clean, "relationship type") is None:
+                            print(
+                                f"WARNING: skipping {len(etype_edges)} edge(s) with unsafe type {etype_clean!r}"
+                            )
+                            continue
                         payload = []
                         for edge in etype_edges:
                             src_id = edge["source"]
@@ -245,6 +272,14 @@ class Neo4jManager:
                                 else "id"
                             )
 
+                            if (
+                                _safe_cypher_ident(src_lbl) is None
+                                or _safe_cypher_ident(tgt_lbl) is None
+                            ):
+                                print(
+                                    f"WARNING: skipping edge group with unsafe endpoint labels {src_lbl!r}/{tgt_lbl!r}"
+                                )
+                                continue
                             cypher = f"""
                             UNWIND $relationships AS rel
                             MATCH (s:{src_lbl} {{{src_prop}: rel.src_id}})
