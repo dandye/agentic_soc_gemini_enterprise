@@ -67,6 +67,8 @@ Deploy agent to Agent Engine (using justfile):
 just agent-engine-deploy  # Initial deployment
 just agent-engine-update  # PREFERRED: In-place update of agent code (retains memory/sessions)
 just agent-engine-redeploy  # FULL DESTRUCTIVE REBUILD (Ask user before running this!)
+just agent-engine-deploy-alloydb "SOC Manager (AlloyDB)"  # Deploy dedicated AlloyDB-grounded agent
+just agentspace-register-alloydb "SOC Manager (AlloyDB)"  # Register AlloyDB agent with Gemini Enterprise
 just agentspace-register  # Register with Gemini Enterprise Agent Platform
 just full-deploy-with-oauth  # Complete deployment with OAuth
 ```
@@ -102,7 +104,7 @@ python manage.py rag list --verbose
 python manage.py rag create "name" --description "desc"
 ```
 
-### Elasticsearch & Neo4j Database Grounding Management
+### Elasticsearch, Neo4j & AlloyDB Database Grounding Management
 
 Manage Elasticsearch runbook grounding:
 ```bash
@@ -121,12 +123,38 @@ just neo4j-start                   # Start a local Neo4j database container via 
 just neo4j-stop                    # Stop the local Neo4j database container
 ```
 
+Manage AlloyDB Detection Reports Grounding:
+```bash
+just alloydb-test                  # Test connection to the AlloyDB / PostgreSQL instance
+just alloydb-init                  # Initialize AlloyDB schema, extensions, and indexes
+just alloydb-ingest                # Ingest all harvested detection reports into AlloyDB
+just alloydb-embed                 # Generate Vertex AI 768-dim vector embeddings
+just alloydb-search "MSBuildShell" # Search detection reports in AlloyDB (keyword)
+just alloydb-search-semantic "powershell download cradle" # Semantic vector search via text-embedding-004
+just alloydb-find-similar <INV_ID> 5 threat-hunt # Multi-modal similarity engine with profiles
+just alloydb-report <INV_ID> 5 threat-hunt # Generate similarity Markdown report with AI threat synthesis
+just alloydb-profiles              # List all predefined similarity scoring profiles
+just alloydb-info                  # Show statistics and metadata about detection reports
+just alloydb-clear                 # Clear all detection reports from AlloyDB
+just alloydb-start                 # Start a local AlloyDB / pgvector container via Podman
+just alloydb-stop                  # Stop the local AlloyDB container
+```
+
 Using the Python CLI:
 ```bash
 python manage.py elastic info
 python manage.py elastic search "malware response"
 python manage.py neo4j test-connection
 python manage.py neo4j ingest
+python manage.py alloydb test-connection
+python manage.py alloydb ingest
+python manage.py alloydb embed
+python manage.py alloydb search "MSBuildShell"
+python manage.py alloydb search "powershell download cradle" --semantic
+python manage.py alloydb find-similar <INV_ID> --profile threat-hunt --explain
+python manage.py alloydb report <INV_ID> --profile threat-hunt --ai
+python manage.py alloydb profiles
+python manage.py alloydb info
 ```
 
 ### Environment Management
@@ -293,6 +321,7 @@ When the Orchestrator needs to delegate a task to a remote specialist, it calls 
 ### Database Grounding Architecture
 - **Elasticsearch Grounding (`search_knowledge_base`):** If `ELASTICSEARCH_GROUNDING_ENABLED=True`, the Orchestrator registers the direct Elasticsearch search tool. This bypasses RAG and queries your GCE Elasticsearch VM directly over port 9200, enabling rapid searching of playbooks and harvested telemetry.
 - **Neo4j Graph Database (`query_neo4j_graph`):** Connects to your GCE Neo4j VM over Bolt protocol on port 7687 to traverse complex threat relationships, alerting paths, and entity associations.
+- **AlloyDB Detection Reports Grounding (`query_alloydb_detection_reports`):** If `ALLOYDB_GROUNDING_ENABLED=True`, the Orchestrator and Tier 1 Analyst register the AlloyDB tool to query historical Chronicle detection reports, past investigation verdicts, full-text summaries, alert contexts, and affected entities.
 
 ## Modifying the Agents
 

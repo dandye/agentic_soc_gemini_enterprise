@@ -406,11 +406,13 @@ class AgentSpaceManager:
             typer.echo()
 
         # Generate app ID with timestamp
+        import re
         import time
 
         if not app_name:
             app_name = "agentic-soc-app"
-        app_id = f"{app_name.lower().replace(' ', '-')}_{int(time.time())}"
+        clean_slug = re.sub(r"[^a-z0-9-_]+", "-", app_name.lower()).strip("-")
+        app_id = f"{clean_slug}_{int(time.time())}"
 
         project_number = self.env_vars["GCP_PROJECT_NUMBER"]
         collection = self.env_vars.get("AGENTSPACE_COLLECTION", "default_collection")
@@ -712,6 +714,8 @@ class AgentSpaceManager:
         description: str | None = None,
         tool_description: str | None = None,
         auth_id: str | None = None,
+        reasoning_engine: str | None = None,
+        output_var_name: str = "AGENTSPACE_AGENT_ID",
     ) -> bool:
         """
         Link an existing agent engine to Gemini Enterprise Agent Platform with OAuth authorization.
@@ -721,6 +725,8 @@ class AgentSpaceManager:
             description: Description of the agent
             tool_description: Description of what the agent tool does
             auth_id: OAuth authorization ID
+            reasoning_engine: Optional explicit Reasoning Engine resource name
+            output_var_name: Environment variable to store the resulting Agent ID
 
         Returns:
             True if successful, False otherwise
@@ -750,7 +756,17 @@ class AgentSpaceManager:
 
         project_number = self.env_vars["GCP_PROJECT_NUMBER"]
         as_app = self.env_vars["AGENTSPACE_APP_ID"]
-        reasoning_engine = self.env_vars["AGENT_ENGINE_RESOURCE_NAME"]
+        if not reasoning_engine:
+            reasoning_engine = self.env_vars.get(
+                "AGENT_ENGINE_ALLOYDB_RESOURCE_NAME"
+            ) or self.env_vars.get("AGENT_ENGINE_RESOURCE_NAME")
+
+        if not reasoning_engine:
+            typer.echo(
+                "Error: No Reasoning Engine resource name provided or found in environment",
+                err=True,
+            )
+            return False
 
         access_token = self._get_access_token()
         if not access_token:
@@ -793,8 +809,10 @@ class AgentSpaceManager:
             # Extract and save agent ID if present
             if "/" in agent_name:
                 agent_id = agent_name.split("/")[-1]
-                self._update_env_var("AGENTSPACE_AGENT_ID", agent_id)
-                typer.echo(f"Agent ID saved to environment: {agent_id}")
+                self._update_env_var(output_var_name, agent_id)
+                typer.echo(
+                    f"Agent ID saved to environment: {output_var_name}={agent_id}"
+                )
 
             return True
 
@@ -1463,6 +1481,17 @@ def link_agent(
     auth_id: Annotated[
         str | None, typer.Option("--auth-id", help="OAuth authorization ID.")
     ] = None,
+    reasoning_engine: Annotated[
+        str | None,
+        typer.Option("--reasoning-engine", help="Reasoning Engine resource name."),
+    ] = None,
+    output_var_name: Annotated[
+        str,
+        typer.Option(
+            "--output-var-name",
+            help="Environment variable name to store the resulting Agent ID.",
+        ),
+    ] = "AGENTSPACE_AGENT_ID",
     env_file: Annotated[
         Path, typer.Option(help="Path to the environment file.")
     ] = Path(".env"),
@@ -1470,7 +1499,12 @@ def link_agent(
     """Link an existing agent engine to AgentSpace with OAuth authorization."""
     manager = AgentSpaceManager(env_file)
     if not manager.link_agent_to_agentspace(
-        display_name, description, tool_description, auth_id
+        display_name,
+        description,
+        tool_description,
+        auth_id,
+        reasoning_engine,
+        output_var_name,
     ):
         raise typer.Exit(code=1)
 

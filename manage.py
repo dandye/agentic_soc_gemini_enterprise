@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).parent / "installation_scripts"))
 from installation_scripts.harvest_investigations import app as harvest_app
 from installation_scripts.manage_agent_engine import app as agent_engine_app
 from installation_scripts.manage_agentspace import app as agentspace_app
+from installation_scripts.manage_alloydb import app as alloydb_app
 from installation_scripts.manage_chat_ops import app as chatops_app
 from installation_scripts.manage_datastore import app as datastore_app
 from installation_scripts.manage_elasticsearch import app as elastic_app
@@ -81,6 +82,9 @@ app.add_typer(
     help="Harvest and enrich investigations and detections from Chronicle SIEM",
 )
 app.add_typer(neo4j_app, name="neo4j", help="Manage Neo4j Graph Database")
+app.add_typer(
+    alloydb_app, name="alloydb", help="Manage AlloyDB detection reports database"
+)
 app.add_typer(
     licenses_app, name="licenses", help="Manage Gemini Enterprise user licenses"
 )

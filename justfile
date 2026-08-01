@@ -28,6 +28,7 @@ manage_harvest := "installation_scripts/harvest_investigations.py"
 manage_elastic := "installation_scripts/manage_elasticsearch.py"
 manage_eval := "installation_scripts/manage_eval.py"
 manage_neo4j := "installation_scripts/manage_neo4j.py"
+manage_alloydb := "installation_scripts/manage_alloydb.py"
 manage_licenses := "installation_scripts/manage_licenses.py"
 
 # Global options for GCS / RAG / Data Store (override on command line)
@@ -901,6 +902,78 @@ neo4j-gce-deploy:
         --tags=neo4j-server \
         --metadata=neo4j-password=$NEO4J_PASSWORD \
         --metadata-from-file=startup-script=gce/startup_neo4j.sh
+
+# Test connection to AlloyDB / PostgreSQL database
+alloydb-test:
+    {{ python }} {{ manage_alloydb }} test-connection --env-file {{ env_file }}
+
+# Initialize AlloyDB schema, tables, extensions, and indexes
+alloydb-init recreate="false":
+    {{ python }} {{ manage_alloydb }} init-schema {{ if recreate == "true" { "--recreate" } else { "" } }} --env-file {{ env_file }}
+
+# Ingest harvested detection reports and investigations into AlloyDB
+alloydb-ingest recreate="false" batch_size="50":
+    {{ python }} {{ manage_alloydb }} ingest {{ if recreate == "true" { "--recreate" } else { "" } }} --batch-size {{ batch_size }} --env-file {{ env_file }}
+
+# Generate Vertex AI 768-dim vector embeddings for all detection reports in AlloyDB
+alloydb-embed force="false" batch_size="10":
+    {{ python }} {{ manage_alloydb }} embed {{ if force == "true" { "--force" } else { "" } }} --batch-size {{ batch_size }} --env-file {{ env_file }}
+
+# Search harvested detection reports in AlloyDB (keyword or full-text)
+alloydb-search query limit="5":
+    {{ python }} {{ manage_alloydb }} search {{ quote(query) }} --limit {{ limit }} --env-file {{ env_file }}
+
+# Semantic vector similarity search in AlloyDB via text-embedding-004
+alloydb-search-semantic query limit="5":
+    {{ python }} {{ manage_alloydb }} search {{ quote(query) }} --semantic --limit {{ limit }} --env-file {{ env_file }}
+
+# Find similar historical investigations using multi-modal composite scoring with profiles
+alloydb-find-similar id limit="5" profile="balanced":
+    {{ python }} {{ manage_alloydb }} find-similar {{ id }} --profile {{ profile }} --limit {{ limit }} --explain --env-file {{ env_file }}
+
+# Generate a comprehensive Markdown investigation similarity report with AI threat synthesis
+alloydb-report id limit="5" profile="threat-hunt" ai="true":
+    {{ python }} {{ manage_alloydb }} report {{ id }} --profile {{ profile }} --limit {{ limit }} {{ if ai == "true" { "--ai" } else { "--no-ai" } }} --env-file {{ env_file }}
+
+# List all available similarity scoring profiles in AlloyDB
+alloydb-profiles:
+    {{ python }} {{ manage_alloydb }} profiles
+
+# Show statistics and metadata about detection reports in AlloyDB
+alloydb-info:
+    {{ python }} {{ manage_alloydb }} info --env-file {{ env_file }}
+
+# Clear all detection reports from AlloyDB (force=true to skip confirmation)
+alloydb-clear force="false":
+    {{ python }} {{ manage_alloydb }} clear {{ if force == "true" { "--force" } else { "" } }} --env-file {{ env_file }}
+
+# Start a local AlloyDB/PostgreSQL container using Podman
+alloydb-start:
+    {{ python }} {{ manage_alloydb }} start
+
+# Stop and remove the local AlloyDB/PostgreSQL container
+alloydb-stop:
+    {{ python }} {{ manage_alloydb }} stop
+
+# Deploy dedicated AlloyDB-grounded Agent Engine instance with unique name
+agent-engine-deploy-alloydb display_name="SOC Manager (AlloyDB)": check-prereqs
+    {{ python }} {{ manage_agent_engine }} create --agent-module agent_soc_manager --display-name {{ quote(display_name) }} --output-var-name AGENT_ENGINE_ALLOYDB_RESOURCE_NAME
+    @echo "========================================"
+    @echo "AlloyDB Agent deployment complete"
+    @echo "========================================"
+
+# Register dedicated AlloyDB Agent with Gemini Enterprise Agent Platform (GEAP)
+agentspace-register-alloydb display_name="SOC Manager (AlloyDB)": check-prereqs
+    {{ python }} {{ manage_agentspace }} link-agent \
+        --display-name {{ quote(display_name) }} \
+        --description "SOC Manager grounded with Google Cloud AlloyDB historical detection reports, similarity engine, and SIEM/SOAR tools" \
+        --tool-description "Multi-modal SOC investigation, historical detection reports grounding, and threat triage" \
+        --reasoning-engine {{ env_var('AGENT_ENGINE_ALLOYDB_RESOURCE_NAME') }} \
+        --output-var-name AGENTSPACE_ALLOYDB_AGENT_ID \
+        --env-file {{ env_file }}
+    @echo "========================================"
+    @echo "AlloyDB Agent registered with Gemini Enterprise"
+    @echo "========================================"
 
 # Run a local-vs-cloud environment parity audit for a campaign
 parity-audit uuid: check-prereqs

@@ -101,6 +101,57 @@ def _apply_runtime_patches():
         "[RUNTIME_PATCH_DEBUG] Applying runtime framework monkeypatches inside Reasoning Engine process..."
     )
 
+    # 0. Monkeypatch Context, InvocationContext, and CallbackContext Pydantic core schemas
+    # and _build_parameters_json_schema to ignore 'ctx', 'context', 'tool_context'
+    try:
+        import google.adk.tools._function_tool_declarations as ftd
+        from google.adk.agents.callback_context import (
+            CallbackContext as AdkCallbackContext,
+        )
+        from google.adk.agents.context import Context as AdkContext
+        from google.adk.agents.invocation_context import (
+            InvocationContext as AdkInvocationContext,
+        )
+        from pydantic_core import core_schema
+
+        def _pydantic_core_schema(cls, source_type, handler):
+            return core_schema.any_schema()
+
+        AdkContext.__get_pydantic_core_schema__ = classmethod(_pydantic_core_schema)
+        AdkInvocationContext.__get_pydantic_core_schema__ = classmethod(
+            _pydantic_core_schema
+        )
+        AdkCallbackContext.__get_pydantic_core_schema__ = classmethod(
+            _pydantic_core_schema
+        )
+
+        orig_build_params = ftd._build_parameters_json_schema
+
+        def _patched_build_parameters_json_schema(func, ignore_params=None):
+            if ignore_params is None:
+                ignore_params = []
+            else:
+                ignore_params = list(ignore_params)
+            for p in [
+                "ctx",
+                "tool_context",
+                "context",
+                "invocation_context",
+                "callback_context",
+            ]:
+                if p not in ignore_params:
+                    ignore_params.append(p)
+            return orig_build_params(func, ignore_params)
+
+        ftd._build_parameters_json_schema = _patched_build_parameters_json_schema
+        logger.warning(
+            "[RUNTIME_PATCH_DEBUG] Successfully patched Context Pydantic core schemas and _build_parameters_json_schema"
+        )
+    except Exception as e:
+        logger.warning(
+            f"[RUNTIME_PATCH_DEBUG] Failed to patch Context Pydantic core schemas: {e}"
+        )
+
     # 1. Monkeypatch validation function to prevent 400 INVALID_ARGUMENT when removing function call IDs
     try:
         import google.adk.flows.llm_flows.contents as adk_contents
@@ -665,6 +716,10 @@ def _apply_runtime_patches():
 
     _runtime_patches_applied = True
     logger.warning("[RUNTIME_PATCH_DEBUG] All runtime patches applied successfully!")
+
+
+# Apply runtime monkeypatches on module import
+_apply_runtime_patches()
 
 
 class PatchedAgent(Agent):
@@ -1362,6 +1417,206 @@ async def query_knowledge_graph(cypher_query: str, ctx: Context) -> str:
     except Exception as e:
         logger.error(f"Neo4j query failed: {e}")
         return f"Error querying Neo4j: {e}"
+
+
+async def query_alloydb_detection_reports(
+    query: str | None = None,
+    verdict: str | None = None,
+    entity: str | None = None,
+    alert_id: str | None = None,
+    limit: int = 5,
+    tool_context: Context | None = None,
+) -> str:
+    """Search harvested Chronicle detection reports and historical investigations in AlloyDB.
+
+    Use this tool to find past investigation findings, verdicts (TRUE_POSITIVE / FALSE_POSITIVE),
+    prescribed next steps, related alert contexts, or affected entities (hosts, users, IPs, file hashes).
+
+    Args:
+        query: Optional search keyword or phrase to search across investigation titles, summaries, and reports.
+        verdict: Optional filter for investigation verdict ('TRUE_POSITIVE' or 'FALSE_POSITIVE').
+        entity: Optional entity value to search for (e.g. hostname 'wins-d19', username 'lisawalker', IP address, or SHA256 hash).
+        alert_id: Optional alert identifier (e.g. 'de_0bfc2f34-7068-e354-3225-6cfef865577b').
+        limit: Maximum number of detection reports to return (default 5).
+    """
+    logger.info(
+        f"ALLOYDB_SEARCH: query='{query}', verdict='{verdict}', entity='{entity}', alert_id='{alert_id}', limit={limit}"
+    )
+
+    host = os.environ.get("ALLOYDB_HOST", "localhost")
+    port = int(os.environ.get("ALLOYDB_PORT", "5432"))
+    database = os.environ.get("ALLOYDB_DATABASE", "secops")
+    user = os.environ.get("ALLOYDB_USER", "postgres")
+    password = get_secret("ALLOYDB_PASSWORD") or os.environ.get(
+        "ALLOYDB_PASSWORD", "password"
+    )
+    instance_uri = os.environ.get("ALLOYDB_INSTANCE_URI")
+    sslmode = os.environ.get("ALLOYDB_SSLMODE", "prefer")
+
+    try:
+        import psycopg
+        from psycopg.rows import dict_row
+
+        conn = None
+        if instance_uri:
+            try:
+                from google.cloud.alloydb.connector import Connector
+
+                connector = Connector()
+                conn = connector.connect(
+                    instance_uri,
+                    "psycopg",
+                    user=user,
+                    password=password,
+                    db=database,
+                    autocommit=False,
+                )
+            except Exception as conn_err:
+                logger.warning(f"AlloyDB connector fallback: {conn_err}")
+
+        if conn is None:
+            conn = psycopg.connect(
+                host=host,
+                port=port,
+                dbname=database,
+                user=user,
+                password=password,
+                sslmode=sslmode,
+                autocommit=False,
+            )
+
+        with conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                where_clauses = []
+                params = []
+
+                if query:
+                    where_clauses.append(
+                        """(
+                            to_tsvector('english', coalesce(display_name, '') || ' ' || coalesce(summary, '') || ' ' || coalesce(markdown_report, ''))
+                            @@ plainto_tsquery('english', %s)
+                            OR display_name ILIKE %s
+                            OR summary ILIKE %s
+                            OR id ILIKE %s
+                        )"""
+                    )
+                    like_q = f"%{query}%"
+                    params.extend([query, like_q, like_q, like_q])
+
+                if verdict:
+                    where_clauses.append("verdict = %s")
+                    params.append(verdict.upper())
+
+                if alert_id:
+                    where_clauses.append("%s = ANY(alert_ids)")
+                    params.append(alert_id)
+
+                if entity:
+                    where_clauses.append(
+                        """id IN (
+                            SELECT investigation_id FROM detection_entities
+                            WHERE entity_value ILIKE %s
+                        )"""
+                    )
+                    params.append(f"%{entity}%")
+
+                where_sql = (
+                    ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
+                )
+                sql = f"""
+                    SELECT id, display_name, verdict, confidence, status, publish_time, summary, alert_ids, entities
+                    FROM detection_reports
+                    {where_sql}
+                    ORDER BY publish_time DESC NULLS LAST
+                    LIMIT %s;
+                """  # noqa: S608
+                params.append(limit)
+                cur.execute(sql, tuple(params))
+                rows = cur.fetchall()
+
+        if not rows:
+            return "No matching detection reports found in AlloyDB."
+
+        results = []
+        for r in rows:
+            res_str = (
+                f"Investigation ID: {r['id']}\n"
+                f"Title: {r['display_name']}\n"
+                f"Verdict: {r['verdict']} (Confidence: {r['confidence']})\n"
+                f"Published: {r['publish_time']}\n"
+                f"Alert IDs: {', '.join(r['alert_ids'] or [])}\n"
+                f"Summary:\n{r['summary']}\n"
+                f"{'='*40}"
+            )
+            results.append(res_str)
+
+        return "\n\n".join(results)
+
+    except Exception as e:
+        logger.error(f"AlloyDB query failed: {e}")
+        return f"Error querying AlloyDB detection reports: {e}"
+
+
+def find_similar_alloydb_investigations(
+    investigation_id: str,
+    limit: int = 5,
+    profile: str = "balanced",
+) -> str:
+    """
+    Finds the most similar historical investigation reports in AlloyDB to a given investigation ID.
+    Uses multi-modal composite scoring parameterized by specialized SOC operational profiles:
+
+    Profiles:
+    - 'balanced' (default): Standard blend across all 5 dimensions (35% semantic, 30% entity, 20% TTP, 10% flow, 5% time).
+    - 'threat-hunt': Biases heavily for shared MITRE TTPs (45%) and semantic tradecraft (35%) to hunt actor behaviors across multiple or disparate hosts.
+    - 'compromise-pivot': Biases heavily for compromised hosts/users/IPs (45%) and temporal proximity (30%) to detect lateral movement and incident blast radius.
+    - 'false-positive': Biases for exact entity matches (40%) and detection rules (25%) to identify recurring benign noise and previous false-positive dismissals.
+    - 'semantic': Biases for dense vector cosine similarity (60%) for conceptual behavioral discovery.
+
+    Args:
+        investigation_id: The UUID or ID of the investigation to compare against (e.g. '00351f48-2646-4450-ae2d-6fefeae32f2d').
+        limit: Maximum number of similar reports to return (default: 5).
+        profile: The scoring profile to use ('balanced', 'threat-hunt', 'compromise-pivot', 'false-positive', 'semantic').
+    """
+    try:
+        try:
+            from agent_soc_manager.manage_alloydb import AlloyDBManager
+        except ImportError:
+            try:
+                from installation_scripts.manage_alloydb import AlloyDBManager
+            except ImportError:
+                from manage_alloydb import AlloyDBManager
+
+        manager = AlloyDBManager()
+        similar_reports = manager.find_similar(
+            investigation_id=investigation_id,
+            limit=limit,
+            profile=profile,
+        )
+        if not similar_reports:
+            return f"No similar investigations found for ID '{investigation_id}' in AlloyDB."
+
+        results = []
+        for idx, r in enumerate(similar_reports, 1):
+            bd = r["breakdown"]
+            shared_ents = [f"{e['type']}:{e['value']}" for e in r["shared_entities"]]
+            res_str = (
+                f"Rank {idx}: {r['display_name']} (ID: {r['id']})\n"
+                f"Verdict: {r['verdict']} (Confidence: {r['confidence']})\n"
+                f"Composite Similarity: {r['composite_score']:.4f} "
+                f"[Semantic: {bd['semantic']:.2f}, Entity: {bd['entity']:.2f}, TTP: {bd['ttp']:.2f}, Flow: {bd['flow']:.2f}, Time: {bd['time']:.2f}]\n"
+                f"Shared Entities ({len(shared_ents)}): {', '.join(shared_ents) or 'None'}\n"
+                f"Shared MITRE Techniques: {', '.join(r['shared_techniques']) or 'None'}\n"
+                f"Shared MITRE Tactics: {', '.join(r['shared_tactics']) or 'None'}\n"
+                f"Summary Preview:\n{(r['summary'] or '')[:250]}...\n"
+                f"{'='*40}"
+            )
+            results.append(res_str)
+
+        return "\n\n".join(results)
+    except Exception as e:
+        logger.error(f"Failed to find similar investigations in AlloyDB: {e}")
+        return f"Error querying similar investigations in AlloyDB: {e}"
 
 
 async def save_report_artifact(filename: str, report_content: str, ctx: Context) -> str:
@@ -2612,6 +2867,12 @@ def create_agent():
     ]
 
     # Configure grounding/retrieval for Tier 1 Analyst
+    ALLOYDB_GROUNDING_ENABLED = (
+        os.environ.get("ALLOYDB_GROUNDING_ENABLED", "True") == "True"
+    )
+    if ALLOYDB_GROUNDING_ENABLED:
+        tier1_tools.append(query_alloydb_detection_reports)
+        tier1_tools.append(find_similar_alloydb_investigations)
     if ELASTICSEARCH_GROUNDING_ENABLED:
         tier1_tools.append(search_knowledge_base)
     if RAG_CORPUS_ID:
@@ -2636,8 +2897,16 @@ def create_agent():
                 "get_case",
                 "update_case",
                 "create_case_comment",
+                "list_case_comments",
                 "list_case_alerts",
                 "get_case_alert",
+                "get_investigation_by_id",
+                "get_security_alert",
+                "list_security_alerts",
+                "update_security_alert",
+                "get_alert_latest_investigation",
+                "trigger_investigation",
+                "get_ioc_match",
             ],
         )
     )
@@ -2788,6 +3057,18 @@ You MUST use the following exact values for any Chronicle or SecOps tool calls (
         grounding_tool_desc += f"""{tool_idx}. **retrieve_agentic_soc_runbooks** (RAG Knowledge Base):
    - Directly retrieves SOC runbooks, IRPs, procedures, and documentation from RAG corpus.
    - **IMPORTANT:** This tool provides grounding citations - preserve them in your response!\n"""
+        tool_idx += 1
+
+    if ALLOYDB_GROUNDING_ENABLED:
+        orchestrator_tools.append(query_alloydb_detection_reports)
+        orchestrator_tools.append(find_similar_alloydb_investigations)
+        grounding_tool_desc += f"""{tool_idx}. **query_alloydb_detection_reports** (Historical Detection Reports in AlloyDB):
+   - Searches historical Chronicle detection reports, investigations, verdicts, alert contexts, and affected entities stored in AlloyDB.
+   - **IMPORTANT:** Use this tool to check historical investigation precedent, previous verdicts on entities, and next steps.\n"""
+        tool_idx += 1
+        grounding_tool_desc += f"""{tool_idx}. **find_similar_alloydb_investigations** (Multi-Modal Investigation Similarity in AlloyDB):
+   - Finds the most similar historical investigations to a given investigation ID using composite scoring (vector embeddings, weighted entity graph overlap, MITRE TTPs, and execution steps).
+   - **IMPORTANT:** Use this tool during alert triage and deep-dive analysis to locate exact previous false positives or true positive campaign patterns.\n"""
         tool_idx += 1
 
     # Add Memory tools — PreloadMemory for automatic context, LoadMemory for on-demand queries

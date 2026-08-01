@@ -553,6 +553,8 @@ class AgentEngineManager:
         debug: bool = False,
         no_test: bool = False,
         description: str | None = None,
+        display_name: str | None = None,
+        output_var_name: str | None = None,
     ) -> str | None:
         return self._deploy_agent_internal(
             agent_module=agent_module,
@@ -560,6 +562,8 @@ class AgentEngineManager:
             no_test=no_test,
             is_update=False,
             description=description,
+            custom_display_name=display_name,
+            output_var_name=output_var_name,
         )
 
     def update_agent(
@@ -587,6 +591,8 @@ class AgentEngineManager:
         is_update: bool = False,
         update_resource_name: str | None = None,
         description: str | None = None,
+        custom_display_name: str | None = None,
+        output_var_name: str | None = None,
     ) -> str | None:
         """
         Create and deploy a new Agent Engine instance.
@@ -903,6 +909,19 @@ class AgentEngineManager:
                 "NEO4J_URI": os.environ.get("NEO4J_URI"),
                 "NEO4J_USER": os.environ.get("NEO4J_USER"),
                 "NEO4J_PASSWORD": os.environ.get("NEO4J_PASSWORD"),
+                # AlloyDB Grounding
+                "ALLOYDB_GROUNDING_ENABLED": os.environ.get(
+                    "ALLOYDB_GROUNDING_ENABLED", "True"
+                ),
+                "ALLOYDB_HOST": os.environ.get("ALLOYDB_HOST"),
+                "ALLOYDB_PORT": os.environ.get("ALLOYDB_PORT", "5432"),
+                "ALLOYDB_DATABASE": os.environ.get("ALLOYDB_DATABASE", "secops"),
+                "ALLOYDB_USER": os.environ.get("ALLOYDB_USER", "postgres"),
+                "ALLOYDB_PASSWORD": os.environ.get("ALLOYDB_PASSWORD"),
+                "ALLOYDB_INSTANCE_URI": os.environ.get("ALLOYDB_INSTANCE_URI"),
+                "ALLOYDB_USE_CONNECTOR": os.environ.get(
+                    "ALLOYDB_USE_CONNECTOR", "False"
+                ),
             }
 
             # Add service account configuration based on authentication method
@@ -919,8 +938,10 @@ class AgentEngineManager:
             # Filter out None values to prevent Vertex AI SDK validation errors
             env_vars = {k: v for k, v in env_vars.items() if v is not None}
 
-            # Determine display name based on agent module
-            if agent_module == "agent_a2a_tier2":
+            # Determine display name based on custom input or agent module
+            if custom_display_name:
+                base_name = custom_display_name
+            elif agent_module == "agent_a2a_tier2":
                 base_name = "SecOps Security Agent - Tier 2"
             elif agent_module == "agent_a2a_threat_hunter":
                 base_name = "SecOps Security Agent - Threat Hunter"
@@ -997,7 +1018,7 @@ class AgentEngineManager:
                     "pydantic",
                     "python-dotenv",
                     "httpx>=0.28.1",
-                    "mcp[cli]>=1.4.1",
+                    "mcp[cli]>=1.4.1,<1.27.0",
                     "secops>=0.18.0",
                     "google-auth>=2.38.0",
                     "google-auth-httplib2>=0.2.0",
@@ -1015,6 +1036,9 @@ class AgentEngineManager:
                     "elasticsearch>=8.0.0,<9.0.0",
                     "elastic-transport>=8.0.0,<9.0.0",
                     "neo4j>=5.0.0",
+                    "psycopg[binary]>=3.2.0",
+                    "pgvector>=0.3.6",
+                    "google-cloud-alloydb-connector>=1.12.0",
                 ],
                 "build_options": {
                     "installation_scripts": ["installation_scripts/install.sh"]
@@ -1712,21 +1736,45 @@ def create(
             "--description", "-d", help="Description for the deployed agent engine"
         ),
     ] = None,
+    display_name: Annotated[
+        str | None,
+        typer.Option(
+            "--display-name",
+            help="Custom display name for the Reasoning Engine in Vertex AI (e.g. 'SOC Manager (AlloyDB)')",
+        ),
+    ] = None,
+    output_var_name: Annotated[
+        str | None,
+        typer.Option(
+            "--output-var-name",
+            help="Custom .env variable name to store the resource name (e.g. 'AGENT_ENGINE_ALLOYDB_RESOURCE_NAME')",
+        ),
+    ] = None,
     env_file: Annotated[
         Path, typer.Option(help="Path to the environment file.")
     ] = Path(".env"),
 ) -> None:
     """Create and deploy a new Agent Engine instance."""
     manager = AgentEngineManager(env_file)
-    resource_name = manager.create_agent(agent_module, debug, no_test, description)
+    resource_name = manager.create_agent(
+        agent_module=agent_module,
+        debug=debug,
+        no_test=no_test,
+        description=description,
+        display_name=display_name,
+        output_var_name=output_var_name,
+    )
 
     if resource_name:
         typer.echo("\n" + "=" * 80)
         typer.secho("DEPLOYMENT COMPLETE", fg=typer.colors.GREEN, bold=True)
         typer.echo("=" * 80)
         typer.echo("\nSave these values to your .env file:")
-        # Determine env var names based on agent module
-        if agent_module == "agent_a2a_tier2":
+        # Determine env var names based on custom output_var_name or agent module
+        if output_var_name:
+            resource_var = output_var_name
+            id_var = f"{output_var_name.replace('_RESOURCE_NAME', '')}_ID"
+        elif agent_module == "agent_a2a_tier2":
             resource_var = "TIER2_AGENT_RESOURCE_NAME"
             id_var = "TIER2_AGENT_ID"
         elif agent_module == "agent_a2a_threat_hunter":
