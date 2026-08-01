@@ -7,6 +7,12 @@ from fastapi.responses import HTMLResponse
 from security import verify_signed_payload
 
 
+try:  # Flat layout (container); package layout for local runs
+    from decision import build_session_message
+except ImportError:
+    from agent_soc_manager.tools.chatops.decision import build_session_message
+
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -47,7 +53,9 @@ async def handle_action(t: str = Query(..., description="Signed action token")):
         from vertexai import agent_engines
 
         remote_app = agent_engines.get(agent_engine_id)
-        user_input = f"USER ACTION CONFIRMED via ChatOps: {action}"
+        # Rigid decision template (issue #83): a Deny click must never be
+        # injected as a confirmation.
+        _decision, user_input = build_session_message(action)
 
         # Note: session ownership is tied to user_id
         # For Playground sessions, this is often 'vais-query-reasoning-engine'
