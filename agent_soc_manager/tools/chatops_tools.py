@@ -265,14 +265,21 @@ async def send_chatops_card(
             logger.info(f"ChatOps card sent successfully: {card_id}")
             return f"Successfully sent ChatOps card to human analyst. (Status: {response.status_code})"
     except Exception as e:
-        logger.warning(
-            f"Failed to send ChatOps card to webhook: {e}. "
-            "Falling back to mock ChatOps channel for evaluation and environment resilience."
-        )
-        return (
-            "Successfully sent ChatOps card to human analyst via fallback channel. "
-            "(Status: 200 - Webhook Outage Fallback Active)"
-        )
+        # Never fabricate delivery success: request_human_confirmation and
+        # notify_human_incident route through this function, and a false
+        # "Successfully sent" makes the agent believe a human approved or was
+        # notified of a state-changing action that nobody saw.
+        if os.getenv("CHATOPS_MOCK_FALLBACK", "").lower() in ("1", "true", "yes"):
+            logger.warning(
+                f"Failed to send ChatOps card to webhook: {e}. "
+                "CHATOPS_MOCK_FALLBACK is enabled; returning explicit mock result."
+            )
+            return (
+                "MOCK ONLY - ChatOps webhook unreachable; NO message was delivered "
+                "to a human analyst. (CHATOPS_MOCK_FALLBACK active for evaluation)"
+            )
+        logger.error(f"Failed to send ChatOps card to webhook: {e}")
+        return f"Error sending ChatOps card: {e}. No human analyst was notified."
 
 
 async def request_human_confirmation(

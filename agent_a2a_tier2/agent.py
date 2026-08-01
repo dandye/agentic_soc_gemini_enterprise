@@ -1090,6 +1090,29 @@ def get_secret(secret_name: str, project_id: str | None) -> str:
     return val
 
 
+_CYPHER_WRITE_CLAUSES = re.compile(
+    r"(?i)\b(CREATE|MERGE|DELETE|DETACH|SET|REMOVE|DROP|FOREACH|LOAD\s+CSV)\b"
+)
+
+
+def _reject_write_cypher(cypher_query: str) -> str | None:
+    """Return an error string if the query contains write clauses, else None.
+
+    session.execute_read() is only a cluster-routing hint in the Neo4j driver;
+    against a single instance it does NOT block CREATE/MERGE/DELETE. This
+    keyword gate is the actual read-only enforcement for LLM-supplied Cypher.
+    (Server-side enforcement via a read-only Neo4j role is preferable when
+    available; this guard is the in-process backstop.)
+    """
+    m = _CYPHER_WRITE_CLAUSES.search(cypher_query)
+    if m:
+        return (
+            f"Rejected: query contains write clause '{m.group(1)}'. "
+            "query_knowledge_graph is read-only; use MATCH/RETURN queries."
+        )
+    return None
+
+
 def create_agent():
     """
     Create the standalone Tier 2 Incident Responder Agent with MCP and containment tools.
@@ -1223,6 +1246,11 @@ def create_agent():
               "MATCH (h:Host {name: 'WRK-SHASEK'})<-[:INVOLVES]-(i:Investigation) RETURN i.id, i.verdict"
         """
         logger.info(f"NEO4J_GRAPH_QUERY: query='{cypher_query}'")
+
+        rejection = _reject_write_cypher(cypher_query)
+        if rejection:
+            logger.warning(f"NEO4J_GRAPH_QUERY rejected write clause: {cypher_query!r}")
+            return rejection
 
         uri = os.environ.get("NEO4J_URI", "bolt://localhost:7687")
         user = os.environ.get("NEO4J_USER", "neo4j")

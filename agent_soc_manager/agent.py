@@ -2,6 +2,7 @@ import json
 import logging
 import mimetypes
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -1380,6 +1381,29 @@ async def lookup_entity(entity_value: str, ctx: Context) -> str:
         return f"Error looking up entity in Chronicle: {e}"
 
 
+_CYPHER_WRITE_CLAUSES = re.compile(
+    r"(?i)\b(CREATE|MERGE|DELETE|DETACH|SET|REMOVE|DROP|FOREACH|LOAD\s+CSV)\b"
+)
+
+
+def _reject_write_cypher(cypher_query: str) -> str | None:
+    """Return an error string if the query contains write clauses, else None.
+
+    session.execute_read() is only a cluster-routing hint in the Neo4j driver;
+    against a single instance it does NOT block CREATE/MERGE/DELETE. This
+    keyword gate is the actual read-only enforcement for LLM-supplied Cypher.
+    (Server-side enforcement via a read-only Neo4j role is preferable when
+    available; this guard is the in-process backstop.)
+    """
+    m = _CYPHER_WRITE_CLAUSES.search(cypher_query)
+    if m:
+        return (
+            f"Rejected: query contains write clause '{m.group(1)}'. "
+            "query_knowledge_graph is read-only; use MATCH/RETURN queries."
+        )
+    return None
+
+
 async def query_knowledge_graph(cypher_query: str, ctx: Context) -> str:
     """
     Execute a read-only Cypher query against the Security Operations Neo4j knowledge graph
@@ -1391,6 +1415,11 @@ async def query_knowledge_graph(cypher_query: str, ctx: Context) -> str:
     """
     logger.info(f"NEO4J_GRAPH_QUERY: query='{cypher_query}'")
 
+    rejection = _reject_write_cypher(cypher_query)
+    if rejection:
+        logger.warning(f"NEO4J_GRAPH_QUERY rejected write clause: {cypher_query!r}")
+        return rejection
+
     uri = os.environ.get("NEO4J_URI", "bolt://localhost:7687")
     user = os.environ.get("NEO4J_USER", "neo4j")
     password = get_secret("NEO4J_PASSWORD")
@@ -1398,7 +1427,8 @@ async def query_knowledge_graph(cypher_query: str, ctx: Context) -> str:
     try:
         from neo4j import GraphDatabase
 
-        # Open driver and run query in a read transaction to ensure read-only safety
+        # execute_read() only routes to a reader in clusters -- the write-clause
+        # guard above is what enforces read-only behavior on a single instance
         with GraphDatabase.driver(uri, auth=(user, password)) as driver:
             with driver.session() as session:
 
