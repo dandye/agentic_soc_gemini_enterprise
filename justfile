@@ -526,6 +526,18 @@ vertex-ai-enable-apis:
 vertex-ai-quota:
     {{ python }} {{ manage_vertex_ai }} check-quota --env-file {{ env_file }}
 
+# Grant required roles to Google-managed service agents (see docs/setup.md IAM section)
+iam-setup dry_run="false":
+    {{ python }} manage.py iam setup {{ if dry_run == "true" { "--dry-run" } else { "" } }}
+
+# Verify service-agent role grants
+iam-verify:
+    {{ python }} manage.py iam verify
+
+# List current IAM roles relevant to the platform
+iam-list-roles:
+    {{ python }} manage.py iam list-roles
+
 # List and discover available Gemini models from Google GenAI
 models-list:
     {{ python }} {{ manage_models }} list --env-file {{ env_file }}
