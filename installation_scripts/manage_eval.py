@@ -197,9 +197,7 @@ class EvaluationRunner:
                 # Submodule lookup failed; keep whatever was parsed and fall
                 # through so commit/branch/dirty are still returned (an early
                 # `return submodules` here made git_meta["commit"] KeyError).
-                typer.echo(
-                    f"Warning: submodule status unavailable: {submodule_err}"
-                )
+                typer.echo(f"Warning: submodule status unavailable: {submodule_err}")
 
             return {
                 "commit": commit,

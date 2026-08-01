@@ -833,7 +833,6 @@ def patched_get_api_client(self):
 vertex_session.VertexAiSessionService._get_api_client = patched_get_api_client
 
 
-
 import google.adk.apps.app as adk_app  # noqa: E402
 
 
