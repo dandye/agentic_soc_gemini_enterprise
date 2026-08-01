@@ -7,5 +7,27 @@ GEMINI.md
 __pycache__/
 .DS_Store
 implementation_plan.md
-
+.env*
 .env.secops.adc
+investigations/*
+!investigations/similarity_reports/
+*.json
+
+# Evaluation ledgers are tracked deliberately — they are the evidence trail for
+# agent performance over time, not build output. The `*.json` rule above is a
+# blanket ignore, so evalsets JSON has to be re-included explicitly. Markdown
+# reports under evalsets/ are not matched by any ignore rule and stay tracked.
+#
+# Do NOT re-add an `evalsets/eval_runs` ignore here: git cannot re-include files
+# inside an ignored directory, so that rule silently overrode the whitelist below
+# and meant new .md runs were dropped without warning.
+!evalsets/**/*.json
+# Same fix for similarity reports: the *.json blanket above re-ignores JSON
+# inside the whitelisted investigations/similarity_reports/ directory, and
+# gitignore is last-match-wins, so the re-include must come AFTER *.json.
+!investigations/similarity_reports/**/*.json
+
+worktrees/
+
+# Built documentation output — regenerated from docs/, never edited by hand.
+docs/docs-dist/

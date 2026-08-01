@@ -1,0 +1,59 @@
+{
+  "evalset_id": "detection_engineering",
+  "name": "Detection Engineering Workflows",
+  "description": "Tests detection rule creation, validation, and tuning capabilities in Google SecOps",
+  "eval_cases": [
+    {
+      "eval_id": "create_gcp_brute_force_rule",
+      "name": "Create Rule - GCP Brute Force",
+      "conversation": [
+        {
+          "role": "user",
+          "content": "Create a YARA-L detection rule to detect brute force logon attempts on Google Cloud Console. The rule should trigger when there are more than 5 failed logons from the same IP address within a 5 minute window, followed by a successful logon."
+        }
+      ],
+      "reference": {
+        "expected_specialist": "detection_engineer",
+        "tool_trajectory": ["validate_rule"],
+        "final_response_must_contain": [
+          "rule",
+          "meta",
+          "events",
+          "condition",
+          "failed"
+        ],
+        "success_criteria": {
+          "specialist_attribution": true,
+          "tool_name_mentioned": true,
+          "includes_yara_l_code": true,
+          "validates_rule_syntax": true
+        }
+      }
+    },
+    {
+      "eval_id": "tune_rmm_execution_rule",
+      "name": "Tune Rule - Exclude Authorized RMM",
+      "conversation": [
+        {
+          "role": "user",
+          "content": "We need to tune our Remote Management Tool execution rule. Please exclude process execution of 'ScreenConnect' when it is run by the authorized administrator account 'admin_jack@stackedpads.local' on the specific host 'wrk-shasek'."
+        }
+      ],
+      "reference": {
+        "expected_specialist": "detection_engineer",
+        "tool_trajectory": ["validate_rule"],
+        "final_response_must_contain": [
+          "exclude",
+          "admin_jack@stackedpads.local",
+          "wrk-shasek",
+          "ScreenConnect"
+        ],
+        "success_criteria": {
+          "specialist_attribution": true,
+          "proposes_logical_exclusion": true,
+          "mentions_rule_tuning": true
+        }
+      }
+    }
+  ]
+}

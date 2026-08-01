@@ -1,0 +1,74 @@
+{
+  "metadata": {
+    "evalset_id": "incident_response",
+    "timestamp": "2026-06-19T09:10:34.860173Z",
+    "git": {
+      "commit": "a35fff523fc5d35c28ae36997695fb16cdf700ac",
+      "branch": "harvest_detection_reports",
+      "dirty": true,
+      "submodules": {
+        "external/adk_runbooks": "d4ccf85d393eacae34bc006689601f013a03479b",
+        "external/ai-runbooks": "fca5f8eba3fff9964680ae035915c87a74e2f767",
+        "external/mcp-security": "b3ccb9a190b87512ba0901f672c76c5527ebcff7"
+      }
+    },
+    "environment": {
+      "project_id": "secops-demo-env",
+      "location": "us-central1",
+      "orchestrator_model": "gemini-2.5-pro",
+      "agent_resource": "projects/813924125873/locations/us-east4/reasoningEngines/5237765531469086720",
+      "knowledge_graph_hash": "025f15bc6a020547c7809d9b382229a7"
+    }
+  },
+  "summary": {
+    "total_cases": 2,
+    "average_score": 41.666666666666664,
+    "status": "FAIL"
+  },
+  "cases": {
+    "contain_compromised_host": {
+      "name": "Containment - Isolate Host",
+      "score": 0.5,
+      "tool_calls": [
+        "request_human_confirmation",
+        "list_chatops_capabilities",
+        "search_security_events",
+        "search_security_events",
+        "save_report_artifact",
+        "deliver_report"
+      ],
+      "assertions_passed": [
+        "tool_trajectory"
+      ],
+      "assertions_failed": [
+        "specialist_attribution",
+        "keyword_matching"
+      ],
+      "success_criteria_passed": [
+        "initiates_containment_action",
+        "requests_human_approval"
+      ],
+      "success_criteria_failed": [
+        "specialist_attribution"
+      ]
+    },
+    "mitigate_compromised_user": {
+      "name": "Mitigation - Disable User",
+      "score": 0.3333333333333333,
+      "tool_calls": [],
+      "assertions_passed": [],
+      "assertions_failed": [
+        "specialist_attribution",
+        "tool_trajectory",
+        "keyword_matching"
+      ],
+      "success_criteria_passed": [
+        "initiates_mitigation_action",
+        "requests_human_approval"
+      ],
+      "success_criteria_failed": [
+        "specialist_attribution"
+      ]
+    }
+  }
+}

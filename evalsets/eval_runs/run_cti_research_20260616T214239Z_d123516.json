@@ -1,0 +1,186 @@
+{
+  "metadata": {
+    "evalset_id": "cti_research",
+    "timestamp": "2026-06-16T21:42:39.584434Z",
+    "git": {
+      "commit": "d1235168975cd5f899bfe0de0131d958e1d48a4e",
+      "branch": "harvest_detection_reports",
+      "dirty": true,
+      "submodules": {
+        "external/adk_runbooks": "d4ccf85d393eacae34bc006689601f013a03479b",
+        "external/ai-runbooks": "fca5f8eba3fff9964680ae035915c87a74e2f767",
+        "external/mcp-security": "a59f348efe6e71dbc4ae85e959d35b899ca9e1f8"
+      }
+    },
+    "environment": {
+      "project_id": "secops-demo-env",
+      "location": "us-central1",
+      "orchestrator_model": "gemini-3.1-pro-preview",
+      "agent_resource": "projects/813924125873/locations/us-central1/reasoningEngines/7203198091455889408",
+      "knowledge_graph_hash": "f302b2ed2b1665779f40a3e3653a2428"
+    }
+  },
+  "summary": {
+    "total_cases": 5,
+    "average_score": 60.95238095238095,
+    "status": "FAIL"
+  },
+  "cases": {
+    "threat_actor_apt29": {
+      "name": "Threat Actor Analysis - APT29",
+      "score": 0.5,
+      "tool_calls": [
+        "retrieve_agentic_soc_runbooks",
+        "retrieve_agentic_soc_runbooks",
+        "search_threat_actors",
+        "get_entities_related_to_a_collection",
+        "get_entities_related_to_a_collection",
+        "get_entities_related_to_a_collection",
+        "get_collection_mitre_tree",
+        "get_collection_report",
+        "get_collection_report",
+        "get_collection_report",
+        "get_collection_report",
+        "get_threat_intel",
+        "search_threat_reports",
+        "lookup_entity",
+        "lookup_entity",
+        "save_report_artifact"
+      ],
+      "assertions_passed": [
+        "keyword_matching"
+      ],
+      "assertions_failed": [
+        "specialist_attribution",
+        "tool_trajectory"
+      ],
+      "success_criteria_passed": [
+        "includes_confidence_level",
+        "includes_source_attribution",
+        "maps_to_mitre_attack"
+      ],
+      "success_criteria_failed": [
+        "specialist_attribution",
+        "mentions_cti_researcher"
+      ]
+    },
+    "ioc_reputation_ip": {
+      "name": "IOC Reputation Check - IP Address",
+      "score": 0.7142857142857143,
+      "tool_calls": [
+        "retrieve_agentic_soc_runbooks",
+        "get_ip_address_report",
+        "get_entities_related_to_an_ip_address",
+        "get_file_report",
+        "lookup_entity",
+        "lookup_entity",
+        "lookup_entity",
+        "get_entities_related_to_an_ip_address",
+        "save_report_artifact"
+      ],
+      "assertions_passed": [
+        "tool_trajectory",
+        "keyword_matching"
+      ],
+      "assertions_failed": [
+        "specialist_attribution"
+      ],
+      "success_criteria_passed": [
+        "tool_name_mentioned",
+        "provides_verdict",
+        "includes_context"
+      ],
+      "success_criteria_failed": [
+        "specialist_attribution"
+      ]
+    },
+    "ioc_file_hash": {
+      "name": "IOC Analysis - File Hash",
+      "score": 0.6666666666666666,
+      "tool_calls": [
+        "retrieve_agentic_soc_runbooks",
+        "get_file_report",
+        "lookup_entity",
+        "lookup_entity",
+        "search_security_events",
+        "get_security_alerts",
+        "save_report_artifact"
+      ],
+      "assertions_passed": [
+        "tool_trajectory",
+        "keyword_matching"
+      ],
+      "assertions_failed": [
+        "specialist_attribution"
+      ],
+      "success_criteria_passed": [
+        "tool_name_mentioned",
+        "hash_type_identified"
+      ],
+      "success_criteria_failed": [
+        "specialist_attribution"
+      ]
+    },
+    "malware_family_emotet": {
+      "name": "Malware Family Research - Emotet",
+      "score": 0.5,
+      "tool_calls": [
+        "retrieve_agentic_soc_runbooks",
+        "search_malware_families",
+        "get_collection_mitre_tree",
+        "get_collection_timeline_events",
+        "get_collection_timeline_events",
+        "get_ioc_matches",
+        "get_security_alerts",
+        "search_security_events",
+        "save_report_artifact"
+      ],
+      "assertions_passed": [
+        "keyword_matching"
+      ],
+      "assertions_failed": [
+        "specialist_attribution",
+        "tool_trajectory"
+      ],
+      "success_criteria_passed": [
+        "includes_behavioral_analysis",
+        "maps_to_mitre_attack"
+      ],
+      "success_criteria_failed": [
+        "specialist_attribution"
+      ]
+    },
+    "domain_reputation": {
+      "name": "Domain Reputation Check",
+      "score": 0.6666666666666666,
+      "tool_calls": [
+        "retrieve_agentic_soc_runbooks",
+        "get_domain_report",
+        "get_entities_related_to_a_domain",
+        "lookup_entity",
+        "get_collection_report",
+        "get_file_report",
+        "get_collection_report",
+        "get_collection_report",
+        "get_threat_intel",
+        "get_ip_address_report",
+        "get_ip_address_report",
+        "save_report_artifact"
+      ],
+      "assertions_passed": [
+        "tool_trajectory",
+        "keyword_matching"
+      ],
+      "assertions_failed": [
+        "specialist_attribution"
+      ],
+      "success_criteria_passed": [
+        "provides_verdict",
+        "definitive_answer"
+      ],
+      "success_criteria_failed": [
+        "specialist_attribution"
+      ]
+    }
+  }
+}

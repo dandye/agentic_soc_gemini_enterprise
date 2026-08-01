@@ -23,7 +23,12 @@ manage_rag := "installation_scripts/manage_rag.py"
 manage_gcs := "installation_scripts/manage_gcs.py"
 manage_vertex_ai := "installation_scripts/manage_vertex_ai.py"
 manage_models := "installation_scripts/manage_models.py"
-manage_secret := "installation_scripts/upload_secret.py"
+manage_secret := "installation_scripts/manage_secret.py"
+manage_harvest := "installation_scripts/harvest_investigations.py"
+manage_elastic := "installation_scripts/manage_elasticsearch.py"
+manage_eval := "installation_scripts/manage_eval.py"
+manage_neo4j := "installation_scripts/manage_neo4j.py"
+manage_alloydb := "installation_scripts/manage_alloydb.py"
 manage_licenses := "installation_scripts/manage_licenses.py"
 
 # Global options for GCS / RAG / Data Store (override on command line)
@@ -125,14 +130,17 @@ agent-engine-deploy-cti-researcher: check-prereqs
 # Deploy Detection Engineer agent (detection lifecycle specialist)
 agent-engine-deploy-detection-engineer: check-prereqs
     just -f {{ justfile() }} agent_module=agent_a2a_detection_engineer agent-engine-deploy
-
 # Deploy agent engine and intelligently delete older versions
 agent-engine-deploy-and-delete description="": check-prereqs
     {{ python }} {{ manage_agent_engine }} deploy --agent-module {{ agent_module }} {{ if description != "" { "--description " + quote(description) } else { "" } }}
 
 # Test the deployed agent engine (use agent_module=agent_a2a_tier2 for Tier 2)
-agent-engine-test:
-    {{ python }} {{ manage_agent_engine }} test --agent-module {{ agent_module }}
+agent-engine-test query="":
+    {{ python }} {{ manage_agent_engine }} test --agent-module {{ agent_module }} {{ if query != "" { "--query " + quote(query) } else { "" } }}
+
+# Dump raw conversation history for a cloud session
+agent-engine-session-dump session_id user_id="eval_user":
+    {{ python }} {{ manage_agent_engine }} session-dump --agent-module {{ agent_module }} --user-id {{ user_id }} {{ session_id }}
 
 # Pre-warm MCP server connections to reduce cold start latency
 agent-engine-warmup: check-deploy
@@ -601,6 +609,24 @@ secret-verify:
     fi
     {{ python }} {{ manage_secret }} verify --env-file {{ env_file }} $ARGS
 
+# Sync all agent secrets (SOAR, GTI, DBs) from .env to Secret Manager (use creds=/path/to/sa.json for different account)
+secret-sync:
+    #!/usr/bin/env bash
+    ARGS=""
+    if [ -n "{{ creds }}" ]; then
+        ARGS="--credentials {{ quote(creds) }}"
+    fi
+    {{ python }} {{ manage_secret }} sync --env-file {{ env_file }} $ARGS
+
+# Sync all agent secrets from .env to Secret Manager (skip confirmation, use creds=/path/to/sa.json)
+secret-sync-force:
+    #!/usr/bin/env bash
+    ARGS="--force"
+    if [ -n "{{ creds }}" ]; then
+        ARGS="$ARGS --credentials {{ quote(creds) }}"
+    fi
+    {{ python }} {{ manage_secret }} sync --env-file {{ env_file }} $ARGS
+
 # List all Agent Engine instances
 agent-engine-list:
     {{ python }} {{ manage_agent_engine }} list {{ verbose }}
@@ -699,13 +725,43 @@ eval-basic:
 eval-cti:
     {{ python }} -m google.adk.cli eval {{ agent_module }} evalsets/cti_research.evalset.json
 
+# Run custom CTI Researcher evaluation against the deployed cloud agent
+test-eval-cti:
+    {{ python }} {{ manage_eval }} run -f evalsets/cti_research.evalset.json
+
+# Run custom Detection Engineer evaluation against the deployed cloud agent
+test-eval-detection:
+    {{ python }} {{ manage_eval }} run -f evalsets/detection_engineering.evalset.json
+
+# Run custom Threat Hunter evaluation against the deployed cloud agent
+test-eval-hunt:
+    {{ python }} {{ manage_eval }} run -f evalsets/threat_hunting.evalset.json
+
+# Run custom Tier 2 Responder evaluation against the deployed cloud agent
+test-eval-response:
+    {{ python }} {{ manage_eval }} run -f evalsets/incident_response.evalset.json
+
+# Run custom evaluation for a specific evalset file against its deployed cloud agent (use file=path/to/file)
+test-eval file:
+    {{ python }} {{ manage_eval }} run -f {{ file }}
+
 # Run Tier 1 triage evalset
 eval-tier1:
     {{ python }} -m google.adk.cli eval {{ agent_module }} evalsets/tier1_triage.evalset.json
 
 # Run multi-specialist evalset
-eval-multi:
+alias eval-multi := eval-tier2
+
+eval-tier2:
     {{ python }} -m google.adk.cli eval {{ agent_module }} evalsets/multi_specialist.evalset.json
+
+# Run all 7 evaluation sets sequentially (serialized for gRPC stability)
+test-eval-all:
+    {{ python }} {{ manage_eval }} run-all --dir evalsets --concurrency 3
+
+# Compare evaluation runs and view deltas (use evalset=id)
+test-compare evalset:
+    {{ python }} {{ manage_eval }} compare {{ evalset }}
 
 # Profile agent latency (single run per query)
 profile-latency:
@@ -766,3 +822,162 @@ format:
     else
         echo "No formatter available (install ruff or black)"
     fi
+
+# Harvest and enrich investigations and detections from Chronicle SIEM
+harvest: harvest-investigations harvest-detections
+
+# Harvest and enrich investigations from Chronicle SIEM
+harvest-investigations:
+    {{ python }} {{ manage_harvest }} investigations
+
+# Harvest and enrich alerting detections from Chronicle SIEM
+harvest-detections:
+    {{ python }} {{ manage_harvest }} detections
+
+# Recreate the Elasticsearch index (deletes existing index first)
+elastic-create:
+    {{ python }} {{ manage_elastic }} create --env-file {{ env_file }}
+
+# Sync local runbooks into Elasticsearch (use recreate="true" to recreate first)
+elastic-sync recreate="false":
+    {{ python }} {{ manage_elastic }} sync {{ if recreate == "true" { "--recreate" } else { "" } }} --env-file {{ env_file }}
+
+# Search the Elasticsearch runbooks index (use: query="malware response" limit="3")
+elastic-search query limit="3":
+    {{ python }} {{ manage_elastic }} search {{ quote(query) }} --limit {{ limit }} --env-file {{ env_file }}
+
+# Show details about the Elasticsearch index
+elastic-info:
+    {{ python }} {{ manage_elastic }} info --env-file {{ env_file }}
+
+# Test the connection to the Neo4j database
+neo4j-test:
+    {{ python }} {{ manage_neo4j }} test-connection --env-file {{ env_file }}
+
+# Ingest the flat knowledge graph JSON into Neo4j
+neo4j-ingest:
+    {{ python }} {{ manage_neo4j }} ingest --env-file {{ env_file }}
+
+# Recalculate the threat graph from harvested investigations
+neo4j-recalc:
+    {{ python }} {{ manage_neo4j }} recalc
+
+# Recalculate and ingest the threat graph into Neo4j
+neo4j-sync: neo4j-recalc neo4j-ingest
+
+
+# Clear all data in the Neo4j database (force=true to skip confirmation)
+neo4j-clear force="false":
+    {{ python }} {{ manage_neo4j }} clear {{ if force == "true" { "--force" } else { "" } }} --env-file {{ env_file }}
+
+# Start a local Neo4j database container using Podman
+neo4j-start:
+    podman run -d --name neo4j_soc \
+        -p 7474:7474 -p 7687:7687 \
+        -e NEO4J_AUTH=neo4j/password \
+        -v neo4j_data:/data:Z \
+        -v neo4j_logs:/logs:Z \
+        neo4j:5.20.0-community
+
+# Stop and remove the local Neo4j database container
+neo4j-stop:
+    podman stop neo4j_soc && podman rm neo4j_soc
+
+# Deploy Neo4j Database on a GCE VM with Firewall Rules configured
+neo4j-gce-deploy:
+    @test -n "$NEO4J_ALLOWED_CIDR" || { echo "ERROR: set NEO4J_ALLOWED_CIDR to the CIDR allowed to reach Neo4j (e.g. 203.0.113.0/24)."; echo "Refusing to open Bolt/Browser to 0.0.0.0/0 -- an internet-exposed Neo4j with password auth gets scanned within hours."; exit 1; }
+    @echo "Creating GCP Firewall Rule: allow-neo4j-bolt (source: $NEO4J_ALLOWED_CIDR)..."
+    -gcloud compute firewall-rules create allow-neo4j-bolt \
+        --project=$GCP_PROJECT_ID \
+        --direction=INGRESS \
+        --priority=1000 \
+        --network=default \
+        --action=ALLOW \
+        --rules=tcp:7687,tcp:7474 \
+        --source-ranges=$NEO4J_ALLOWED_CIDR \
+        --target-tags=neo4j-server
+    @echo "Deploying GCE VM instance: neo4j-soc-db..."
+    gcloud compute instances create neo4j-soc-db \
+        --project=$GCP_PROJECT_ID \
+        --zone=$NEO4J_VM_ZONE \
+        --machine-type=e2-medium \
+        --network-interface=network-tier=PREMIUM,subnet=default \
+        --tags=neo4j-server \
+        --metadata=neo4j-password=$NEO4J_PASSWORD \
+        --metadata-from-file=startup-script=gce/startup_neo4j.sh
+
+# Test connection to AlloyDB / PostgreSQL database
+alloydb-test:
+    {{ python }} {{ manage_alloydb }} test-connection --env-file {{ env_file }}
+
+# Initialize AlloyDB schema, tables, extensions, and indexes
+alloydb-init recreate="false":
+    {{ python }} {{ manage_alloydb }} init-schema {{ if recreate == "true" { "--recreate" } else { "" } }} --env-file {{ env_file }}
+
+# Ingest harvested detection reports and investigations into AlloyDB
+alloydb-ingest recreate="false" batch_size="50":
+    {{ python }} {{ manage_alloydb }} ingest {{ if recreate == "true" { "--recreate" } else { "" } }} --batch-size {{ batch_size }} --env-file {{ env_file }}
+
+# Generate Vertex AI 768-dim vector embeddings for all detection reports in AlloyDB
+alloydb-embed force="false" batch_size="10":
+    {{ python }} {{ manage_alloydb }} embed {{ if force == "true" { "--force" } else { "" } }} --batch-size {{ batch_size }} --env-file {{ env_file }}
+
+# Search harvested detection reports in AlloyDB (keyword or full-text)
+alloydb-search query limit="5":
+    {{ python }} {{ manage_alloydb }} search {{ quote(query) }} --limit {{ limit }} --env-file {{ env_file }}
+
+# Semantic vector similarity search in AlloyDB via text-embedding-004
+alloydb-search-semantic query limit="5":
+    {{ python }} {{ manage_alloydb }} search {{ quote(query) }} --semantic --limit {{ limit }} --env-file {{ env_file }}
+
+# Find similar historical investigations using multi-modal composite scoring with profiles
+alloydb-find-similar id limit="5" profile="balanced":
+    {{ python }} {{ manage_alloydb }} find-similar {{ id }} --profile {{ profile }} --limit {{ limit }} --explain --env-file {{ env_file }}
+
+# Generate a comprehensive Markdown investigation similarity report with AI threat synthesis
+alloydb-report id limit="5" profile="threat-hunt" ai="true":
+    {{ python }} {{ manage_alloydb }} report {{ id }} --profile {{ profile }} --limit {{ limit }} {{ if ai == "true" { "--ai" } else { "--no-ai" } }} --env-file {{ env_file }}
+
+# List all available similarity scoring profiles in AlloyDB
+alloydb-profiles:
+    {{ python }} {{ manage_alloydb }} profiles
+
+# Show statistics and metadata about detection reports in AlloyDB
+alloydb-info:
+    {{ python }} {{ manage_alloydb }} info --env-file {{ env_file }}
+
+# Clear all detection reports from AlloyDB (force=true to skip confirmation)
+alloydb-clear force="false":
+    {{ python }} {{ manage_alloydb }} clear {{ if force == "true" { "--force" } else { "" } }} --env-file {{ env_file }}
+
+# Start a local AlloyDB/PostgreSQL container using Podman
+alloydb-start:
+    {{ python }} {{ manage_alloydb }} start
+
+# Stop and remove the local AlloyDB/PostgreSQL container
+alloydb-stop:
+    {{ python }} {{ manage_alloydb }} stop
+
+# Deploy dedicated AlloyDB-grounded Agent Engine instance with unique name
+agent-engine-deploy-alloydb display_name="SOC Manager (AlloyDB)": check-prereqs
+    {{ python }} {{ manage_agent_engine }} create --agent-module agent_soc_manager --display-name {{ quote(display_name) }} --output-var-name AGENT_ENGINE_ALLOYDB_RESOURCE_NAME
+    @echo "========================================"
+    @echo "AlloyDB Agent deployment complete"
+    @echo "========================================"
+
+# Register dedicated AlloyDB Agent with Gemini Enterprise Agent Platform (GEAP)
+agentspace-register-alloydb display_name="SOC Manager (AlloyDB)": check-prereqs
+    {{ python }} {{ manage_agentspace }} link-agent \
+        --display-name {{ quote(display_name) }} \
+        --description "SOC Manager grounded with Google Cloud AlloyDB historical detection reports, similarity engine, and SIEM/SOAR tools" \
+        --tool-description "Multi-modal SOC investigation, historical detection reports grounding, and threat triage" \
+        --reasoning-engine {{ env_var('AGENT_ENGINE_ALLOYDB_RESOURCE_NAME') }} \
+        --output-var-name AGENTSPACE_ALLOYDB_AGENT_ID \
+        --env-file {{ env_file }}
+    @echo "========================================"
+    @echo "AlloyDB Agent registered with Gemini Enterprise"
+    @echo "========================================"
+
+# Run a local-vs-cloud environment parity audit for a campaign
+parity-audit uuid: check-prereqs
+    {{ python }} installation_scripts/audit_environment_parity.py {{ uuid }}

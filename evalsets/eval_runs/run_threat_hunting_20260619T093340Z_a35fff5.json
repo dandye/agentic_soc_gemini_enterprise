@@ -1,0 +1,93 @@
+{
+  "metadata": {
+    "evalset_id": "threat_hunting",
+    "timestamp": "2026-06-19T09:33:40.981403Z",
+    "git": {
+      "commit": "a35fff523fc5d35c28ae36997695fb16cdf700ac",
+      "branch": "harvest_detection_reports",
+      "dirty": true,
+      "submodules": {
+        "external/adk_runbooks": "d4ccf85d393eacae34bc006689601f013a03479b",
+        "external/ai-runbooks": "fca5f8eba3fff9964680ae035915c87a74e2f767",
+        "external/mcp-security": "b3ccb9a190b87512ba0901f672c76c5527ebcff7"
+      }
+    },
+    "environment": {
+      "project_id": "secops-demo-env",
+      "location": "us-central1",
+      "orchestrator_model": "gemini-2.5-pro",
+      "agent_resource": "projects/813924125873/locations/us-central1/reasoningEngines/2164796008335147008",
+      "knowledge_graph_hash": "025f15bc6a020547c7809d9b382229a7"
+    }
+  },
+  "summary": {
+    "total_cases": 2,
+    "average_score": 84.52380952380952,
+    "status": "WARNING"
+  },
+  "cases": {
+    "hunt_c2_beaconing": {
+      "name": "Hunt - C2 Network Beaconing",
+      "score": 0.8571428571428571,
+      "tool_calls": [
+        "retrieve_agentic_soc_runbooks",
+        "query_knowledge_graph",
+        "get_domain_report",
+        "search_security_events",
+        "search_udm",
+        "search_security_events",
+        "get_file_report",
+        "query_knowledge_graph",
+        "query_knowledge_graph",
+        "search_security_events",
+        "save_report_artifact"
+      ],
+      "assertions_passed": [
+        "specialist_attribution",
+        "keyword_matching"
+      ],
+      "assertions_failed": [
+        "tool_trajectory"
+      ],
+      "success_criteria_passed": [
+        "specialist_attribution",
+        "tool_name_mentioned",
+        "queries_siem_telemetry",
+        "provides_impact_assessment"
+      ],
+      "success_criteria_failed": []
+    },
+    "hunt_lateral_movement_path": {
+      "name": "Hunt - AD Lateral Movement",
+      "score": 0.8333333333333334,
+      "tool_calls": [
+        "retrieve_agentic_soc_runbooks",
+        "query_knowledge_graph",
+        "query_knowledge_graph",
+        "query_knowledge_graph",
+        "search_security_events",
+        "search_udm",
+        "search_security_events",
+        "search_security_events",
+        "search_security_events",
+        "search_security_events",
+        "search_security_events",
+        "search_security_events",
+        "save_report_artifact"
+      ],
+      "assertions_passed": [
+        "specialist_attribution",
+        "keyword_matching"
+      ],
+      "assertions_failed": [
+        "tool_trajectory"
+      ],
+      "success_criteria_passed": [
+        "specialist_attribution",
+        "traverses_knowledge_graph",
+        "identifies_pivoting_accounts"
+      ],
+      "success_criteria_failed": []
+    }
+  }
+}

@@ -2,6 +2,7 @@ import json
 import logging
 import mimetypes
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -29,7 +30,7 @@ tasks to specialized sub-agents using LLM-based delegation (sub_agents pattern).
 
 ARCHITECTURE:
 - Main orchestrator (gemini-3.1-pro-preview): Routes requests to appropriate specialists via LLM delegation
-  - Direct tool: RAG retrieval (VertexAiRagRetrieval) for runbooks and procedures
+  - Direct tool: RAG retrieval (retrieve_agentic_soc_runbooks via rag.retrieval_query) for runbooks and procedures
   - Delegates to: CTI sub-agent and Tier 1 sub-agent or AgentTool
 - CTI sub-agent (gemini-3.1-flash-preview): Threat intelligence research with MCP tools (GTI, SecOps SIEM, SecOps SOAR, SCC)
 - Tier 1 sub-agent (gemini-3.1-flash-preview): Alert triage with MCP tools (SecOps SIEM, SecOps SOAR, GTI)
@@ -100,6 +101,57 @@ def _apply_runtime_patches():
     logger.warning(
         "[RUNTIME_PATCH_DEBUG] Applying runtime framework monkeypatches inside Reasoning Engine process..."
     )
+
+    # 0. Monkeypatch Context, InvocationContext, and CallbackContext Pydantic core schemas
+    # and _build_parameters_json_schema to ignore 'ctx', 'context', 'tool_context'
+    try:
+        import google.adk.tools._function_tool_declarations as ftd
+        from google.adk.agents.callback_context import (
+            CallbackContext as AdkCallbackContext,
+        )
+        from google.adk.agents.context import Context as AdkContext
+        from google.adk.agents.invocation_context import (
+            InvocationContext as AdkInvocationContext,
+        )
+        from pydantic_core import core_schema
+
+        def _pydantic_core_schema(cls, source_type, handler):
+            return core_schema.any_schema()
+
+        AdkContext.__get_pydantic_core_schema__ = classmethod(_pydantic_core_schema)
+        AdkInvocationContext.__get_pydantic_core_schema__ = classmethod(
+            _pydantic_core_schema
+        )
+        AdkCallbackContext.__get_pydantic_core_schema__ = classmethod(
+            _pydantic_core_schema
+        )
+
+        orig_build_params = ftd._build_parameters_json_schema
+
+        def _patched_build_parameters_json_schema(func, ignore_params=None):
+            if ignore_params is None:
+                ignore_params = []
+            else:
+                ignore_params = list(ignore_params)
+            for p in [
+                "ctx",
+                "tool_context",
+                "context",
+                "invocation_context",
+                "callback_context",
+            ]:
+                if p not in ignore_params:
+                    ignore_params.append(p)
+            return orig_build_params(func, ignore_params)
+
+        ftd._build_parameters_json_schema = _patched_build_parameters_json_schema
+        logger.warning(
+            "[RUNTIME_PATCH_DEBUG] Successfully patched Context Pydantic core schemas and _build_parameters_json_schema"
+        )
+    except Exception as e:
+        logger.warning(
+            f"[RUNTIME_PATCH_DEBUG] Failed to patch Context Pydantic core schemas: {e}"
+        )
 
     # 1. Monkeypatch validation function to prevent 400 INVALID_ARGUMENT when removing function call IDs
     try:
@@ -257,8 +309,418 @@ def _apply_runtime_patches():
             f"[RUNTIME_PATCH_DEBUG] Failed to patch interactions_utils base64.b64decode: {e}"
         )
 
+    # 7. Monkeypatch aiohttp to support extremely large streaming lines (e.g., 10MB)
+    # to prevent LineTooLong errors during large threat intel/hunting telemetry dumps.
+    try:
+        import aiohttp.streams
+
+        original_init = aiohttp.streams.StreamReader.__init__
+
+        def _patched_init(self, *args, **kwargs):
+            if "limit" in kwargs:
+                kwargs["limit"] = 10 * 1024 * 1024
+            elif len(args) >= 2:
+                # limit is the second positional argument after self (bound, so args[0] is protocol, args[1] is limit)
+                args = (args[0], 10 * 1024 * 1024) + args[2:]
+            else:
+                kwargs["limit"] = 10 * 1024 * 1024
+            original_init(self, *args, **kwargs)
+
+        aiohttp.streams.StreamReader.__init__ = _patched_init
+
+        # Also patch readline to override explicit max_line_length passed by HTTP parser
+        original_readline = aiohttp.streams.StreamReader.readline
+
+        async def _patched_readline(self, *args, **kwargs):
+            # Force max_line_length to 10MB in kwargs to override any default or passed value
+            kwargs["max_line_length"] = 10 * 1024 * 1024
+            return await original_readline(self, *args, **kwargs)
+
+        aiohttp.streams.StreamReader.readline = _patched_readline
+
+        logger.warning(
+            "[RUNTIME_PATCH_DEBUG] Successfully patched aiohttp StreamReader limit and readline to 10MB"
+        )
+    except Exception as e:
+        logger.warning(
+            f"[RUNTIME_PATCH_DEBUG] Failed to patch aiohttp StreamReader: {e}"
+        )  # 8. Monkeypatch McpTool._run_async_impl to truncate/aggregate massive telemetry and prevent gRPC buffer overflows
+    try:
+        import datetime
+        import json
+
+        from google.adk.tools.mcp_tool.mcp_tool import McpTool
+
+        # Inner helper functions for semantic aggregation
+        def _summarize_udm_events(events: list, tool_name: str) -> str:
+            total_events = len(events)
+            event_types = {}
+            processes = {}
+            logins = {}
+            network_conns = {}
+            others = {}
+
+            for ev in events:
+                if not isinstance(ev, dict):
+                    continue
+                metadata = ev.get("metadata", {})
+                etype = metadata.get("event_type", "UNKNOWN")
+                event_types[etype] = event_types.get(etype, 0) + 1
+                ts = metadata.get("event_timestamp", "")
+
+                if etype == "PROCESS_LAUNCH":
+                    target = ev.get("target", {})
+                    proc = target.get("process", {})
+                    proc_path = (
+                        proc.get("file", {}).get("full_path")
+                        or proc.get("file", {}).get("name")
+                        or "unknown_process"
+                    )
+                    cmd = proc.get("command_line") or "no_command_line"
+
+                    principal = ev.get("principal", {})
+                    parent_proc = principal.get("process", {})
+                    parent_cmd = (
+                        parent_proc.get("command_line")
+                        or parent_proc.get("file", {}).get("name")
+                        or "unknown_parent"
+                    )
+                    host = (
+                        ev.get("principal", {}).get("hostname")
+                        or ev.get("target", {}).get("hostname")
+                        or "unknown_host"
+                    )
+
+                    key = (proc_path, cmd, parent_cmd, host)
+                    if key not in processes:
+                        processes[key] = {"count": 0, "first": ts, "last": ts}
+                    processes[key]["count"] += 1
+                    if ts:
+                        processes[key]["first"] = min(processes[key]["first"], ts)
+                        processes[key]["last"] = max(processes[key]["last"], ts)
+
+                elif etype == "USER_LOGIN":
+                    target = ev.get("target", {})
+                    user = (
+                        target.get("user", {}).get("userid")
+                        or ev.get("principal", {}).get("user", {}).get("userid")
+                        or "unknown_user"
+                    )
+                    src_ip = (
+                        ev.get("principal", {}).get("ip")
+                        or ev.get("principal", {}).get("hostname")
+                        or "unknown_source"
+                    )
+                    target_host = (
+                        ev.get("target", {}).get("hostname") or "unknown_target"
+                    )
+
+                    sec_result = ev.get("security_result", {})
+                    status = sec_result.get("status", "UNKNOWN")
+                    logon_type = (
+                        ev.get("extensions", {}).get("auth", {}).get("logon_type")
+                        or "unknown_type"
+                    )
+
+                    key = (user, src_ip, target_host, status, logon_type)
+                    if key not in logins:
+                        logins[key] = {"count": 0, "first": ts, "last": ts}
+                    logins[key]["count"] += 1
+                    if ts:
+                        logins[key]["first"] = min(logins[key]["first"], ts)
+                        logins[key]["last"] = max(logins[key]["last"], ts)
+
+                elif etype in ["NETWORK_CONNECTION", "DNS_QUERY"]:
+                    target = ev.get("target", {})
+                    dest_ip = (
+                        target.get("ip") or target.get("hostname") or "unknown_dest"
+                    )
+                    dest_port = target.get("port") or "unknown_port"
+
+                    principal = ev.get("principal", {})
+                    proc_name = (
+                        principal.get("process", {}).get("file", {}).get("name")
+                        or "unknown_process"
+                    )
+
+                    key = (dest_ip, dest_port, proc_name, etype)
+                    if key not in network_conns:
+                        network_conns[key] = {"count": 0, "first": ts, "last": ts}
+                    network_conns[key]["count"] += 1
+                    if ts:
+                        network_conns[key]["first"] = min(
+                            network_conns[key]["first"], ts
+                        )
+                        network_conns[key]["last"] = max(network_conns[key]["last"], ts)
+                else:
+                    key = (etype, ev.get("metadata", {}).get("product_name", "generic"))
+                    others[key] = others.get(key, 0) + 1
+
+            summary_lines = [
+                f"### [SEMANTIC SUMMARY] UDM Telemetry (Source: {tool_name})",
+                f"**Total Events Analyzed:** {total_events}",
+                "**Event Types Breakdown:** "
+                + ", ".join([f"`{k}`: {v}" for k, v in event_types.items()]),
+                "",
+            ]
+
+            if processes:
+                summary_lines.append("#### Process Execution Tree Summary")
+                for (proc, cmd, parent, host), stats in processes.items():
+                    summary_lines.append(
+                        f"- **Host:** `{host}` | **Process:** `{proc}`\n"
+                        f"  - **Command:** `{cmd}`\n"
+                        f"  - **Parent Process:** `{parent}`\n"
+                        f"  - **Execution Count:** {stats['count']} times | **Time window:** `{stats['first']}` to `{stats['last']}`"
+                    )
+                summary_lines.append("")
+
+            if logins:
+                summary_lines.append("#### Authentication Activity Summary")
+                for (user, src, target, status, ltype), stats in logins.items():
+                    status_color = (
+                        "SUCCESS" if status == "SUCCESS" else f"FAILED ({status})"
+                    )
+                    summary_lines.append(
+                        f"- **User:** `{user}` | **Source:** `{src}` -> **Target:** `{target}`\n"
+                        f"  - **Logon Type:** `{ltype}` | **Status:** {status_color}\n"
+                        f"  - **Login Count:** {stats['count']} attempts | **Time window:** `{stats['first']}` to `{stats['last']}`"
+                    )
+                summary_lines.append("")
+
+            if network_conns:
+                summary_lines.append("#### Network & DNS Connection Summary")
+                for (dest, port, proc, etype), stats in network_conns.items():
+                    summary_lines.append(
+                        f"- **Process:** `{proc}` initiated `{etype}` to `{dest}:{port}`\n"
+                        f"  - **Connection Count:** {stats['count']} times | **Time window:** `{stats['first']}` to `{stats['last']}`"
+                    )
+                summary_lines.append("")
+
+            if others:
+                summary_lines.append("#### Miscellaneous System Events Summary")
+                for (etype, product), count in others.items():
+                    summary_lines.append(
+                        f"- **Type:** `{etype}` (Product: `{product}`) | **Count:** {count} times"
+                    )
+                summary_lines.append("")
+
+            return "\n".join(summary_lines)
+
+        def _summarize_soar_cases(cases: list, tool_name: str) -> str:
+            total_cases = len(cases)
+            severities = {}
+            statuses = {}
+
+            # Sort cases by creation time if present
+            def get_ctime(x):
+                t = x.get("creationTime") or x.get("creation_time") or 0
+                return t if isinstance(t, (int, float)) else 0
+
+            sorted_cases = sorted(cases, key=get_ctime, reverse=True)
+
+            table_lines = [
+                "| Case ID | Title | Status | Severity | Creation Time |",
+                "| :--- | :--- | :---: | :---: | :---: |",
+            ]
+
+            detail_count = min(total_cases, 10)
+            for i in range(detail_count):
+                c = sorted_cases[i]
+                cid = c.get("id") or c.get("caseId") or "N/A"
+                title = c.get("title") or c.get("name") or "N/A"
+                status = c.get("status") or "N/A"
+                sev = c.get("severity") or "N/A"
+
+                ctime = c.get("creationTime") or c.get("creation_time") or "N/A"
+                if isinstance(ctime, (int, float)) and ctime > 1000000000:
+                    if ctime > 1000000000000:
+                        ctime = ctime / 1000.0
+                    ctime = datetime.datetime.utcfromtimestamp(ctime).isoformat() + "Z"
+
+                table_lines.append(
+                    f"| `{cid}` | {title} | `{status}` | `{sev}` | `{ctime}` |"
+                )
+
+                severities[sev] = severities.get(sev, 0) + 1
+                statuses[status] = statuses.get(status, 0) + 1
+
+            for i in range(detail_count, total_cases):
+                c = sorted_cases[i]
+                sev = c.get("severity") or "N/A"
+                status = c.get("status") or "N/A"
+                severities[sev] = severities.get(sev, 0) + 1
+                statuses[status] = statuses.get(status, 0) + 1
+
+            summary_lines = [
+                f"### [SEMANTIC SUMMARY] SOAR Cases (Source: {tool_name})",
+                f"**Total Cases Found:** {total_cases}",
+                "**Severity Breakdown:** "
+                + ", ".join([f"`{k}`: {v}" for k, v in severities.items()]),
+                "**Status Breakdown:** "
+                + ", ".join([f"`{k}`: {v}" for k, v in statuses.items()]),
+                "",
+                f"#### Recent Cases (Showing top {detail_count} of {total_cases}):",
+                "",
+            ] + table_lines
+
+            return "\n".join(summary_lines)
+
+        def _summarize_gti_report(report: dict, tool_name: str) -> str:
+            attributes = report.get("attributes", {})
+            name = attributes.get("name") or report.get("id") or "Threat Intel Entity"
+            etype = report.get("type") or "collection"
+
+            description = attributes.get("description") or "No description available."
+            if len(description) > 500:
+                description = description[:500] + "... [TRUNCATED description]"
+
+            merged_actors = attributes.get("merged_actors", [])
+            alt_names = attributes.get("alt_names", [])
+
+            relationships = report.get("relationships", {})
+            associations = relationships.get("associations", {}).get("data", [])
+
+            counters = attributes.get("counters", {})
+            files_count = counters.get("files") or attributes.get("files_count") or 0
+            domains_count = counters.get("domains") or 0
+            ips_count = counters.get("ip_addresses") or 0
+            urls_count = counters.get("urls") or 0
+
+            summary_lines = [
+                f"### [SEMANTIC SUMMARY] Threat Intelligence Report: {name} (Type: `{etype}`)",
+                f"**Origin:** {tool_name} (Google Threat Intelligence)",
+                f"**Description:** {description}",
+                "",
+                "**Key Metrics & Associated Indicators:**",
+                f"- **Associated Files/Hashes:** {files_count}",
+                f"- **Associated Domains:** {domains_count}",
+                f"- **Associated IP Addresses:** {ips_count}",
+                f"- **Associated URLs:** {urls_count}",
+                "",
+            ]
+
+            if alt_names:
+                summary_lines.append(
+                    "**Alias Names:** "
+                    + ", ".join([f"`{name}`" for name in alt_names[:10]])
+                )
+
+            if merged_actors:
+                summary_lines.append(
+                    "**Merged Actor/Campaign Profiles:** "
+                    + ", ".join([f"`{a.get('value')}`" for a in merged_actors[:10]])
+                )
+
+            if associations:
+                summary_lines.append(
+                    "#### Key Associated Intelligence Objects (Top 10):"
+                )
+                for assoc in associations[:10]:
+                    summary_lines.append(
+                        f"- **Type:** `{assoc.get('type')}` | **ID:** `{assoc.get('id')}`"
+                    )
+
+            return "\n".join(summary_lines)
+
+        def summarize_telemetry(text: str, tool_name: str) -> str:
+            if not isinstance(text, str) or len(text) < 10000:
+                return text
+
+            try:
+                data = json.loads(text)
+            except Exception:
+                return text
+
+            try:
+                # 1. UDM Search Event List
+                if (
+                    isinstance(data, list)
+                    and len(data) > 0
+                    and isinstance(data[0], dict)
+                    and "metadata" in data[0]
+                ):
+                    return _summarize_udm_events(data, tool_name)
+
+                # 2. SOAR Cases (list or wrapped)
+                if (
+                    isinstance(data, dict)
+                    and "result" in data
+                    and isinstance(data["result"], list)
+                ):
+                    return _summarize_soar_cases(data["result"], tool_name)
+                if (
+                    isinstance(data, list)
+                    and len(data) > 0
+                    and isinstance(data[0], dict)
+                    and ("title" in data[0] or "severity" in data[0])
+                ):
+                    return _summarize_soar_cases(data, tool_name)
+
+                # 3. GTI Report
+                if isinstance(data, dict) and (
+                    "type" in data or "attributes" in data or "relationships" in data
+                ):
+                    return _summarize_gti_report(data, tool_name)
+            except Exception:  # noqa: S110
+                pass
+
+            return text
+
+        # Define the patched run async wrapper
+        original_run_async_impl = McpTool._run_async_impl
+
+        async def _patched_run_async_impl(self, *args, **kwargs):
+            result = await original_run_async_impl(self, *args, **kwargs)
+            try:
+                if isinstance(result, dict) and "content" in result:
+                    content_list = result["content"]
+                    if isinstance(content_list, list):
+                        for item in content_list:
+                            if isinstance(item, dict) and item.get("type") == "text":
+                                text = item.get("text")
+                                if isinstance(text, str) and len(text) > 15000:
+                                    # 1. Try to run semantic aggregation first
+                                    aggregated_text = summarize_telemetry(
+                                        text, self.name
+                                    )
+                                    if len(aggregated_text) < len(text):
+                                        logger.warning(
+                                            f"[RUNTIME_PATCH] Successfully aggregated tool '{self.name}' response from {len(text)} to {len(aggregated_text)} chars."
+                                        )
+                                        item["text"] = aggregated_text
+                                        text = aggregated_text
+
+                                    # 2. Fall back to character truncation if it's still too large
+                                    if len(text) > 15000:
+                                        logger.warning(
+                                            f"[RUNTIME_PATCH] Truncating tool '{self.name}' response from {len(text)} to 15000 chars as fallback."
+                                        )
+                                        item["text"] = (
+                                            text[:15000]
+                                            + "\n... [TRUNCATED due to large size] ..."
+                                        )
+            except Exception as ex:
+                logger.warning(
+                    f"[RUNTIME_PATCH] Error while truncating/aggregating tool response: {ex}"
+                )
+            return result
+
+        McpTool._run_async_impl = _patched_run_async_impl
+        logger.warning(
+            "[RUNTIME_PATCH_DEBUG] Successfully patched McpTool._run_async_impl"
+        )
+    except Exception as e:
+        logger.warning(
+            f"[RUNTIME_PATCH_DEBUG] Failed to patch McpTool._run_async_impl: {e}"
+        )
+
     _runtime_patches_applied = True
     logger.warning("[RUNTIME_PATCH_DEBUG] All runtime patches applied successfully!")
+
+
+# Apply runtime monkeypatches on module import
+_apply_runtime_patches()
 
 
 class PatchedAgent(Agent):
@@ -354,7 +816,22 @@ async def patched_delete_session(self, *, app_name, user_id, session_id):
 vertex_session.VertexAiSessionService.delete_session = patched_delete_session
 
 
-import re  # noqa: E402
+# Monkey-patch VertexAiSessionService._get_api_client to bypass GOOGLE_CLOUD_LOCATION="global"
+# which poisons the regional endpoint resolution for the sessions service, returning 404.
+original_get_api_client = vertex_session.VertexAiSessionService._get_api_client
+
+
+def patched_get_api_client(self):
+    old_loc = os.environ.pop("GOOGLE_CLOUD_LOCATION", None)
+    try:
+        return original_get_api_client(self)
+    finally:
+        if old_loc is not None:
+            os.environ["GOOGLE_CLOUD_LOCATION"] = old_loc
+
+
+vertex_session.VertexAiSessionService._get_api_client = patched_get_api_client
+
 
 import google.adk.apps.app as adk_app  # noqa: E402
 
@@ -399,12 +876,37 @@ def _patched_debug(msg, *args, **kwargs):
 llm_logger.debug = _patched_debug
 
 
+# Monkeypatch ADK's OpenTelemetry instrumentation to bypass buggy contextvars span tracing
+# and permanently eliminate "ValueError: was created in a different Context" crashes in the cloud.
+import contextlib  # noqa: E402
+from collections.abc import AsyncIterator  # noqa: E402
+
+import google.adk.telemetry._instrumentation as adk_instrumentation  # noqa: E402
+
+
+@contextlib.asynccontextmanager
+async def patched_record_agent_invocation(
+    ctx, agent
+) -> AsyncIterator[adk_instrumentation.TelemetryContext]:
+    yield adk_instrumentation.TelemetryContext(otel_context=None)
+
+
+@contextlib.asynccontextmanager
+async def patched_record_tool_execution(
+    tool, agent, function_args
+) -> AsyncIterator[adk_instrumentation.TelemetryContext]:
+    yield adk_instrumentation.TelemetryContext(otel_context=None)
+
+
+adk_instrumentation.record_agent_invocation = patched_record_agent_invocation
+adk_instrumentation.record_tool_execution = patched_record_tool_execution
+
+
 # -------------------------------------------------------------------------
 
 
 from google.adk.tools.load_memory_tool import LoadMemoryTool  # noqa: E402
 from google.adk.tools.preload_memory_tool import PreloadMemoryTool  # noqa: E402
-from google.adk.tools.retrieval import VertexAiRagRetrieval  # noqa: E402
 from google.cloud import storage  # noqa: E402
 from google.genai.types import (  # noqa: E402
     AutomaticFunctionCallingConfig,
@@ -482,16 +984,41 @@ AgentTool.version = "1.0"
 # forces user_id="global_soc_team" does NOT apply.
 # This subclass overrides process_llm_request to call the memory service
 # directly with the shared team scope.
+def _rag_similarity_top_k(default: int = 10) -> int:
+    """Guarded RAG_SIMILARITY_TOP_K parse, matching the specialist agents
+    (they default to 10 with a ValueError fallback; the orchestrator
+    previously used an unguarded default of 3)."""
+    try:
+        return int(os.environ.get("RAG_SIMILARITY_TOP_K", str(default)))
+    except ValueError:
+        return default
+
+
+def _get_memory_scope() -> str:
+    """Single source of truth for the shared memory scope.
+
+    Configurable via MEMORY_SCOPE; defaults to the shared team scope. Every
+    memory read/write path must use this -- a hardcoded "global_soc_team"
+    literal on one path silently splits the memory bank when MEMORY_SCOPE
+    is set (writes land in one scope, reads happen in another).
+    """
+    return os.environ.get("MEMORY_SCOPE", "global_soc_team")
+
+
 class SharedScopePreloadMemoryTool(PreloadMemoryTool):
     """PreloadMemoryTool that always searches under the shared team scope.
 
     The default PreloadMemoryTool uses the per-user scope from the
     invocation context. This subclass overrides the memory search to
-    use user_id='global_soc_team' so that all analysts share the same
-    memory bank.
+    use the shared scope from _get_memory_scope() (MEMORY_SCOPE env var,
+    default 'global_soc_team') so that all analysts share the same memory
+    bank. Eval/benchmark user ids (containing "benchmark", "eval", or
+    "turing") bypass the shared scope so test runs stay isolated.
     """
 
-    SHARED_USER_ID = "global_soc_team"
+    @property
+    def SHARED_USER_ID(self) -> str:
+        return _get_memory_scope()
 
     async def process_llm_request(self, *, tool_context, llm_request) -> None:
         from google.adk.tools import _memory_entry_utils
@@ -511,9 +1038,23 @@ class SharedScopePreloadMemoryTool(PreloadMemoryTool):
                 logger.warning("PRELOAD_MEMORY: No memory service available, skipping.")
                 return
 
+            invocation_ctx = getattr(tool_context, "_invocation_context", None)
+            active_user_id = (
+                getattr(invocation_ctx, "user_id", _get_memory_scope())
+                if invocation_ctx
+                else _get_memory_scope()
+            )
+
+            if any(
+                k in active_user_id.lower() for k in ["benchmark", "eval", "turing"]
+            ):
+                target_user_id = active_user_id
+            else:
+                target_user_id = self.SHARED_USER_ID
+
             response = await memory_service.search_memory(
                 app_name=tool_context._invocation_context.app_name,
-                user_id=self.SHARED_USER_ID,
+                user_id=target_user_id,
                 query=user_query,
             )
         except Exception:
@@ -679,6 +1220,460 @@ async def fetch_full_document(gcs_uri: str, ctx: Context) -> str:
             exc_info=True,
         )
         return f"Failed to retrieve document: {str(e)}"
+
+
+async def search_knowledge_base(query: str, ctx: Context) -> str:
+    """
+    Search historical cases, alerts, and investigations metadata in the knowledge base.
+
+    Args:
+        query: The search term, keyword, indicator, or technique ID to query.
+    """
+    logger.info(f"KNOWLEDGE_BASE_SEARCH_CALL: query='{query}'")
+
+    es_url = os.environ.get("ELASTICSEARCH_URL", "http://localhost:9200")
+    es_api_key = os.environ.get("ELASTICSEARCH_API_KEY")
+    es_user = os.environ.get("ELASTICSEARCH_USER")
+    es_password = get_secret("ELASTICSEARCH_PASSWORD")
+    index_name = os.environ.get("ELASTICSEARCH_INDEX", "agentic-soc-runbooks")
+
+    try:
+        import urllib3
+        from elasticsearch import Elasticsearch
+
+        verify_certs = os.getenv("ELASTICSEARCH_VERIFY_CERTS", "false").lower() in (
+            "1",
+            "true",
+            "yes",
+        )
+        if not verify_certs:
+            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+        client_kwargs = {"verify_certs": verify_certs, "ssl_show_warn": verify_certs}
+
+        if es_api_key:
+            es = Elasticsearch(es_url, api_key=es_api_key, **client_kwargs)
+        elif es_user and es_password:
+            es = Elasticsearch(
+                es_url, basic_auth=(es_user, es_password), **client_kwargs
+            )
+        else:
+            es = Elasticsearch(es_url, **client_kwargs)
+
+        body = {
+            "query": {
+                "multi_match": {"query": query, "fields": ["title^2", "content"]}
+            },
+            "size": 5,
+        }
+
+        res = es.search(index=index_name, body=body)
+        hits = res["hits"]["hits"]
+        if not hits:
+            return "No matching runbooks found in Elasticsearch."
+
+        results = []
+        for hit in hits:
+            source = hit["_source"]
+            score = hit["_score"]
+            results.append(
+                f"Document: {source['title']}\n"
+                f"Path: {source['doc_path']}\n"
+                f"Score: {score:.4f}\n"
+                f"Content:\n{source['content']}\n"
+                f"{'='*40}"
+            )
+        return "\n\n".join(results)
+
+    except Exception as e:
+        logger.error(f"Elasticsearch retrieval failed: {e}")
+        return f"Error querying Elasticsearch: {e}"
+
+
+async def retrieve_agentic_soc_runbooks(query: str, ctx: Context) -> str:
+    """
+    Retrieve security incident response plans (IRPs), playbooks, procedures, and guidelines from the RAG knowledge base.
+
+    Args:
+        query: The search term or query to retrieve relevant runbooks for.
+    """
+    logger.info(f"RAG_RETRIEVAL_CALL: query='{query}'")
+
+    rag_corpus_id = os.environ.get("RAG_CORPUS_ID")
+    project_id = os.environ.get("GCP_PROJECT_ID")
+    if not rag_corpus_id:
+        return "RAG knowledge base is not configured (RAG_CORPUS_ID is missing)."
+
+    import re
+
+    m = re.search(r"locations/([^/]+)/", rag_corpus_id)
+    rag_location = m.group(1) if m else os.environ.get("RAG_GCP_LOCATION", "us-east4")
+
+    try:
+        import vertexai
+        # Initialize regional client context dynamically
+        vertexai.init(project=project_id, location=rag_location)
+
+        # Import the RAG module dynamically from high-level vertexai
+        from vertexai.preview import rag
+
+        # Call the programmatic retrieval API
+        response = rag.retrieval_query(
+            text=query,
+            rag_resources=[rag.RagResource(rag_corpus=rag_corpus_id)],
+            similarity_top_k=_rag_similarity_top_k(),
+        )
+
+        contexts = (
+            response.contexts.contexts if hasattr(response.contexts, "contexts") else []
+        )
+        if not contexts:
+            return "No relevant runbooks found in RAG knowledge base."
+
+        results = []
+        for context in contexts:
+            source_uri = getattr(context, "source_uri", "Unknown")
+            distance = getattr(context, "distance", 0.0)
+            results.append(
+                f"Document: {source_uri}\n"
+                f"Distance Score: {distance:.4f}\n"
+                f"Content:\n{context.text}\n"
+                f"{'='*40}"
+            )
+        return "\n\n".join(results)
+    except Exception as e:
+        logger.error(f"RAG retrieval failed: {e}")
+        return f"Error retrieving from RAG knowledge base: {e}"
+
+
+async def lookup_entity(entity_value: str, ctx: Context) -> str:
+    """
+    Look up an entity (IP, domain, hash, user, etc.) in Chronicle SIEM for enrichment.
+
+    Args:
+        entity_value: The indicator value (IP, domain, hash, user, etc.) to search for.
+    """
+    logger.info(f"LOOKUP_ENTITY_CALL: entity_value='{entity_value}'")
+
+    project_id = os.environ.get("CHRONICLE_PROJECT_ID")
+    customer_id = os.environ.get("CHRONICLE_CUSTOMER_ID")
+    region = os.environ.get("CHRONICLE_REGION", "us")
+
+    # Invoke the remote 'search_entity' tool via HTTP JSON-RPC
+    secops_mcp_url = f"https://chronicle.{region}.rep.googleapis.com/mcp"
+    headers = get_secops_headers(ctx)
+
+    body = {
+        "jsonrpc": "2.0",
+        "method": "tools/call",
+        "params": {
+            "name": "search_entity",
+            "arguments": {
+                "indicator": entity_value,
+                "projectId": project_id,
+                "customerId": customer_id,
+                "region": region,
+            },
+        },
+        "id": 1,
+    }
+
+    try:
+        import httpx
+
+        async with httpx.AsyncClient(timeout=90.0) as client:
+            response = await client.post(secops_mcp_url, json=body, headers=headers)
+            if response.status_code != 200:
+                return f"Error calling remote Chronicle OneMCP server: HTTP {response.status_code} - {response.text}"
+
+            resp_json = response.json()
+            if "error" in resp_json:
+                return (
+                    f"Error from remote Chronicle OneMCP server: {resp_json['error']}"
+                )
+
+            result = resp_json.get("result", {})
+            content_list = result.get("content", [])
+            text_parts = []
+            for item in content_list:
+                if item.get("type") == "text":
+                    text_parts.append(item.get("text", ""))
+
+            if not text_parts:
+                return f"No results returned from Chronicle search_entity for '{entity_value}'."
+
+            return "\n".join(text_parts)
+    except Exception as e:
+        logger.error(f"lookup_entity failed: {e}")
+        return f"Error looking up entity in Chronicle: {e}"
+
+
+_CYPHER_WRITE_CLAUSES = re.compile(
+    r"(?i)\b(CREATE|MERGE|DELETE|DETACH|SET|REMOVE|DROP|FOREACH|LOAD\s+CSV)\b"
+)
+
+
+def _reject_write_cypher(cypher_query: str) -> str | None:
+    """Return an error string if the query contains write clauses, else None.
+
+    session.execute_read() is only a cluster-routing hint in the Neo4j driver;
+    against a single instance it does NOT block CREATE/MERGE/DELETE. This
+    keyword gate is the actual read-only enforcement for LLM-supplied Cypher.
+    (Server-side enforcement via a read-only Neo4j role is preferable when
+    available; this guard is the in-process backstop.)
+    """
+    m = _CYPHER_WRITE_CLAUSES.search(cypher_query)
+    if m:
+        return (
+            f"Rejected: query contains write clause '{m.group(1)}'. "
+            "query_knowledge_graph is read-only; use MATCH/RETURN queries."
+        )
+    return None
+
+
+async def query_knowledge_graph(cypher_query: str, ctx: Context) -> str:
+    """
+    Execute a read-only Cypher query against the Security Operations Neo4j knowledge graph
+    to query entity relationships, trace attack paths, and correlate logs.
+
+    Args:
+        cypher_query: The Cypher query string to execute. Example:
+          "MATCH (h:Host {name: 'WRK-SHASEK'})<-[:INVOLVES]-(i:Investigation) RETURN i.id, i.verdict"
+    """
+    logger.info(f"NEO4J_GRAPH_QUERY: query='{cypher_query}'")
+
+    rejection = _reject_write_cypher(cypher_query)
+    if rejection:
+        logger.warning(f"NEO4J_GRAPH_QUERY rejected write clause: {cypher_query!r}")
+        return rejection
+
+    uri = os.environ.get("NEO4J_URI", "bolt://localhost:7687")
+    user = os.environ.get("NEO4J_USER", "neo4j")
+    password = get_secret("NEO4J_PASSWORD")
+
+    try:
+        from neo4j import GraphDatabase
+
+        # execute_read() only routes to a reader in clusters -- the write-clause
+        # guard above is what enforces read-only behavior on a single instance
+        with GraphDatabase.driver(uri, auth=(user, password)) as driver:
+            with driver.session() as session:
+
+                def _run(tx):
+                    result = tx.run(cypher_query)
+                    return [record.data() for record in result]
+
+                records = session.execute_read(_run)
+
+        if not records:
+            return "No matching records found in Neo4j."
+
+        # Format output as formatted JSON string for readability
+        return json.dumps(records, indent=2)
+
+    except Exception as e:
+        logger.error(f"Neo4j query failed: {e}")
+        return f"Error querying Neo4j: {e}"
+
+
+async def query_alloydb_detection_reports(
+    query: str | None = None,
+    verdict: str | None = None,
+    entity: str | None = None,
+    alert_id: str | None = None,
+    limit: int = 5,
+    tool_context: Context | None = None,
+) -> str:
+    """Search harvested Chronicle detection reports and historical investigations in AlloyDB.
+
+    Use this tool to find past investigation findings, verdicts (TRUE_POSITIVE / FALSE_POSITIVE),
+    prescribed next steps, related alert contexts, or affected entities (hosts, users, IPs, file hashes).
+
+    Args:
+        query: Optional search keyword or phrase to search across investigation titles, summaries, and reports.
+        verdict: Optional filter for investigation verdict ('TRUE_POSITIVE' or 'FALSE_POSITIVE').
+        entity: Optional entity value to search for (e.g. hostname 'wins-d19', username 'lisawalker', IP address, or SHA256 hash).
+        alert_id: Optional alert identifier (e.g. 'de_0bfc2f34-7068-e354-3225-6cfef865577b').
+        limit: Maximum number of detection reports to return (default 5).
+    """
+    logger.info(
+        f"ALLOYDB_SEARCH: query='{query}', verdict='{verdict}', entity='{entity}', alert_id='{alert_id}', limit={limit}"
+    )
+
+    host = os.environ.get("ALLOYDB_HOST", "localhost")
+    port = int(os.environ.get("ALLOYDB_PORT", "5432"))
+    database = os.environ.get("ALLOYDB_DATABASE", "secops")
+    user = os.environ.get("ALLOYDB_USER", "postgres")
+    password = get_secret("ALLOYDB_PASSWORD") or os.environ.get(
+        "ALLOYDB_PASSWORD", "password"
+    )
+    instance_uri = os.environ.get("ALLOYDB_INSTANCE_URI")
+    sslmode = os.environ.get("ALLOYDB_SSLMODE", "prefer")
+
+    try:
+        import psycopg
+        from psycopg.rows import dict_row
+
+        conn = None
+        if instance_uri:
+            try:
+                from google.cloud.alloydb.connector import Connector
+
+                connector = Connector()
+                conn = connector.connect(
+                    instance_uri,
+                    "psycopg",
+                    user=user,
+                    password=password,
+                    db=database,
+                    autocommit=False,
+                )
+            except Exception as conn_err:
+                logger.warning(f"AlloyDB connector fallback: {conn_err}")
+
+        if conn is None:
+            conn = psycopg.connect(
+                host=host,
+                port=port,
+                dbname=database,
+                user=user,
+                password=password,
+                sslmode=sslmode,
+                autocommit=False,
+            )
+
+        with conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                where_clauses = []
+                params = []
+
+                if query:
+                    where_clauses.append(
+                        """(
+                            to_tsvector('english', coalesce(display_name, '') || ' ' || coalesce(summary, '') || ' ' || coalesce(markdown_report, ''))
+                            @@ plainto_tsquery('english', %s)
+                            OR display_name ILIKE %s
+                            OR summary ILIKE %s
+                            OR id ILIKE %s
+                        )"""
+                    )
+                    like_q = f"%{query}%"
+                    params.extend([query, like_q, like_q, like_q])
+
+                if verdict:
+                    where_clauses.append("verdict = %s")
+                    params.append(verdict.upper())
+
+                if alert_id:
+                    where_clauses.append("%s = ANY(alert_ids)")
+                    params.append(alert_id)
+
+                if entity:
+                    where_clauses.append(
+                        """id IN (
+                            SELECT investigation_id FROM detection_entities
+                            WHERE entity_value ILIKE %s
+                        )"""
+                    )
+                    params.append(f"%{entity}%")
+
+                where_sql = (
+                    ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
+                )
+                sql = f"""
+                    SELECT id, display_name, verdict, confidence, status, publish_time, summary, alert_ids, entities
+                    FROM detection_reports
+                    {where_sql}
+                    ORDER BY publish_time DESC NULLS LAST
+                    LIMIT %s;
+                """  # noqa: S608
+                params.append(limit)
+                cur.execute(sql, tuple(params))
+                rows = cur.fetchall()
+
+        if not rows:
+            return "No matching detection reports found in AlloyDB."
+
+        results = []
+        for r in rows:
+            res_str = (
+                f"Investigation ID: {r['id']}\n"
+                f"Title: {r['display_name']}\n"
+                f"Verdict: {r['verdict']} (Confidence: {r['confidence']})\n"
+                f"Published: {r['publish_time']}\n"
+                f"Alert IDs: {', '.join(r['alert_ids'] or [])}\n"
+                f"Summary:\n{r['summary']}\n"
+                f"{'='*40}"
+            )
+            results.append(res_str)
+
+        return "\n\n".join(results)
+
+    except Exception as e:
+        logger.error(f"AlloyDB query failed: {e}")
+        return f"Error querying AlloyDB detection reports: {e}"
+
+
+def find_similar_alloydb_investigations(
+    investigation_id: str,
+    limit: int = 5,
+    profile: str = "balanced",
+) -> str:
+    """
+    Finds the most similar historical investigation reports in AlloyDB to a given investigation ID.
+    Uses multi-modal composite scoring parameterized by specialized SOC operational profiles:
+
+    Profiles:
+    - 'balanced' (default): Standard blend across all 5 dimensions (35% semantic, 30% entity, 20% TTP, 10% flow, 5% time).
+    - 'threat-hunt': Biases heavily for shared MITRE TTPs (45%) and semantic tradecraft (35%) to hunt actor behaviors across multiple or disparate hosts.
+    - 'compromise-pivot': Biases heavily for compromised hosts/users/IPs (45%) and temporal proximity (30%) to detect lateral movement and incident blast radius.
+    - 'false-positive': Biases for exact entity matches (40%) and detection rules (25%) to identify recurring benign noise and previous false-positive dismissals.
+    - 'semantic': Biases for dense vector cosine similarity (60%) for conceptual behavioral discovery.
+
+    Args:
+        investigation_id: The UUID or ID of the investigation to compare against (e.g. '00351f48-2646-4450-ae2d-6fefeae32f2d').
+        limit: Maximum number of similar reports to return (default: 5).
+        profile: The scoring profile to use ('balanced', 'threat-hunt', 'compromise-pivot', 'false-positive', 'semantic').
+    """
+    try:
+        try:
+            from agent_soc_manager.manage_alloydb import AlloyDBManager
+        except ImportError:
+            try:
+                from installation_scripts.manage_alloydb import AlloyDBManager
+            except ImportError:
+                from manage_alloydb import AlloyDBManager
+
+        manager = AlloyDBManager()
+        similar_reports = manager.find_similar(
+            investigation_id=investigation_id,
+            limit=limit,
+            profile=profile,
+        )
+        if not similar_reports:
+            return f"No similar investigations found for ID '{investigation_id}' in AlloyDB."
+
+        results = []
+        for idx, r in enumerate(similar_reports, 1):
+            bd = r["breakdown"]
+            shared_ents = [f"{e['type']}:{e['value']}" for e in r["shared_entities"]]
+            res_str = (
+                f"Rank {idx}: {r['display_name']} (ID: {r['id']})\n"
+                f"Verdict: {r['verdict']} (Confidence: {r['confidence']})\n"
+                f"Composite Similarity: {r['composite_score']:.4f} "
+                f"[Semantic: {bd['semantic']:.2f}, Entity: {bd['entity']:.2f}, TTP: {bd['ttp']:.2f}, Flow: {bd['flow']:.2f}, Time: {bd['time']:.2f}]\n"
+                f"Shared Entities ({len(shared_ents)}): {', '.join(shared_ents) or 'None'}\n"
+                f"Shared MITRE Techniques: {', '.join(r['shared_techniques']) or 'None'}\n"
+                f"Shared MITRE Tactics: {', '.join(r['shared_tactics']) or 'None'}\n"
+                f"Summary Preview:\n{(r['summary'] or '')[:250]}...\n"
+                f"{'='*40}"
+            )
+            results.append(res_str)
+
+        return "\n\n".join(results)
+    except Exception as e:
+        logger.error(f"Failed to find similar investigations in AlloyDB: {e}")
+        return f"Error querying similar investigations in AlloyDB: {e}"
 
 
 async def save_report_artifact(filename: str, report_content: str, ctx: Context) -> str:
@@ -848,9 +1843,22 @@ async def generate_memory(
             )
             logger.debug(f"MEMORY_GENERATION_CONFIG: {json.dumps(memory_bank_config)}")
 
+            invocation_ctx = getattr(ctx, "_invocation_context", None)
+            active_user_id = (
+                getattr(invocation_ctx, "user_id", _get_memory_scope())
+                if invocation_ctx
+                else _get_memory_scope()
+            )
+            if any(
+                k in active_user_id.lower() for k in ["benchmark", "eval", "turing"]
+            ):
+                target_user_id = active_user_id
+            else:
+                target_user_id = _get_memory_scope()
+
             await ctx._invocation_context.memory_service.add_events_to_memory(
                 app_name=ctx._invocation_context.app_name,
-                user_id="global_soc_team",
+                user_id=target_user_id,
                 events=session_events,
                 custom_metadata=memory_bank_config,
             )
@@ -894,7 +1902,7 @@ async def before_tool_cache(tool, args, tool_context: Context, **kwargs):
             async def _shared_search_memory(self, query: str):
                 return await self._invocation_context.memory_service.search_memory(
                     app_name=self._invocation_context.app_name,
-                    user_id="global_soc_team",
+                    user_id=_get_memory_scope(),
                     query=query,
                 )
 
@@ -1078,11 +2086,9 @@ async def delegate_to_tier2_responder(query: str, tool_context: Context) -> str:
     )
     try:
         # Retrieve Tier 2 Agent Engine resource name from environment variables
-        tier2_engine_name = os.environ.get("TIER2_AGENT_RESOURCE_NAME")
+        tier2_engine_name = get_secret("TIER2_AGENT_RESOURCE_NAME")
         if not tier2_engine_name:
-            logger.error(
-                "A2A_DELEGATION_ERROR: TIER2_AGENT_RESOURCE_NAME not set in environment."
-            )
+            logger.error("A2A_DELEGATION_ERROR: TIER2_AGENT_RESOURCE_NAME not set.")
             return "Error: Tier 2 Incident Responder is not currently configured in the environment."
         # Parse the location from the resource name dynamically
         import re
@@ -1192,16 +2198,29 @@ async def delegate_to_threat_hunter(query: str, tool_context: Context) -> str:
     """
     logger.info(f"A2A_DELEGATION: Attempting to delegate to Threat Hunter for: {query}")
     try:
-        engine_name = os.environ.get("THREAT_HUNTER_AGENT_RESOURCE_NAME")
+        engine_name = get_secret("THREAT_HUNTER_AGENT_RESOURCE_NAME")
         if not engine_name:
             logger.error(
                 "A2A_DELEGATION_ERROR: THREAT_HUNTER_AGENT_RESOURCE_NAME not set."
             )
             return "Error: Threat Hunter agent is not configured in the environment."
 
-        from vertexai import agent_engines
+        # Parse the location from the resource name dynamically
+        import re
 
-        remote_engine = agent_engines.get(engine_name)
+        m = re.search(r"locations/([^/]+)/", engine_name)
+        target_location = m.group(1) if m else "us-central1"
+
+        # Clean Regional Routing:
+        # Instead of using the global 'vertexai.agent_engines.get' shortcut,
+        # we explicitly construct a regional 'vertexai.Client' instance.
+        # This guarantees an isolated, correct regional gRPC pathway for A2A.
+        import vertexai
+
+        client = vertexai.Client(
+            project=os.environ.get("GCP_PROJECT_ID"), location=target_location
+        )
+        remote_engine = client.agent_engines.get(name=engine_name)
         session_id = None
         user_id = "secops_assistant"
 
@@ -1276,16 +2295,29 @@ async def delegate_to_cti_researcher(query: str, tool_context: Context) -> str:
         f"A2A_DELEGATION: Attempting to delegate to CTI Researcher for: {query}"
     )
     try:
-        engine_name = os.environ.get("CTI_RESEARCHER_AGENT_RESOURCE_NAME")
+        engine_name = get_secret("CTI_RESEARCHER_AGENT_RESOURCE_NAME")
         if not engine_name:
             logger.error(
                 "A2A_DELEGATION_ERROR: CTI_RESEARCHER_AGENT_RESOURCE_NAME not set."
             )
             return "Error: CTI Researcher agent is not configured in the environment."
 
-        from vertexai import agent_engines
+        # Parse the location from the resource name dynamically
+        import re
 
-        remote_engine = agent_engines.get(engine_name)
+        m = re.search(r"locations/([^/]+)/", engine_name)
+        target_location = m.group(1) if m else "us-central1"
+
+        # Clean Regional Routing:
+        # Instead of using the global 'vertexai.agent_engines.get' shortcut,
+        # we explicitly construct a regional 'vertexai.Client' instance.
+        # This guarantees an isolated, correct regional gRPC pathway for A2A.
+        import vertexai
+
+        client = vertexai.Client(
+            project=os.environ.get("GCP_PROJECT_ID"), location=target_location
+        )
+        remote_engine = client.agent_engines.get(name=engine_name)
         session_id = None
         user_id = "secops_assistant"
 
@@ -1346,6 +2378,44 @@ async def delegate_to_cti_researcher(query: str, tool_context: Context) -> str:
         return f"Failed to communicate with the remote CTI Researcher specialist agent: {e}"
 
 
+async def delegate_concurrently(
+    cti_query: str, hunt_query: str, tool_context: Context
+) -> str:
+    """
+    Delegates to the CTI Researcher agent (for threat intelligence research) and the
+    Threat Hunter agent (for internal log threat hunting) CONCURRENTLY, running both
+    investigations in parallel to save time.
+
+    Args:
+        cti_query: The specific threat intelligence query for the CTI Researcher (e.g., 'Research active campaign aliases and IOCs for Ursnif').
+        hunt_query: The specific threat hunt query or hypothesis for the Threat Hunter (e.g., 'Search for active beacons or DNS connections to superstarts.top').
+    """
+    import asyncio
+
+    logger.info(
+        f"A2A_DELEGATION: Attempting concurrent delegation to CTI Researcher ('{cti_query}') and Threat Hunter ('{hunt_query}')"
+    )
+
+    cti_task = delegate_to_cti_researcher(cti_query, tool_context)
+    hunt_task = delegate_to_threat_hunter(hunt_query, tool_context)
+
+    try:
+        cti_result, hunt_result = await asyncio.gather(cti_task, hunt_task)
+        logger.info(
+            "A2A_DELEGATION_SUCCESS: Successfully completed concurrent delegation tasks."
+        )
+        return f"""=== CTI Researcher Specialist Results ===
+{cti_result}
+
+=== Threat Hunter Specialist Results ===
+{hunt_result}"""
+    except Exception as e:
+        logger.error(
+            f"A2A_DELEGATION_ERROR: Concurrent delegation failed: {e}", exc_info=True
+        )
+        return f"Error executing concurrent delegation: {e}"
+
+
 async def delegate_to_detection_engineer(query: str, tool_context: Context) -> str:
     """
     Delegates detection rule development (YARA-L), rule verification, validation, tuning, and rule lifecycle audits
@@ -1358,7 +2428,7 @@ async def delegate_to_detection_engineer(query: str, tool_context: Context) -> s
         f"A2A_DELEGATION: Attempting to delegate to Detection Engineer for: {query}"
     )
     try:
-        engine_name = os.environ.get("DETECTION_ENGINEER_AGENT_RESOURCE_NAME")
+        engine_name = get_secret("DETECTION_ENGINEER_AGENT_RESOURCE_NAME")
         if not engine_name:
             logger.error(
                 "A2A_DELEGATION_ERROR: DETECTION_ENGINEER_AGENT_RESOURCE_NAME not set."
@@ -1367,9 +2437,22 @@ async def delegate_to_detection_engineer(query: str, tool_context: Context) -> s
                 "Error: Detection Engineer agent is not configured in the environment."
             )
 
-        from vertexai import agent_engines
+        # Parse the location from the resource name dynamically
+        import re
 
-        remote_engine = agent_engines.get(engine_name)
+        m = re.search(r"locations/([^/]+)/", engine_name)
+        target_location = m.group(1) if m else "us-central1"
+
+        # Clean Regional Routing:
+        # Instead of using the global 'vertexai.agent_engines.get' shortcut,
+        # we explicitly construct a regional 'vertexai.Client' instance.
+        # This guarantees an isolated, correct regional gRPC pathway for A2A.
+        import vertexai
+
+        client = vertexai.Client(
+            project=os.environ.get("GCP_PROJECT_ID"), location=target_location
+        )
+        remote_engine = client.agent_engines.get(name=engine_name)
         session_id = None
         user_id = "secops_assistant"
 
@@ -1471,14 +2554,61 @@ def get_secops_headers(context) -> dict[str, str]:
             "CHRONICLE_PROJECT_ID is missing from environment! OneMCP tool calls *will* fail without a routing context."
         )
 
+    user_token = None
+
+    # 1. Try to get the user's personal OAuth token from the context state first
     if context and context.state and gemini_auth_id:
         user_token = context.state.get(gemini_auth_id)
         if user_token:
-            headers["Authorization"] = f"Bearer {user_token}"
-            # Log first few chars for debugging without leaking full sensitive token in recap
             logger.info(
-                f"DEBUG: Tool Call Auth Header present (starts with: {user_token[:10]}...)"
+                f"DEBUG: Tool Call Auth Header present from context state (starts with: {user_token[:10]}...)"
             )
+
+    # 2. Fallback to permanent Service Account JSON Key from Secret Manager if configured
+    if not user_token:
+        try:
+            sa_json_str = get_secret("SECOPS_SA_JSON")
+            if sa_json_str:
+                import google.auth.transport.requests
+                from google.oauth2 import service_account
+
+                info = json.loads(sa_json_str)
+                creds = service_account.Credentials.from_service_account_info(
+                    info, scopes=["https://www.googleapis.com/auth/cloud-platform"]
+                )
+                auth_req = google.auth.transport.requests.Request()
+                creds.refresh(auth_req)
+                user_token = creds.token
+                if user_token:
+                    logger.info(
+                        f"DEBUG: Generated access token from permanent Service Account Key in Secret Manager (starts with: {user_token[:10]}...)"
+                    )
+        except Exception as e:
+            logger.warning(
+                f"Failed to generate access token from Secret Manager SA JSON: {e}"
+            )
+
+    # 3. Fallback to Google Application Default Credentials (ADC) if no token is in context state (e.g. Local runner)
+    if not user_token:
+        try:
+            import google.auth
+            import google.auth.transport.requests
+
+            creds, _ = google.auth.default(
+                scopes=["https://www.googleapis.com/auth/cloud-platform"]
+            )
+            auth_req = google.auth.transport.requests.Request()
+            creds.refresh(auth_req)
+            user_token = creds.token
+            if user_token:
+                logger.info(
+                    f"DEBUG: Generated fallback Google ADC access token for Chronicle authentication (starts with: {user_token[:10]}...)"
+                )
+        except Exception as e:
+            logger.warning(f"Failed to generate fallback Google ADC token: {e}")
+
+    if user_token:
+        headers["Authorization"] = f"Bearer {user_token}"
 
     return headers
 
@@ -1488,11 +2618,41 @@ def create_remote_secops_toolset(region, tool_filter=None) -> McpToolset:
     secops_mcp_url = f"https://chronicle.{region}.rep.googleapis.com/mcp"
     logger.info(f"Initializing Remote MCP Toolset with URL: {secops_mcp_url}")
     return McpToolset(
-        connection_params=StreamableHTTPConnectionParams(url=secops_mcp_url),
+        connection_params=StreamableHTTPConnectionParams(
+            url=secops_mcp_url,
+            timeout=90.0,  # Increase timeout to 90 seconds to prevent cold-start timeouts
+        ),
         header_provider=get_secops_headers,
         tool_filter=tool_filter,
         errlog=None,  # explicitly None to prevent sys.stderr capturing (which cannot be pickled)
     )
+
+
+def get_secret(secret_name: str, project_id: str | None = None) -> str:
+    """Retrieve a secret from Google Cloud Secret Manager with local env fallback."""
+    val = os.environ.get(secret_name, "")
+    project_id = project_id or os.environ.get("GCP_PROJECT_ID")
+    if not project_id:
+        return val
+
+    try:
+        from google.cloud import secretmanager
+
+        client = secretmanager.SecretManagerServiceClient()
+        name = f"projects/{project_id}/secrets/{secret_name}/versions/latest"
+        response = client.access_secret_version(name=name)
+        secret_val = response.payload.data.decode("UTF-8").strip()
+        if secret_val:
+            logger.info(
+                f"Successfully loaded secret '{secret_name}' from Secret Manager."
+            )
+            return secret_val
+    except Exception as e:
+        logger.debug(
+            f"Secret Manager lookup failed for '{secret_name}': {e}. Using environment fallback."
+        )
+
+    return val
 
 
 def create_agent():
@@ -1510,11 +2670,13 @@ def create_agent():
     """
     # Load environment variables from .env file
     load_dotenv(Path(".env"), override=True)
+    # Disable buggy OpenTelemetry span tracing in cloud container to prevent contextvar detachment crashes
+    os.environ["GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY"] = "False"
 
     # Model Configuration
     ORCHESTRATOR_MODEL = os.environ.get("ORCHESTRATOR_MODEL", "gemini-3.1-pro-preview")
-    CTI_RESEARCHER_MODEL = os.environ.get("CTI_RESEARCHER_MODEL", "gemini-3.5-flash")
-    TIER1_ANALYST_MODEL = os.environ.get("TIER1_ANALYST_MODEL", "gemini-3.5-flash")
+    CTI_RESEARCHER_MODEL = os.environ.get("CTI_RESEARCHER_MODEL", "gemini-2.5-flash")
+    TIER1_ANALYST_MODEL = os.environ.get("TIER1_ANALYST_MODEL", "gemini-2.5-flash")
     logger.warning("Model configuration loaded:")
     logger.warning(f"  ORCHESTRATOR_MODEL: {ORCHESTRATOR_MODEL}")
     logger.warning(f"  CTI_RESEARCHER_MODEL: {CTI_RESEARCHER_MODEL}")
@@ -1581,10 +2743,10 @@ def create_agent():
 
     # SOAR configuration
     SOAR_URL = os.environ.get("SOAR_URL")
-    SOAR_APP_KEY = os.environ.get("SOAR_APP_KEY")
+    SOAR_APP_KEY = get_secret("SOAR_APP_KEY", GCP_PROJECT_ID)
 
     # Google Threat Intelligence configuration
-    GTI_API_KEY = os.environ.get("GTI_API_KEY")
+    GTI_API_KEY = get_secret("GTI_API_KEY", GCP_PROJECT_ID)
 
     # Build container paths statically to ensure container compatibility when pickled
     container_paths = [
@@ -1618,8 +2780,8 @@ def create_agent():
             "GTI_CACHE_DOMAIN_TTL": os.environ.get("GTI_CACHE_DOMAIN_TTL", "1800"),
             "GTI_CACHE_URL_TTL": os.environ.get("GTI_CACHE_URL_TTL", "1800"),
             "GTI_CACHE_MAX_SIZE": os.environ.get("GTI_CACHE_MAX_SIZE", "1000"),
-            "GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY": "True",
-            "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT": "True",
+            "GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY": "False",
+            "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT": "False",
             "OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT": "32768",  # Truncate large tool payloads to prevent 64KB GCP Trace limit crash
             "OTEL_SPAN_ATTRIBUTE_VALUE_LENGTH_LIMIT": "32768",
         }
@@ -1648,9 +2810,12 @@ def create_agent():
 
     # RAG configuration
     RAG_CORPUS_ID = os.environ.get("RAG_CORPUS_ID")
-    RAG_SIMILARITY_TOP_K = int(os.environ.get("RAG_SIMILARITY_TOP_K", "10"))
-    RAG_DISTANCE_THRESHOLD = float(os.environ.get("RAG_DISTANCE_THRESHOLD", "0.6"))
     RAG_GCP_LOCATION = os.environ.get("RAG_GCP_LOCATION")
+
+    # Elasticsearch grounding configuration
+    ELASTICSEARCH_GROUNDING_ENABLED = (
+        os.environ.get("ELASTICSEARCH_GROUNDING_ENABLED", "False") == "True"
+    )
 
     # Debug mode
     DEBUG = os.environ.get("DEBUG", "False") == "True"
@@ -1741,10 +2906,12 @@ def create_agent():
     logger.info("Creating Tier 1 sub-agent...")
 
     tier1_tools = [
+        lookup_entity,
         save_report_artifact,
         tier1_skill_toolset,
         SharedScopePreloadMemoryTool(),  # Auto-load memories at start of every turn
         LoadMemoryTool(),  # On-demand memory queries during investigation
+        query_knowledge_graph,
         notify_human_incident,
         request_human_confirmation,
         send_chatops_card,
@@ -1756,6 +2923,19 @@ def create_agent():
         send_all_example_cards,
     ]
 
+    # Configure grounding/retrieval for Tier 1 Analyst
+    ALLOYDB_GROUNDING_ENABLED = (
+        os.environ.get("ALLOYDB_GROUNDING_ENABLED", "True") == "True"
+    )
+    if ALLOYDB_GROUNDING_ENABLED:
+        tier1_tools.append(query_alloydb_detection_reports)
+        tier1_tools.append(find_similar_alloydb_investigations)
+    if ELASTICSEARCH_GROUNDING_ENABLED:
+        tier1_tools.append(search_knowledge_base)
+    if RAG_CORPUS_ID:
+        tier1_tools.append(retrieve_agentic_soc_runbooks)
+
+    # Chronicle for basic entity lookups
     tier1_tools.append(
         create_remote_secops_toolset(
             CHRONICLE_REGION,
@@ -1769,12 +2949,21 @@ def create_agent():
                 "get_involved_entity",
                 "list_involved_entities",
                 "udm_search",
+                "translate_udm_query",
                 "list_cases",
                 "get_case",
                 "update_case",
                 "create_case_comment",
+                "list_case_comments",
                 "list_case_alerts",
                 "get_case_alert",
+                "get_investigation_by_id",
+                "get_security_alert",
+                "list_security_alerts",
+                "update_security_alert",
+                "get_alert_latest_investigation",
+                "trigger_investigation",
+                "get_ioc_match",
             ],
         )
     )
@@ -1800,69 +2989,33 @@ def create_agent():
         )
     )
 
+    # Load Tier 1 Analyst instructions from prompt file
+    current_dir = Path(__file__).parent
+    with open(current_dir / "prompts" / "tier1_analyst_instructions.md") as f:
+        tier1_instruction_template = f.read()
+
+    # Format environment context to append to instructions
+    project_id_ctx = os.environ.get("GCP_PROJECT_ID", "secops-demo-env")
+    customer_id_ctx = os.environ.get(
+        "CHRONICLE_CUSTOMER_ID", "a13f6726-efed-452e-9008-8fe0d3cb0f75"
+    )
+    region_ctx = os.environ.get("CHRONICLE_REGION", "us")
+
+    routing_context = f"""
+
+### ACTIVE GOOGLE SECOPS ENVIRONMENT CONTEXT:
+You MUST use the following exact values for any Chronicle or SecOps tool calls (such as list_cases, search_entity, get_rule, etc.) requiring these parameters. NEVER use placeholders or fabricate different values:
+- **`projectId` / `projectId`**: "{project_id_ctx}"
+- **`customerId` / `customerId`**: "{customer_id_ctx}"
+- **`region` / `region`**: "{region_ctx}"
+"""
+    tier1_instruction = tier1_instruction_template + routing_context
+
     tier1_subagent = PatchedAgent(
         name="tier1_analyst",
         model=TIER1_ANALYST_MODEL,
         description=TIER1_PERSONA,
-        instruction="""You are a Tier 1 SOC Analyst - the first line of defense in security operations.
-
-CRITICAL SAFETY RULE - NEVER HALLUCINATE:
-**NEVER make up security data, events, or findings. If a tool fails or returns an error, you MUST report the actual error to the user. Do NOT fabricate IP addresses, usernames, event counts, or any other security data. Honesty about tool failures is mandatory.**
-
-INTERPRETING TOOL RESPONSES:
-- **Tool Error (isError=True or exception)**: Report the actual error to the user
-- **Empty Success (isError=False, empty/null data)**: Confidently state "No results found" or "No [items] at this time"
-  - Example: `list_cases()` returns `{}` → "There are no open cases in SOAR at this time"
-  - Example: `search_security_events()` returns `[]` → "No SIEM events matching the criteria were found"
-  - Example: `lookup_entity()` returns no data → "No SIEM data found for this entity"
-- Do NOT say "unable to retrieve" or "might indicate" when a tool succeeds with empty results - be definitive and clear
-
-ROLE & FOCUS:
-- Alert triage and initial investigation
-- Rapid assessment, basic enrichment, and appropriate escalation
-- Follow established runbooks - do not improvise beyond your scope
-
-WORKFLOW:
-1. Alert Triage: Perform initial assessment using basic lookups
-2. Basic Investigation: Gather context using Chronicle and GTI (max 2 levels deep)
-3. Documentation: Document findings clearly in SOAR cases
-4. Escalation Decision: Identify when issues exceed Tier 1 scope
-
-ESCALATION PROTOCOL:
-Recommend escalation to Tier 2/3 when encountering:
-- Confirmed malicious activity or compromise
-- Ransomware, APT, data exfiltration, privilege escalation, lateral movement
-- Need for forensic analysis, containment, or remediation
-- Complex investigations beyond basic triage
-
-TOOL USAGE:
-- **LoadMemoryTool** (CONTEXT): Check for historical context, approved exceptions, and recurring false positive patterns.
-  - ALWAYS query memory before starting triage to avoid redundant work on known benign entities or tools.
-- **Chronicle (SIEM)**: Basic entity lookups and alert queries
-  - When using `search_security_events()`, ALWAYS extract and present the UDM query from the response
-- **SOAR**: Create/update cases, add findings, manage status
-  - Specify which tool you used (e.g., `list_cases()`, `get_case_full_details()`)
-
-6. **ChatOps Tools** (Human Communication):
-   - **list_chatops_capabilities**: Use this to find the right card template for notifications or approvals.
-   - **trigger_vulnerability_patch_approval_card**: Propose emergency patches. Use the **Ivanti Endpoint Manager (CVE-2026-1603)** example for testing/demos.
-   - **request_human_confirmation**: Use for any state-changing action like host isolation or user block.
-   - **notify_human_incident**: Send high-priority alerts to the team.
-   - **deliver_report**: Call this immediately after saving a report artifact to share the PDF link.
-- **GTI**: Basic reputation checks for suspicious indicators
-
-TRANSPARENCY IN RESPONSES:
-When reporting results, ALWAYS include:
-1. Which tool(s) you used (e.g., "I used the `list_cases()` tool...")
-2. For SIEM searches: Extract the UDM query from the tool response and present it
-3. The actual results or "no results found" (be definitive about empty responses)
-
-IMPORTANT LIMITATIONS:
-- Do NOT perform deep forensic analysis or advanced threat hunting
-- Do NOT make containment/remediation decisions - only recommend
-- Stay within 2 levels of IOC pivoting/investigation depth
-
-CRITICAL: Summarize procedures and ask for user permission before executing state-changing tools.""",
+        instruction=tier1_instruction,
         tools=tier1_tools,
         before_model_callback=prevent_runaway_loop_callback,
         before_tool_callback=before_tool_cache,
@@ -1880,6 +3033,7 @@ CRITICAL: Summarize procedures and ask for user permission before executing stat
     logger.info("Creating main orchestrator agent...")
 
     orchestrator_tools = [
+        lookup_entity,
         fetch_full_document,
         save_report_artifact,
         notify_human_incident,
@@ -1938,181 +3092,58 @@ CRITICAL: Summarize procedures and ask for user permission before executing stat
         delegate_to_threat_hunter,
         delegate_to_cti_researcher,
         delegate_to_detection_engineer,
+        delegate_concurrently,
     ]
 
-    # Add RAG tool DIRECTLY to orchestrator (not via sub-agent) to preserve grounding citations
+    # Add grounding/retrieval tool based on configuration
+    ELASTICSEARCH_GROUNDING_ENABLED = (
+        os.environ.get("ELASTICSEARCH_GROUNDING_ENABLED", "False") == "True"
+    )
+
+    grounding_tool_desc = ""
+    tool_idx = 1
+    if ELASTICSEARCH_GROUNDING_ENABLED:
+        orchestrator_tools.append(search_knowledge_base)
+        grounding_tool_desc += f"""{tool_idx}. **search_knowledge_base** (Historical Telemetry Search):
+   - Directly searches historical cases, alerts, and investigations telemetry stored in the knowledge base.
+   - **IMPORTANT:** This tool provides grounding citations - preserve document titles and paths in your response!\n"""
+        tool_idx += 1
+
     if RAG_CORPUS_ID:
-        orchestrator_tools.append(
-            VertexAiRagRetrieval(
-                name="retrieve_agentic_soc_runbooks",
-                description="Retrieve IRPs, Runbooks, Common Steps, Procedures, guidelines, and Personas for the Agentic SOC.",
-                rag_corpora=[RAG_CORPUS_ID],
-                similarity_top_k=RAG_SIMILARITY_TOP_K,
-                vector_distance_threshold=RAG_DISTANCE_THRESHOLD,
-            )
-        )
+        orchestrator_tools.append(retrieve_agentic_soc_runbooks)
+        grounding_tool_desc += f"""{tool_idx}. **retrieve_agentic_soc_runbooks** (RAG Knowledge Base):
+   - Directly retrieves SOC runbooks, IRPs, procedures, and documentation from RAG corpus.
+   - **IMPORTANT:** This tool provides grounding citations - preserve them in your response!\n"""
+        tool_idx += 1
+
+    if ALLOYDB_GROUNDING_ENABLED:
+        orchestrator_tools.append(query_alloydb_detection_reports)
+        orchestrator_tools.append(find_similar_alloydb_investigations)
+        grounding_tool_desc += f"""{tool_idx}. **query_alloydb_detection_reports** (Historical Detection Reports in AlloyDB):
+   - Searches historical Chronicle detection reports, investigations, verdicts, alert contexts, and affected entities stored in AlloyDB.
+   - **IMPORTANT:** Use this tool to check historical investigation precedent, previous verdicts on entities, and next steps.\n"""
+        tool_idx += 1
+        grounding_tool_desc += f"""{tool_idx}. **find_similar_alloydb_investigations** (Multi-Modal Investigation Similarity in AlloyDB):
+   - Finds the most similar historical investigations to a given investigation ID using composite scoring (vector embeddings, weighted entity graph overlap, MITRE TTPs, and execution steps).
+   - **IMPORTANT:** Use this tool during alert triage and deep-dive analysis to locate exact previous false positives or true positive campaign patterns.\n"""
+        tool_idx += 1
 
     # Add Memory tools — PreloadMemory for automatic context, LoadMemory for on-demand queries
     orchestrator_tools.append(
         SharedScopePreloadMemoryTool()
     )  # Auto-load at start of every turn
     orchestrator_tools.append(LoadMemoryTool())  # On-demand memory queries
+    orchestrator_tools.append(query_knowledge_graph)  # On-demand Neo4j queries
 
     # Build orchestrator instruction
-    orchestrator_instruction = """You are the SecOps Security Agent orchestrator for Google SecOps - a sophisticated coordinator that intelligently delegates security operations to specialized persona-based agents and retrieves knowledge base documentation.
-
-YOUR ARCHITECTURE:
-You have direct access to several tools and can delegate to specialized sub-agents.
-
-### DIRECT TOOLS (You call these directly):
-
-1. **retrieve_agentic_soc_runbooks** (RAG Knowledge Base):
-   - Directly retrieves SOC runbooks, IRPs, procedures, and documentation from RAG corpus.
-   - **IMPORTANT:** This tool provides grounding citations - preserve them in your response!
-
-2. **fetch_full_document**:
-   - Fetches the complete document text from GCS using a gs:// URI.
-   - Use for reading the complete text of a document to avoid truncation.
-"""
-
-    orchestrator_instruction += """
-3. **LoadMemoryTool** (Vertex AI Memory Bank):
-   - Retrieves historical context and tactical insights persisted from previous investigations.
-
-4. **ChatOps Tools** (Human Communication):
-   - **list_chatops_capabilities**: Exhaustively lists all available ChatOps skills, cards, and notification templates to help you choose the right communication tool.
-   - **send_all_example_cards**: Sends one of each kind of predefined ChatOps card to the configured webhook. Useful for demos and testing.
-   - **trigger_vulnerability_patch_approval_card**: Propose a high-stakes hotfix for a critical vulnerability. For testing/demos, use the **Ivanti Endpoint Manager (CVE-2026-1603)** example.
-   - **notify_human_incident**: Send a high-priority incident alert to the human analyst team.
-   - **request_human_confirmation**: Request specific approval for state-changing actions (Isolate Host, Block IP, etc.).
-   - **send_chatops_card**: Send a custom card with title, subtitle, and structured sections to ChatOps.
-   - **CRITICAL:** Use these whenever human intervention or notification is required.
-
-### SPECIALIZED SUB-AGENTS & REMOTE SPECIALISTS:
-
-#### LOCAL SUB-AGENTS (You delegate to these in-process specialists):
-1. **tier1_analyst** (Alert Triage specialist):
-   - Initial alert triage, basic investigation, false positive identification.
-
-#### REMOTE A2A SPECIALISTS (You delegate using tool calls):
-1. **delegate_to_tier2_responder**:
-   - High-privilege incident containment, host network isolation, unauthorized process/container termination, and active remediation (disabling compromised credentials).
-   - **CRITICAL:** Use ONLY when a threat is confirmed and active containment/mitigation is required.
-
-2. **delegate_to_threat_hunter**:
-   - Proactive threat hunting, hypothesis formulation and validation, log query development, and malicious prevalence validation.
-
-3. **delegate_to_cti_researcher**:
-   - In-depth cyber threat intelligence profiling, malware behavior analysis, actor/campaign tracking, and IOC enrichment.
-
-4. **delegate_to_detection_engineer**:
-   - SIEM rules (YARA-L) design, rule auditing, rule testing against historical events, syntax validation, and alert tuning/exclusions.
-
-DELEGATION STRATEGY:
-1. Analyze the user's request to determine the type of work required.
-2. For runbook/procedure queries: Use `retrieve_agentic_soc_runbooks` directly.
-3. For alert triage/investigation: Delegate to `tier1_analyst`.
-4. For querying historical memory or recording analyst notes: Delegate to `tier1_analyst`.
-5. For active containment, network host isolation, process/container termination, or credential suspension: Call `delegate_to_tier2_responder`.
-6. For proactive hunting, query development, or searching log prevalence for a specific domain/IP: Call `delegate_to_threat_hunter`.
-7. For researching a threat actor, campaign context, vulnerability (CVE) details, or malware family behavior: Call `delegate_to_cti_researcher`.
-8. For writing YARA-L rules, listing rules, analyzing rule performance/errors, or tuning alerts/exclusions: Call `delegate_to_detection_engineer`.
-"""
-
-    orchestrator_instruction += """
-6. Synthesize results and provide orchestrator-level recommendations.
-
-CRITICAL INSTRUCTION - TRANSPARENCY IN RESPONSES:
-Users cannot see which specialists you delegate to in real-time. You MUST include transparency in your response text.
-
-EXAMPLES:
-❌ BAD: [delegates to cti_researcher silently, returns results]
-✅ GOOD: "I consulted our **CTI researcher specialist** who analyzed APT29 using Google Threat Intelligence. Here's what they found..."
-
-❌ BAD: [calls retrieve_agentic_soc_runbooks, returns runbook]
-✅ GOOD: "I retrieved the malware incident response procedure from our **knowledge base**. Here's the runbook..."
-
-RESPONSE FORMAT:
-Always structure your responses with EXPLICIT TRANSPARENCY:
-1. **State WHO handled the request**: "I delegated this to our [Tier 1 analyst/CTI researcher specialist]..." or "I retrieved from our knowledge base..."
-2. **State WHAT they did**: "They used [specific tools] to [action]..."
-3. **Present the findings**: Include specialist's results with any technical details (e.g., UDM queries for SIEM searches)
-4. **Add orchestrator analysis**: Your synthesis and recommendations
-5. **Suggest next steps** if appropriate
-
-EXAMPLE - GOOD transparency:
-"I delegated this to our **Tier 1 analyst specialist** who searched the SOAR platform using the `list_cases()` tool with status filter 'Opened'. Result: No open cases found at this time."
-
-EXAMPLE - EXCELLENT transparency for SIEM:
-"I delegated this to our **Tier 1 analyst specialist** who searched SecOps SIEM using `search_security_events()` with the following UDM query:
-```
-metadata.event_type = 'USER_LOGIN' AND metadata.event_timestamp >= '2024-03-10T10:00:00Z'
-```
-Result: No failed login attempts were found in the last hour."
-"""
-
-    orchestrator_instruction += """
-MULTI-AGENT WORKFLOWS:
-For complex requests, you may use multiple specialists sequentially:
-- "Let me first check our runbooks, then correlate with threat intelligence..."
-- Retrieve procedure from RAG knowledge base
-- Delegate investigation to cti_researcher or tier1_analyst
-- Synthesize both into cohesive response
-
-IMPORTANT GUIDELINES:
-- Always indicate which specialist you consulted or delegated to
-- **Preserve all grounding citations and source links** from RAG knowledge base results
-- **Artifact Linking:** Whenever a report or document is saved using the `save_report_artifact` tool, you MUST include the exact markdown link returned by the tool in your final response to the user.
-- **Report Delivery:** Whenever a report Artifact is generated and saved using `save_report_artifact`, you MUST ALSO call the `deliver_report` tool to send the "Triage Report Ready" ChatOps card to the team.
-"""
-
-    orchestrator_instruction += """
-- Synthesize information from multiple specialists when needed
-- Provide orchestrator-level recommendations
-- Guide users through complex multi-step processes
-- Ask clarifying questions if request is ambiguous
-
-CRITICAL: DISTINGUISH RAG EXAMPLES FROM LIVE DATA
-When responding to queries about current state (e.g., "check SOAR for open cases", "search SIEM for recent alerts"):
-- **RAG knowledge base** contains HISTORICAL EXAMPLES and DOCUMENTATION (runbooks, past reports, procedures)
-- **Tool results** contain CURRENT LIVE DATA from actual systems (current SOAR cases, current SIEM events)
-
-ALWAYS make this distinction clear:
-❌ BAD: "Here are the cases: Case 2194..." [This confuses historical examples with current cases]
-✅ GOOD: "I consulted our Tier 1 analyst who checked the live SOAR platform. Result: No open cases at this time. (Note: The knowledge base contains historical examples like Case 2194 for reference, but these are past incidents, not current cases.)"
-
-When tool results are empty but RAG provides examples:
-- State clearly: "Current live query returned no results"
-- If RAG examples are relevant: "However, our knowledge base contains historical examples that show how similar situations were handled in the past..."
-- Make it obvious which is which
-
-DELEGATION EXAMPLES:
-
-Query: "What's the malware incident response procedure?"
-→ Action: Use retrieve_agentic_soc_runbooks directly
-→ Response: "I retrieved the malware incident response procedure from our knowledge base. Here's the runbook..." [with grounding citations]
-
-Query: "Analyze the APT29 threat actor and their recent campaigns"
-→ Action: Delegate to cti_researcher
-→ Response: "I engaged our **CTI researcher specialist** who conducted a deep analysis of APT29 using Google Threat Intelligence..."
-
-Query: "Triage this phishing alert - is it a false positive?"
-→ Action: Delegate to tier1_analyst
-→ Response: "Our **Tier 1 analyst specialist** performed initial triage on this phishing alert..."
-
-Query: "Quick lookup of IP 1.2.3.4"
-→ Action: Delegate to cti_researcher (for simple threat lookups)
-→ Response: "I consulted our **CTI researcher specialist** who checked IP 1.2.3.4 using Google Threat Intelligence..."
-
-Query: "Isolate compromised host MALWARETEST-WIN immediately"
-→ Action: Call delegate_to_tier2_responder tool
-→ Response: "I delegated the emergency containment request to our remote **Tier 2 Incident Responder specialist** who will initiate network isolation..."
-
-Query: "Investigate suspicious activity from user john.doe - get the runbook first, then investigate"
-→ Action: Use retrieve_agentic_soc_runbooks, then delegate to tier1_analyst
-→ Response: Present the runbook with grounding citations, then present the investigation results from tier1_analyst
-
-Remember: Your role is to be an intelligent orchestrator that makes security operations more efficient through smart delegation and synthesis. Transfer control to specialists when their expertise is needed."""
+    # Load Orchestrator instructions from prompt file
+    current_dir = Path(__file__).parent
+    with open(current_dir / "prompts" / "orchestrator_instructions.md") as f:
+        orchestrator_instruction_template = f.read()
+    orchestrator_instruction_base = orchestrator_instruction_template.format(
+        grounding_tool_desc=grounding_tool_desc
+    )
+    orchestrator_instruction = orchestrator_instruction_base + routing_context
 
     # Create orchestrator with LLM delegation to specialists (as sub_agents or AgentTool wrappers)
     orchestrator = PatchedAgent(

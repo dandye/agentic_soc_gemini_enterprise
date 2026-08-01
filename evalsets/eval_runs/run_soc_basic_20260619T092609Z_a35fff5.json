@@ -1,0 +1,174 @@
+{
+  "metadata": {
+    "evalset_id": "soc_basic",
+    "timestamp": "2026-06-19T09:26:09.922004Z",
+    "git": {
+      "commit": "a35fff523fc5d35c28ae36997695fb16cdf700ac",
+      "branch": "harvest_detection_reports",
+      "dirty": true,
+      "submodules": {
+        "external/adk_runbooks": "d4ccf85d393eacae34bc006689601f013a03479b",
+        "external/ai-runbooks": "fca5f8eba3fff9964680ae035915c87a74e2f767",
+        "external/mcp-security": "b3ccb9a190b87512ba0901f672c76c5527ebcff7"
+      }
+    },
+    "environment": {
+      "project_id": "secops-demo-env",
+      "location": "us-central1",
+      "orchestrator_model": "gemini-2.5-pro",
+      "agent_resource": "projects/813924125873/locations/us-east4/reasoningEngines/427921129437396992",
+      "knowledge_graph_hash": "025f15bc6a020547c7809d9b382229a7"
+    }
+  },
+  "summary": {
+    "total_cases": 5,
+    "average_score": 63.33333333333333,
+    "status": "FAIL"
+  },
+  "cases": {
+    "runbook_ransomware": {
+      "name": "Runbook Retrieval - Ransomware",
+      "score": 0.8333333333333334,
+      "tool_calls": [
+        "retrieve_agentic_soc_runbooks"
+      ],
+      "assertions_passed": [
+        "specialist_attribution",
+        "tool_trajectory"
+      ],
+      "assertions_failed": [
+        "keyword_matching"
+      ],
+      "success_criteria_passed": [
+        "has_grounding_citation",
+        "mentions_knowledge_base",
+        "provides_actionable_steps"
+      ],
+      "success_criteria_failed": []
+    },
+    "list_soar_cases": {
+      "name": "List SOAR Cases",
+      "score": 0.5,
+      "tool_calls": [
+        "transfer_to_agent",
+        "list_skills",
+        "load_memory",
+        "search_knowledge_base",
+        "search_knowledge_base",
+        "query_knowledge_graph",
+        "query_knowledge_graph",
+        "load_memory",
+        "list_cases",
+        "load_memory",
+        "retrieve_agentic_soc_runbooks",
+        "retrieve_agentic_soc_runbooks",
+        "list_cases",
+        "load_memory"
+      ],
+      "assertions_passed": [
+        "tool_trajectory"
+      ],
+      "assertions_failed": [
+        "specialist_attribution",
+        "keyword_matching"
+      ],
+      "success_criteria_passed": [
+        "tool_name_mentioned",
+        "definitive_result_statement"
+      ],
+      "success_criteria_failed": [
+        "specialist_attribution"
+      ]
+    },
+    "empty_response_clarity": {
+      "name": "Empty Response Handling",
+      "score": 0.16666666666666666,
+      "tool_calls": [
+        "transfer_to_agent"
+      ],
+      "assertions_passed": [
+        "keyword_matching"
+      ],
+      "assertions_failed": [
+        "specialist_attribution",
+        "tool_trajectory"
+      ],
+      "success_criteria_passed": [],
+      "success_criteria_failed": [
+        "no_hedging_language",
+        "definitive_statement",
+        "prohibited_phrases"
+      ]
+    },
+    "runbook_malware_triage": {
+      "name": "Runbook Retrieval - Malware Triage",
+      "score": 1.0,
+      "tool_calls": [
+        "retrieve_agentic_soc_runbooks"
+      ],
+      "assertions_passed": [
+        "specialist_attribution",
+        "tool_trajectory",
+        "keyword_matching"
+      ],
+      "assertions_failed": [],
+      "success_criteria_passed": [
+        "has_grounding_citation",
+        "provides_procedure_steps"
+      ],
+      "success_criteria_failed": []
+    },
+    "transparency_specialist_attribution": {
+      "name": "Transparency - Specialist Attribution",
+      "score": 0.6666666666666666,
+      "tool_calls": [
+        "transfer_to_agent",
+        "load_memory",
+        "list_skills",
+        "search_knowledge_base",
+        "query_knowledge_graph",
+        "query_knowledge_graph",
+        "search_knowledge_base",
+        "load_skill",
+        "load_skill",
+        "search_knowledge_base",
+        "load_memory",
+        "query_knowledge_graph",
+        "load_skill_resource",
+        "query_knowledge_graph",
+        "list_cases",
+        "search_knowledge_base",
+        "query_knowledge_graph",
+        "load_memory",
+        "query_knowledge_graph",
+        "list_chatops_capabilities",
+        "search_knowledge_base",
+        "search_knowledge_base",
+        "query_knowledge_graph",
+        "query_knowledge_graph",
+        "load_memory",
+        "list_cases",
+        "query_knowledge_graph",
+        "query_knowledge_graph",
+        "query_knowledge_graph",
+        "search_knowledge_base",
+        "save_report_artifact",
+        "deliver_report"
+      ],
+      "assertions_passed": [
+        "tool_trajectory",
+        "keyword_matching"
+      ],
+      "assertions_failed": [
+        "specialist_attribution"
+      ],
+      "success_criteria_passed": [
+        "mentions_specialist_role",
+        "required_phrases"
+      ],
+      "success_criteria_failed": [
+        "specialist_attribution"
+      ]
+    }
+  }
+}

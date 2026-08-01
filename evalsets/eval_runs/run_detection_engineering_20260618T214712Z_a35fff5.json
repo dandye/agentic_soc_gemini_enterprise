@@ -1,0 +1,80 @@
+{
+  "metadata": {
+    "evalset_id": "detection_engineering",
+    "timestamp": "2026-06-18T21:47:12.555186Z",
+    "git": {
+      "commit": "a35fff523fc5d35c28ae36997695fb16cdf700ac",
+      "branch": "harvest_detection_reports",
+      "dirty": true,
+      "submodules": {
+        "external/adk_runbooks": "d4ccf85d393eacae34bc006689601f013a03479b",
+        "external/ai-runbooks": "fca5f8eba3fff9964680ae035915c87a74e2f767",
+        "external/mcp-security": "b3ccb9a190b87512ba0901f672c76c5527ebcff7"
+      }
+    },
+    "environment": {
+      "project_id": "secops-demo-env",
+      "location": "us-central1",
+      "orchestrator_model": "gemini-2.5-pro",
+      "agent_resource": "projects/813924125873/locations/us-central1/reasoningEngines/1510648162459582464",
+      "knowledge_graph_hash": "025f15bc6a020547c7809d9b382229a7"
+    }
+  },
+  "summary": {
+    "total_cases": 2,
+    "average_score": 50.0,
+    "status": "FAIL"
+  },
+  "cases": {
+    "create_gcp_brute_force_rule": {
+      "name": "Create Rule - GCP Brute Force",
+      "score": 1.0,
+      "tool_calls": [
+        "retrieve_agentic_soc_runbooks",
+        "list_rules",
+        "udm_search",
+        "udm_search",
+        "validate_rule",
+        "validate_rule",
+        "validate_rule",
+        "create_rule",
+        "create_rule",
+        "validate_rule",
+        "save_report_artifact"
+      ],
+      "assertions_passed": [
+        "specialist_attribution",
+        "tool_trajectory",
+        "keyword_matching"
+      ],
+      "assertions_failed": [],
+      "success_criteria_passed": [
+        "specialist_attribution",
+        "tool_name_mentioned",
+        "includes_yara_l_code",
+        "validates_rule_syntax"
+      ],
+      "success_criteria_failed": []
+    },
+    "tune_rmm_execution_rule": {
+      "name": "Tune Rule - Exclude Authorized RMM",
+      "score": 0.0,
+      "tool_calls": [
+        "retrieve_agentic_soc_runbooks",
+        "list_rules"
+      ],
+      "assertions_passed": [],
+      "assertions_failed": [
+        "specialist_attribution",
+        "tool_trajectory",
+        "keyword_matching"
+      ],
+      "success_criteria_passed": [],
+      "success_criteria_failed": [
+        "specialist_attribution",
+        "proposes_logical_exclusion",
+        "mentions_rule_tuning"
+      ]
+    }
+  }
+}

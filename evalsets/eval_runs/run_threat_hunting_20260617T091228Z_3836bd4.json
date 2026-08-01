@@ -1,0 +1,99 @@
+{
+  "metadata": {
+    "evalset_id": "threat_hunting",
+    "timestamp": "2026-06-17T09:12:28.851027Z",
+    "git": {
+      "commit": "3836bd4c30ea2de7078c59f13f0cdd45ddb84544",
+      "branch": "harvest_detection_reports",
+      "dirty": true,
+      "submodules": {
+        "external/adk_runbooks": "d4ccf85d393eacae34bc006689601f013a03479b",
+        "external/ai-runbooks": "fca5f8eba3fff9964680ae035915c87a74e2f767",
+        "external/mcp-security": "b3ccb9a190b87512ba0901f672c76c5527ebcff7"
+      }
+    },
+    "environment": {
+      "project_id": "secops-demo-env",
+      "location": "us-central1",
+      "orchestrator_model": "gemini-3.1-pro-preview",
+      "agent_resource": "projects/813924125873/locations/us-central1/reasoningEngines/2164796008335147008",
+      "knowledge_graph_hash": "f302b2ed2b1665779f40a3e3653a2428"
+    }
+  },
+  "summary": {
+    "total_cases": 2,
+    "average_score": 39.285714285714285,
+    "status": "FAIL"
+  },
+  "cases": {
+    "hunt_c2_beaconing": {
+      "name": "Hunt - C2 Network Beaconing",
+      "score": 0.2857142857142857,
+      "tool_calls": [
+        "retrieve_agentic_soc_runbooks",
+        "get_domain_report",
+        "query_neo4j_graph",
+        "search_security_events",
+        "get_file_report",
+        "search_security_events",
+        "get_domain_report",
+        "get_security_alerts",
+        "query_neo4j_graph",
+        "query_neo4j_graph",
+        "query_neo4j_graph",
+        "search_security_events",
+        "search_security_events"
+      ],
+      "assertions_passed": [
+        "tool_trajectory"
+      ],
+      "assertions_failed": [
+        "specialist_attribution",
+        "keyword_matching"
+      ],
+      "success_criteria_passed": [
+        "tool_name_mentioned"
+      ],
+      "success_criteria_failed": [
+        "specialist_attribution",
+        "queries_siem_telemetry",
+        "provides_impact_assessment"
+      ]
+    },
+    "hunt_lateral_movement_path": {
+      "name": "Hunt - AD Lateral Movement",
+      "score": 0.5,
+      "tool_calls": [
+        "retrieve_agentic_soc_runbooks",
+        "query_neo4j_graph",
+        "query_neo4j_graph",
+        "query_neo4j_graph",
+        "query_neo4j_graph",
+        "query_neo4j_graph",
+        "query_neo4j_graph",
+        "query_neo4j_graph",
+        "query_neo4j_graph",
+        "query_neo4j_graph",
+        "get_security_alerts",
+        "search_security_events",
+        "search_security_events",
+        "search_security_events",
+        "search_security_events"
+      ],
+      "assertions_passed": [
+        "tool_trajectory"
+      ],
+      "assertions_failed": [
+        "specialist_attribution",
+        "keyword_matching"
+      ],
+      "success_criteria_passed": [
+        "traverses_knowledge_graph",
+        "identifies_pivoting_accounts"
+      ],
+      "success_criteria_failed": [
+        "specialist_attribution"
+      ]
+    }
+  }
+}

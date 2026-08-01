@@ -14,7 +14,7 @@
       ],
       "reference": {
         "expected_specialists": ["orchestrator_direct", "cti_researcher"],
-        "tool_trajectory": ["retrieve_agentic_soc_runbooks", "get_ip_address_report", "search_security_events"],
+        "tool_trajectory": ["search_knowledge_base", "get_ip_address_report", "udm_search"],
         "success_criteria": {
           "mentions_runbook_retrieval": true,
           "mentions_cti_specialist": true,
@@ -35,7 +35,7 @@
       ],
       "reference": {
         "expected_specialist": "cti_researcher",
-        "tool_trajectory": ["get_threat_actor_report", "search_security_events"],
+        "tool_trajectory": ["delegate_to_cti_researcher", "delegate_to_threat_hunter"],
         "success_criteria": {
           "specialist_attribution": true,
           "combines_external_and_internal": true,
@@ -58,8 +58,8 @@
         }
       ],
       "reference": {
-        "expected_specialist": "cti_researcher",
-        "tool_trajectory": ["search_security_events"],
+        "expected_specialist": "threat_hunter",
+        "tool_trajectory": ["delegate_to_threat_hunter"],
         "success_criteria": {
           "specialist_attribution": true,
           "includes_udm_query": true,
@@ -84,7 +84,7 @@
       ],
       "reference": {
         "expected_specialists": ["orchestrator_direct", "tier1_analyst"],
-        "tool_trajectory": ["retrieve_agentic_soc_runbooks", "lookup_entity", "search_security_events"],
+        "tool_trajectory": ["search_knowledge_base", "query_neo4j_graph", "udm_search"],
         "success_criteria": {
           "mentions_runbook_retrieval": true,
           "mentions_tier1_or_cti": true,
@@ -103,8 +103,8 @@
         }
       ],
       "reference": {
-        "expected_specialist": "cti_researcher",
-        "tool_trajectory": ["get_ip_address_report", "search_security_events"],
+        "expected_specialist": "threat_hunter",
+        "tool_trajectory": ["delegate_to_threat_hunter"],
         "success_criteria": {
           "specialist_attribution": true,
           "presents_both_findings": true,

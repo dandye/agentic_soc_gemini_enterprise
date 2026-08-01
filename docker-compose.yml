@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  neo4j:
+    image: neo4j:5.20.0-community
+    container_name: neo4j_soc
+    ports:
+      - "7474:7474" # Neo4j Browser (HTTP web UI)
+      - "7687:7687" # Bolt protocol connection
+    environment:
+      - NEO4J_AUTH=neo4j/password
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+
+volumes:
+  neo4j_data:
+  neo4j_logs:

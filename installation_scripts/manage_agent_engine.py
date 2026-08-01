@@ -75,6 +75,25 @@ if DEBUG:
     logging.getLogger("google.api_core").setLevel(logging.DEBUG)
 
 
+# Single source of truth for agent-module -> Agent Engine display name.
+# Flagged in PR #25 review and again in PR #72: this mapping previously lived
+# in two (then three) divergent if/elif chains.
+AGENT_DISPLAY_NAMES = {
+    "agent_a2a_tier2": "SecOps Security Agent - Tier 2",
+    "agent_a2a_threat_hunter": "SecOps Security Agent - Threat Hunter",
+    "agent_a2a_cti_researcher": "SecOps Security Agent - CTI Researcher",
+    "agent_a2a_detection_engineer": "SecOps Security Agent - Detection Engineer",
+    "agent_soc_manager": "SecOps Security Agent - Orchestrator",
+}
+
+
+def agent_display_name(agent_module: str) -> str:
+    """Display name for an agent module; falls back to the module name."""
+    return AGENT_DISPLAY_NAMES.get(
+        agent_module, f"SecOps Security Agent - {agent_module}"
+    )
+
+
 class AgentEngineManager:
     """Manages Agent Engine operations in Gemini Enterprise Agent Platform."""
 
@@ -97,6 +116,13 @@ class AgentEngineManager:
             load_dotenv(self.env_file, override=True)
         env_vars = dict(os.environ)
         return env_vars
+
+    def get_module_location(self, agent_module: str) -> str:
+        """Resolve the regional location for a specific agent module from configuration."""
+        env_var_name = f"{agent_module.upper()}_LOCATION"
+        return self.env_vars.get(
+            env_var_name, self.env_vars.get("GCP_LOCATION", "us-central1")
+        )
 
     def _initialize_vertex_ai(self) -> None:
         """Initialize Gemini Enterprise Agent Platform SDK with project and location from environment."""
@@ -215,6 +241,8 @@ class AgentEngineManager:
 
                 typer.secho(f"{i}. {agent.display_name}", fg=typer.colors.CYAN)
                 typer.echo(f"   Resource: {agent.name}")
+                if getattr(agent, "description", None):
+                    typer.echo(f"   Description: {agent.description}")
                 typer.echo(
                     f"   Created: {self._format_timestamp(agent.create_time.timestamp() if agent.create_time else None)}"
                 )
@@ -449,10 +477,18 @@ class AgentEngineManager:
 
     def get_agents_by_display_name(self, display_name: str) -> list[dict]:
         """
-        Find all Agent Engine instances with a specific display name.
+        Find all Agent Engine instances with a specific display name (supporting exact match or prefix with timestamp).
         """
         agents = self.list_agents(verbose=False)
-        return [a for a in agents if a.get("display_name") == display_name]
+        return [
+            a
+            for a in agents
+            if a.get("display_name") == display_name
+            or (
+                a.get("display_name")
+                and a.get("display_name").startswith(f"{display_name} - ")
+            )
+        ]
 
     def delete_agent(self, resource_name: str, force: bool = False) -> bool:
         """
@@ -536,6 +572,8 @@ class AgentEngineManager:
         debug: bool = False,
         no_test: bool = False,
         description: str | None = None,
+        display_name: str | None = None,
+        output_var_name: str | None = None,
     ) -> str | None:
         return self._deploy_agent_internal(
             agent_module=agent_module,
@@ -543,6 +581,8 @@ class AgentEngineManager:
             no_test=no_test,
             is_update=False,
             description=description,
+            custom_display_name=display_name,
+            output_var_name=output_var_name,
         )
 
     def update_agent(
@@ -570,6 +610,8 @@ class AgentEngineManager:
         is_update: bool = False,
         update_resource_name: str | None = None,
         description: str | None = None,
+        custom_display_name: str | None = None,
+        output_var_name: str | None = None,
     ) -> str | None:
         """
         Create and deploy a new Agent Engine instance.
@@ -641,7 +683,7 @@ class AgentEngineManager:
                 typer.echo()
                 typer.echo("Option 1 (Recommended): Use Secret Manager")
                 typer.echo(
-                    "  1. Upload SA file: python installation_scripts/upload_secret.py upload"
+                    "  1. Upload SA file: python installation_scripts/manage_secret.py upload"
                 )
                 typer.echo(
                     "  2. Add to .env: CHRONICLE_SERVICE_ACCOUNT_SECRET=projects/PROJECT/secrets/SECRET/versions/latest"
@@ -674,7 +716,7 @@ class AgentEngineManager:
             # Initialize Gemini Enterprise Agent Platform
             typer.echo("Initializing Gemini Enterprise Agent Platform...")
             GCP_PROJECT_ID = os.environ.get("GCP_PROJECT_ID")
-            GCP_LOCATION = os.environ.get("GCP_LOCATION", "us-central1")
+            GCP_LOCATION = self.get_module_location(agent_module)
             GCP_STAGING_BUCKET = os.environ.get("GCP_STAGING_BUCKET")
 
             vertexai.init(
@@ -798,7 +840,7 @@ class AgentEngineManager:
                 "GCP_VERTEXAI_ENABLED": os.environ.get("GCP_VERTEXAI_ENABLED", "TRUE"),
                 "PROJECT_ID": os.environ.get("GCP_PROJECT_ID"),
                 "GCP_PROJECT_ID": os.environ.get("GCP_PROJECT_ID"),
-                "GCP_LOCATION": os.environ.get("GCP_LOCATION", "us-central1"),
+                "GCP_LOCATION": self.get_module_location(agent_module),
                 "GCP_STAGING_BUCKET": os.environ.get("GCP_STAGING_BUCKET"),
                 "GEMINI_AUTHORIZATION_ID": os.environ.get("OAUTH_AUTH_ID"),
                 "GCP_ARTIFACT_BUCKET": os.environ.get("GCP_ARTIFACT_BUCKET"),
@@ -861,6 +903,44 @@ class AgentEngineManager:
                 "TIER1_AGENT_RESOURCE_NAME": os.environ.get(
                     "TIER1_AGENT_RESOURCE_NAME"
                 ),
+                "THREAT_HUNTER_AGENT_RESOURCE_NAME": os.environ.get(
+                    "THREAT_HUNTER_AGENT_RESOURCE_NAME"
+                ),
+                "CTI_RESEARCHER_AGENT_RESOURCE_NAME": os.environ.get(
+                    "CTI_RESEARCHER_AGENT_RESOURCE_NAME"
+                ),
+                "DETECTION_ENGINEER_AGENT_RESOURCE_NAME": os.environ.get(
+                    "DETECTION_ENGINEER_AGENT_RESOURCE_NAME"
+                ),
+                # Model Configuration Override Variables
+                "ORCHESTRATOR_MODEL": os.environ.get("ORCHESTRATOR_MODEL"),
+                "CTI_RESEARCHER_MODEL": os.environ.get("CTI_RESEARCHER_MODEL"),
+                "TIER1_ANALYST_MODEL": os.environ.get("TIER1_ANALYST_MODEL"),
+                # Elasticsearch Grounding
+                "ELASTICSEARCH_GROUNDING_ENABLED": os.environ.get(
+                    "ELASTICSEARCH_GROUNDING_ENABLED"
+                ),
+                "ELASTICSEARCH_URL": os.environ.get("ELASTICSEARCH_URL"),
+                "ELASTICSEARCH_USER": os.environ.get("ELASTICSEARCH_USER"),
+                "ELASTICSEARCH_PASSWORD": os.environ.get("ELASTICSEARCH_PASSWORD"),
+                "ELASTICSEARCH_INDEX": os.environ.get("ELASTICSEARCH_INDEX"),
+                # Neo4j Graph Database
+                "NEO4J_URI": os.environ.get("NEO4J_URI"),
+                "NEO4J_USER": os.environ.get("NEO4J_USER"),
+                "NEO4J_PASSWORD": os.environ.get("NEO4J_PASSWORD"),
+                # AlloyDB Grounding
+                "ALLOYDB_GROUNDING_ENABLED": os.environ.get(
+                    "ALLOYDB_GROUNDING_ENABLED", "True"
+                ),
+                "ALLOYDB_HOST": os.environ.get("ALLOYDB_HOST"),
+                "ALLOYDB_PORT": os.environ.get("ALLOYDB_PORT", "5432"),
+                "ALLOYDB_DATABASE": os.environ.get("ALLOYDB_DATABASE", "secops"),
+                "ALLOYDB_USER": os.environ.get("ALLOYDB_USER", "postgres"),
+                "ALLOYDB_PASSWORD": os.environ.get("ALLOYDB_PASSWORD"),
+                "ALLOYDB_INSTANCE_URI": os.environ.get("ALLOYDB_INSTANCE_URI"),
+                "ALLOYDB_USE_CONNECTOR": os.environ.get(
+                    "ALLOYDB_USE_CONNECTOR", "False"
+                ),
             }
 
             # Add service account configuration based on authentication method
@@ -877,20 +957,15 @@ class AgentEngineManager:
             # Filter out None values to prevent Vertex AI SDK validation errors
             env_vars = {k: v for k, v in env_vars.items() if v is not None}
 
-            # Determine display name based on agent module
-            if agent_module == "agent_a2a_tier2":
-                display_name = "SecOps Security Agent - Tier 2"
-            elif agent_module == "agent_a2a_threat_hunter":
-                display_name = "SecOps Security Agent - Threat Hunter"
-            elif agent_module == "agent_a2a_cti_researcher":
-                display_name = "SecOps Security Agent - CTI Researcher"
-            elif agent_module == "agent_a2a_detection_engineer":
-                display_name = "SecOps Security Agent - Detection Engineer"
-            elif agent_module == "agent_soc_manager":
-                display_name = "SecOps Security Agent - Orchestrator"
+            # Determine display name based on custom input or agent module
+            if custom_display_name:
+                base_name = custom_display_name
             else:
-                # For any future agent modules, use the module name as-is
-                display_name = f"SecOps Security Agent - {agent_module}"
+                base_name = agent_display_name(agent_module)
+
+            # Append timestamp to display name
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            display_name = f"{base_name} - {timestamp}"
 
             # Ensure we do not break Gemini Enterprise Proxy UI Schemas natively generating '500 Server Errors'
             typer.echo("Configuring Workspace Endpoint Schema Compatibility Profile...")
@@ -920,18 +995,38 @@ class AgentEngineManager:
             if not use_secret_manager:
                 extra_packages.append(sa_filename)
 
+            # Resolve the service account email to bind to the Reasoning Engine
+            sa_email = None
+            if CHRONICLE_SERVICE_ACCOUNT_PATH:
+                try:
+                    with open(CHRONICLE_SERVICE_ACCOUNT_PATH) as f:
+                        import json
+
+                        sa_data = json.load(f)
+                    sa_email = sa_data.get("client_email")
+                except Exception:  # noqa: S110
+                    pass
+            if not sa_email:
+                sa_email = f"vertex-express@{GCP_PROJECT_ID}.iam.gserviceaccount.com"
+
+            typer.echo(
+                f"Binding Reasoning Engine to service account identity: {sa_email}"
+            )
+
             deploy_kwargs = {
                 "display_name": display_name,
                 "description": description,
+                "service_account": sa_email,
                 "requirements": [
                     "cloudpickle",
                     "google-adk~=2.2.0",
                     # ToDo: do we REALLY need evaluation?
                     "google-cloud-aiplatform[agent-engines,evaluation]~=1.153.0",
+                    "google-cloud-discoveryengine",
                     "pydantic",
                     "python-dotenv",
                     "httpx>=0.28.1",
-                    "mcp[cli]>=1.4.1",
+                    "mcp[cli]>=1.4.1,<1.27.0",
                     "secops>=0.18.0",
                     "google-auth>=2.38.0",
                     "google-auth-httplib2>=0.2.0",
@@ -946,6 +1041,12 @@ class AgentEngineManager:
                     "opentelemetry-sdk>=1.26.0",
                     "opentelemetry-exporter-gcp-logging>=0.47b0",
                     "opentelemetry-instrumentation-google-genai>=0.0.1",
+                    "elasticsearch>=8.0.0,<9.0.0",
+                    "elastic-transport>=8.0.0,<9.0.0",
+                    "neo4j>=5.0.0",
+                    "psycopg[binary]>=3.2.0",
+                    "pgvector>=0.3.6",
+                    "google-cloud-alloydb-connector>=1.12.0",
                 ],
                 "build_options": {
                     "installation_scripts": ["installation_scripts/install.sh"]
@@ -1051,13 +1152,17 @@ class AgentEngineManager:
             return None
 
     def test_agent_with_resource(
-        self, resource_name: str, agent_module: str = "soc_agent"
+        self,
+        resource_name: str,
+        agent_module: str = "soc_agent",
+        query: str | None = None,
     ) -> bool:
         """
         Test a deployed agent engine with a sample query.
 
         Args:
             resource_name: Resource name of the agent to test
+            query: Custom query to send to the agent
 
         Returns:
             True if test successful, False otherwise
@@ -1084,14 +1189,128 @@ class AgentEngineManager:
             remote_app = agent_engines.get(resource_name)
 
             # Run async test
-            asyncio.run(self._async_test_agent(remote_app, agent_module=agent_module))
+            asyncio.run(
+                self._async_test_agent(
+                    remote_app, agent_module=agent_module, query=query
+                )
+            )
             return True
 
         except Exception as e:
             typer.secho(f" Error testing agent: {e}", fg=typer.colors.RED)
             return False
 
-    async def _async_test_agent(self, remote_app, agent_module: str = "soc_agent"):
+    def dump_session_history(
+        self,
+        session_id: str,
+        user_id: str = "eval_user",
+        agent_module: str = "agent_a2a_threat_hunter",
+    ) -> bool:
+        """
+        Retrieve and print the raw conversation events for a given session ID from the cloud agent.
+        """
+        try:
+            typer.echo("\n" + "=" * 80)
+            typer.secho(
+                f"Dumping Session History for Session: {session_id}",
+                fg=typer.colors.CYAN,
+                bold=True,
+            )
+            typer.echo("=" * 80 + "\n")
+
+            # Map the agent module/persona to its env var name
+            if agent_module == "agent_a2a_tier2":
+                resource_var = "TIER2_AGENT_RESOURCE_NAME"
+            elif agent_module == "agent_a2a_threat_hunter":
+                resource_var = "THREAT_HUNTER_AGENT_RESOURCE_NAME"
+            elif agent_module == "agent_a2a_cti_researcher":
+                resource_var = "CTI_RESEARCHER_AGENT_RESOURCE_NAME"
+            elif agent_module == "agent_a2a_detection_engineer":
+                resource_var = "DETECTION_ENGINEER_AGENT_RESOURCE_NAME"
+            else:
+                resource_var = "AGENT_ENGINE_RESOURCE_NAME"
+
+            resource_name = self.env_vars.get(resource_var)
+            if not resource_name:
+                typer.secho(
+                    f" Error: Could not resolve resource name for agent module '{agent_module}' (variable '{resource_var}') from environment.",
+                    fg=typer.colors.RED,
+                )
+                return False
+
+            typer.echo(f"Resolving resource: {resource_name}")
+
+            # Check location in resource name
+            m = re.search(r"locations/([^/]+)/", resource_name)
+            if m:
+                resource_location = m.group(1)
+                if resource_location != self.location:
+                    typer.secho(
+                        f"Resource location '{resource_location}' differs from default location '{self.location}'. Re-initializing Vertex AI...",
+                        fg=typer.colors.YELLOW,
+                    )
+                    self.location = resource_location
+                    vertexai.init(project=self.project, location=self.location)
+                    aiplatform.init(project=self.project, location=self.location)
+
+            # Connect to the remote agent
+            remote_app = agent_engines.get(resource_name)
+
+            # Retrieve the session
+            typer.echo(f"Fetching session data (User: {user_id})...")
+            session = remote_app.get_session(session_id=session_id, user_id=user_id)
+
+            history = session.get("history", [])
+            typer.echo(f"Total history entries: {len(history)}")
+
+            if not history:
+                typer.secho(
+                    "\n No history entries returned.",
+                    fg=typer.colors.YELLOW,
+                )
+                typer.echo(
+                    "Note: If this is a transient agent session without a persistent database backend configured (like Cloud Firestore), the history may have been discarded after the stream query completed."
+                )
+                return True
+
+            for idx, entry in enumerate(history):
+                typer.echo(f"\n--- Entry {idx+1} ---")
+                author = entry.get("author", "unknown")
+                role = entry.get("role", "unknown")
+                typer.secho(
+                    f"Author: {author} | Role: {role}", fg=typer.colors.CYAN, bold=True
+                )
+
+                content = entry.get("content", {})
+                parts = content.get("parts", [])
+                for p_idx, part in enumerate(parts):
+                    if "text" in part:
+                        typer.secho(f"Part {p_idx+1} [Text]:", fg=typer.colors.YELLOW)
+                        typer.echo(part["text"])
+                    elif "function_call" in part:
+                        typer.secho(
+                            f"Part {p_idx+1} [Function Call]:", fg=typer.colors.YELLOW
+                        )
+                        typer.echo(f"  Tool: {part['function_call'].get('name')}")
+                        typer.echo(f"  Args: {part['function_call'].get('args')}")
+                    elif "function_response" in part:
+                        typer.secho(
+                            f"Part {p_idx+1} [Function Response]:",
+                            fg=typer.colors.YELLOW,
+                        )
+                        typer.echo(f"  Tool: {part['function_response'].get('name')}")
+                    else:
+                        typer.echo(f"Part {p_idx+1} [Other]: {list(part.keys())}")
+
+            return True
+
+        except Exception as e:
+            typer.secho(f" Error retrieving session history: {e}", fg=typer.colors.RED)
+            return False
+
+    async def _async_test_agent(
+        self, remote_app, agent_module: str = "soc_agent", query: str | None = None
+    ):
         """Async test function for agent engine."""
         fd, log_path = tempfile.mkstemp(suffix=".log", prefix="agent_test_")
         typer.secho(
@@ -1105,7 +1324,9 @@ class AgentEngineManager:
             typer.echo(f"Created session: {session_id}")
             log_file.write(f"Created session: {session_id}\n")
 
-            if agent_module == "agent_soc_manager":
+            if query:
+                test_messages = (query,)
+            elif agent_module == "agent_soc_manager":
                 test_messages = (
                     "We have confirmed active ransomware encryption and beaconing from host MALWARETEST-WIN. Please isolate this endpoint from the network immediately to contain the threat.",
                 )
@@ -1240,7 +1461,7 @@ class AgentEngineManager:
                     # Silently consume events - we just want to trigger MCP connections
 
                 typer.secho(
-                    f"  ✓ {target_mcp} warmed up ({event_count} events)",
+                    f"  {target_mcp} warmed up ({event_count} events)",
                     fg=typer.colors.GREEN,
                 )
             except Exception as e:
@@ -1523,21 +1744,45 @@ def create(
             "--description", "-d", help="Description for the deployed agent engine"
         ),
     ] = None,
+    display_name: Annotated[
+        str | None,
+        typer.Option(
+            "--display-name",
+            help="Custom display name for the Reasoning Engine in Vertex AI (e.g. 'SOC Manager (AlloyDB)')",
+        ),
+    ] = None,
+    output_var_name: Annotated[
+        str | None,
+        typer.Option(
+            "--output-var-name",
+            help="Custom .env variable name to store the resource name (e.g. 'AGENT_ENGINE_ALLOYDB_RESOURCE_NAME')",
+        ),
+    ] = None,
     env_file: Annotated[
         Path, typer.Option(help="Path to the environment file.")
     ] = Path(".env"),
 ) -> None:
     """Create and deploy a new Agent Engine instance."""
     manager = AgentEngineManager(env_file)
-    resource_name = manager.create_agent(agent_module, debug, no_test, description)
+    resource_name = manager.create_agent(
+        agent_module=agent_module,
+        debug=debug,
+        no_test=no_test,
+        description=description,
+        display_name=display_name,
+        output_var_name=output_var_name,
+    )
 
     if resource_name:
         typer.echo("\n" + "=" * 80)
         typer.secho("DEPLOYMENT COMPLETE", fg=typer.colors.GREEN, bold=True)
         typer.echo("=" * 80)
         typer.echo("\nSave these values to your .env file:")
-        # Determine env var names based on agent module
-        if agent_module == "agent_a2a_tier2":
+        # Determine env var names based on custom output_var_name or agent module
+        if output_var_name:
+            resource_var = output_var_name
+            id_var = f"{output_var_name.replace('_RESOURCE_NAME', '')}_ID"
+        elif agent_module == "agent_a2a_tier2":
             resource_var = "TIER2_AGENT_RESOURCE_NAME"
             id_var = "TIER2_AGENT_ID"
         elif agent_module == "agent_a2a_threat_hunter":
@@ -1683,18 +1928,7 @@ def deploy(
     manager = AgentEngineManager(env_file)
 
     # Determine what the display name will be so we can find orphans later
-    if agent_module == "agent_a2a_tier2":
-        display_name = "SecOps Security Agent - Tier 2"
-    elif agent_module == "agent_a2a_threat_hunter":
-        display_name = "SecOps Security Agent - Threat Hunter"
-    elif agent_module == "agent_a2a_cti_researcher":
-        display_name = "SecOps Security Agent - CTI Researcher"
-    elif agent_module == "agent_a2a_detection_engineer":
-        display_name = "SecOps Security Agent - Detection Engineer"
-    elif agent_module == "agent_soc_manager":
-        display_name = "SecOps Security Agent - Orchestrator"
-    else:
-        display_name = f"SecOps Security Agent - {agent_module}"
+    display_name = agent_display_name(agent_module)
 
     typer.echo(f"Targeting logic for: {display_name}")
 
@@ -1832,6 +2066,10 @@ def test(
             help="Agent module to test (options: agent_soc_manager, agent_a2a_tier2, agent_a2a_threat_hunter)",
         ),
     ] = "agent_soc_manager",
+    query: Annotated[
+        str | None,
+        typer.Option("--query", "-q", help="Custom query to send to the agent"),
+    ] = None,
     env_file: Annotated[
         Path, typer.Option(help="Path to the environment file.")
     ] = Path(".env"),
@@ -1881,7 +2119,9 @@ def test(
             raise typer.Exit(code=1)
         resource = agents[index - 1]["resource_name"]
 
-    success = manager.test_agent_with_resource(resource, agent_module=agent_module)
+    success = manager.test_agent_with_resource(
+        resource, agent_module=agent_module, query=query
+    )
     if not success:
         raise typer.Exit(code=1)
 
@@ -2116,6 +2356,46 @@ def list_engines(
         typer.echo(
             "  python manage_agent_engine.py list-assistants --engine <ENGINE_ID>"
         )
+
+
+@app.command("session-dump")
+def session_dump(
+    session_id: Annotated[
+        str,
+        typer.Argument(help="The unique session ID to dump."),
+    ],
+    user_id: Annotated[
+        str,
+        typer.Option(
+            "--user-id", "-u", help="The user ID associated with the session."
+        ),
+    ] = "eval_user",
+    agent_module: Annotated[
+        str,
+        typer.Option(
+            "--agent-module",
+            "-m",
+            help="The agent module/persona to connect to (e.g. agent_a2a_threat_hunter, agent_soc_manager).",
+        ),
+    ] = "agent_a2a_threat_hunter",
+    env_file: Annotated[
+        Path, typer.Option(help="Path to the environment file.")
+    ] = Path(".env"),
+) -> None:
+    """
+    Retrieve and dump the raw conversational event history for a live cloud agent session.
+
+    This connects to the live deployed Reasoning Engine in the cloud, pulls its session history,
+    and formats the turn-by-turn thoughts, tool calls, and responses.
+    """
+    manager = AgentEngineManager(env_file)
+    success = manager.dump_session_history(
+        session_id=session_id,
+        user_id=user_id,
+        agent_module=agent_module,
+    )
+    if not success:
+        raise typer.Exit(code=1)
 
 
 if __name__ == "__main__":

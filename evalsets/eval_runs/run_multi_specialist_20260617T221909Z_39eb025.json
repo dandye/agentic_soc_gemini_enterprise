@@ -1,0 +1,155 @@
+{
+  "metadata": {
+    "evalset_id": "multi_specialist",
+    "timestamp": "2026-06-17T22:19:09.695722Z",
+    "git": {
+      "commit": "39eb025f23e878a7ab4656e2e23e89a86174f5d5",
+      "branch": "harvest_detection_reports",
+      "dirty": true,
+      "submodules": {
+        "external/adk_runbooks": "d4ccf85d393eacae34bc006689601f013a03479b",
+        "external/ai-runbooks": "fca5f8eba3fff9964680ae035915c87a74e2f767",
+        "external/mcp-security": "b3ccb9a190b87512ba0901f672c76c5527ebcff7"
+      }
+    },
+    "environment": {
+      "project_id": "secops-demo-env",
+      "location": "us-central1",
+      "orchestrator_model": "gemini-3.1-pro-preview",
+      "agent_resource": "projects/813924125873/locations/us-east4/reasoningEngines/427921129437396992",
+      "knowledge_graph_hash": "f302b2ed2b1665779f40a3e3653a2428"
+    }
+  },
+  "summary": {
+    "total_cases": 5,
+    "average_score": 93.80952380952381,
+    "status": "PASS"
+  },
+  "cases": {
+    "runbook_then_investigate": {
+      "name": "Multi-Step: Runbook + Investigation",
+      "score": 0.8571428571428571,
+      "tool_calls": [
+        "search_knowledge_base",
+        "delegate_concurrently",
+        "load_memory",
+        "deliver_report"
+      ],
+      "assertions_passed": [
+        "keyword_matching"
+      ],
+      "assertions_failed": [
+        "tool_trajectory"
+      ],
+      "success_criteria_passed": [
+        "mentions_runbook_retrieval",
+        "mentions_cti_specialist",
+        "combines_both_outputs",
+        "clear_workflow_structure",
+        "has_grounding_citation"
+      ],
+      "success_criteria_failed": []
+    },
+    "threat_actor_local_correlation": {
+      "name": "Threat Intel + Local Correlation",
+      "score": 0.8333333333333334,
+      "tool_calls": [
+        "delegate_concurrently",
+        "deliver_report",
+        "deliver_report"
+      ],
+      "assertions_passed": [
+        "specialist_attribution",
+        "keyword_matching"
+      ],
+      "assertions_failed": [
+        "tool_trajectory"
+      ],
+      "success_criteria_passed": [
+        "specialist_attribution",
+        "combines_external_and_internal",
+        "final_response_must_contain"
+      ],
+      "success_criteria_failed": []
+    },
+    "lateral_movement_hunt": {
+      "name": "Complex Threat Hunting - Lateral Movement",
+      "score": 1.0,
+      "tool_calls": [
+        "delegate_to_threat_hunter",
+        "deliver_report"
+      ],
+      "assertions_passed": [
+        "specialist_attribution",
+        "tool_trajectory",
+        "keyword_matching"
+      ],
+      "assertions_failed": [],
+      "success_criteria_passed": [
+        "specialist_attribution",
+        "includes_udm_query",
+        "maps_to_mitre_attack",
+        "final_response_must_contain"
+      ],
+      "success_criteria_failed": []
+    },
+    "incident_workflow_phishing_to_compromise": {
+      "name": "Incident Workflow - Phishing to Compromise",
+      "score": 1.0,
+      "tool_calls": [
+        "search_knowledge_base",
+        "transfer_to_agent",
+        "list_skills",
+        "search_knowledge_base",
+        "load_memory",
+        "load_skill",
+        "load_skill",
+        "load_skill_resource",
+        "query_neo4j_graph",
+        "query_neo4j_graph",
+        "search_knowledge_base",
+        "udm_search",
+        "get_ip_address_report",
+        "get_domain_report",
+        "get_domain_report",
+        "list_cases",
+        "load_memory",
+        "save_report_artifact",
+        "deliver_report"
+      ],
+      "assertions_passed": [
+        "tool_trajectory",
+        "keyword_matching"
+      ],
+      "assertions_failed": [],
+      "success_criteria_passed": [
+        "mentions_runbook_retrieval",
+        "mentions_tier1_or_cti",
+        "provides_workflow",
+        "has_grounding_citation"
+      ],
+      "success_criteria_failed": []
+    },
+    "conflicting_intel": {
+      "name": "Conflicting Intelligence Sources",
+      "score": 1.0,
+      "tool_calls": [
+        "delegate_to_threat_hunter",
+        "deliver_report"
+      ],
+      "assertions_passed": [
+        "specialist_attribution",
+        "tool_trajectory",
+        "keyword_matching"
+      ],
+      "assertions_failed": [],
+      "success_criteria_passed": [
+        "specialist_attribution",
+        "presents_both_findings",
+        "acknowledges_discrepancy",
+        "provides_interpretation"
+      ],
+      "success_criteria_failed": []
+    }
+  }
+}

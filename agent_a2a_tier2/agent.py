@@ -98,7 +98,443 @@ def _patched_validate_app_name(name: str) -> None:
 adk_app.validate_app_name = _patched_validate_app_name
 
 
-# -------------------------------------------------------------------------
+# Monkey-patch remove_client_function_call_id to prevent 400 INVALID_ARGUMENT errors
+try:
+    import google.adk.flows.llm_flows.contents as adk_contents
+    import google.adk.flows.llm_flows.functions as adk_funcs
+
+    def _patched_remove_client_function_call_id(content) -> None:
+        pass
+
+    adk_funcs.remove_client_function_call_id = _patched_remove_client_function_call_id
+    adk_contents.remove_client_function_call_id = (
+        _patched_remove_client_function_call_id
+    )
+    logger.warning(
+        "[RUNTIME_PATCH] Successfully patched remove_client_function_call_id"
+    )
+except Exception as e:
+    logger.warning(
+        f"[RUNTIME_PATCH] Failed to patch remove_client_function_call_id: {e}"
+    )
+
+
+# Monkey-patch McpTool._get_declaration to strip response_json_schema (Gemini API compatibility)
+try:
+    from google.adk.tools.mcp_tool.mcp_tool import McpTool
+    from google.genai.types import FunctionDeclaration
+
+    def _patched_get_declaration(self) -> FunctionDeclaration:
+        input_schema = self._mcp_tool.inputSchema
+        return FunctionDeclaration(
+            name=self.name,
+            description=self.description,
+            parameters_json_schema=input_schema,
+            response_json_schema=None,
+        )
+
+    McpTool._get_declaration = _patched_get_declaration
+    logger.warning("[RUNTIME_PATCH] Successfully patched McpTool._get_declaration")
+except Exception as e:
+    logger.warning(f"[RUNTIME_PATCH] Failed to patch McpTool._get_declaration: {e}")
+
+
+# Monkey-patch McpTool._run_async_impl to truncate massive telemetry and prevent gRPC buffer overflows
+# 8. Monkeypatch McpTool._run_async_impl to truncate/aggregate massive telemetry and prevent gRPC buffer overflows
+try:
+    import datetime
+    import json
+
+    from google.adk.tools.mcp_tool.mcp_tool import McpTool
+
+    # Inner helper functions for semantic aggregation
+    def _summarize_udm_events(events: list, tool_name: str) -> str:
+        total_events = len(events)
+        event_types = {}
+        processes = {}
+        logins = {}
+        network_conns = {}
+        others = {}
+
+        for ev in events:
+            if not isinstance(ev, dict):
+                continue
+            metadata = ev.get("metadata", {})
+            etype = metadata.get("event_type", "UNKNOWN")
+            event_types[etype] = event_types.get(etype, 0) + 1
+            ts = metadata.get("event_timestamp", "")
+
+            if etype == "PROCESS_LAUNCH":
+                target = ev.get("target", {})
+                proc = target.get("process", {})
+                proc_path = (
+                    proc.get("file", {}).get("full_path")
+                    or proc.get("file", {}).get("name")
+                    or "unknown_process"
+                )
+                cmd = proc.get("command_line") or "no_command_line"
+
+                principal = ev.get("principal", {})
+                parent_proc = principal.get("process", {})
+                parent_cmd = (
+                    parent_proc.get("command_line")
+                    or parent_proc.get("file", {}).get("name")
+                    or "unknown_parent"
+                )
+                host = (
+                    ev.get("principal", {}).get("hostname")
+                    or ev.get("target", {}).get("hostname")
+                    or "unknown_host"
+                )
+
+                key = (proc_path, cmd, parent_cmd, host)
+                if key not in processes:
+                    processes[key] = {"count": 0, "first": ts, "last": ts}
+                processes[key]["count"] += 1
+                if ts:
+                    processes[key]["first"] = min(processes[key]["first"], ts)
+                    processes[key]["last"] = max(processes[key]["last"], ts)
+
+            elif etype == "USER_LOGIN":
+                target = ev.get("target", {})
+                user = (
+                    target.get("user", {}).get("userid")
+                    or ev.get("principal", {}).get("user", {}).get("userid")
+                    or "unknown_user"
+                )
+                src_ip = (
+                    ev.get("principal", {}).get("ip")
+                    or ev.get("principal", {}).get("hostname")
+                    or "unknown_source"
+                )
+                target_host = ev.get("target", {}).get("hostname") or "unknown_target"
+
+                sec_result = ev.get("security_result", {})
+                status = sec_result.get("status", "UNKNOWN")
+                logon_type = (
+                    ev.get("extensions", {}).get("auth", {}).get("logon_type")
+                    or "unknown_type"
+                )
+
+                key = (user, src_ip, target_host, status, logon_type)
+                if key not in logins:
+                    logins[key] = {"count": 0, "first": ts, "last": ts}
+                logins[key]["count"] += 1
+                if ts:
+                    logins[key]["first"] = min(logins[key]["first"], ts)
+                    logins[key]["last"] = max(logins[key]["last"], ts)
+
+            elif etype in ["NETWORK_CONNECTION", "DNS_QUERY"]:
+                target = ev.get("target", {})
+                dest_ip = target.get("ip") or target.get("hostname") or "unknown_dest"
+                dest_port = target.get("port") or "unknown_port"
+
+                principal = ev.get("principal", {})
+                proc_name = (
+                    principal.get("process", {}).get("file", {}).get("name")
+                    or "unknown_process"
+                )
+
+                key = (dest_ip, dest_port, proc_name, etype)
+                if key not in network_conns:
+                    network_conns[key] = {"count": 0, "first": ts, "last": ts}
+                network_conns[key]["count"] += 1
+                if ts:
+                    network_conns[key]["first"] = min(network_conns[key]["first"], ts)
+                    network_conns[key]["last"] = max(network_conns[key]["last"], ts)
+            else:
+                key = (etype, ev.get("metadata", {}).get("product_name", "generic"))
+                others[key] = others.get(key, 0) + 1
+
+        summary_lines = [
+            f"### [SEMANTIC SUMMARY] UDM Telemetry (Source: {tool_name})",
+            f"**Total Events Analyzed:** {total_events}",
+            "**Event Types Breakdown:** "
+            + ", ".join([f"`{k}`: {v}" for k, v in event_types.items()]),
+            "",
+        ]
+
+        if processes:
+            summary_lines.append("#### Process Execution Tree Summary")
+            for (proc, cmd, parent, host), stats in processes.items():
+                summary_lines.append(
+                    f"- **Host:** `{host}` | **Process:** `{proc}`\n"
+                    f"  - **Command:** `{cmd}`\n"
+                    f"  - **Parent Process:** `{parent}`\n"
+                    f"  - **Execution Count:** {stats['count']} times | **Time window:** `{stats['first']}` to `{stats['last']}`"
+                )
+            summary_lines.append("")
+
+        if logins:
+            summary_lines.append("#### Authentication Activity Summary")
+            for (user, src, target, status, ltype), stats in logins.items():
+                status_color = (
+                    "SUCCESS" if status == "SUCCESS" else f"FAILED ({status})"
+                )
+                summary_lines.append(
+                    f"- **User:** `{user}` | **Source:** `{src}` -> **Target:** `{target}`\n"
+                    f"  - **Logon Type:** `{ltype}` | **Status:** {status_color}\n"
+                    f"  - **Login Count:** {stats['count']} attempts | **Time window:** `{stats['first']}` to `{stats['last']}`"
+                )
+            summary_lines.append("")
+
+        if network_conns:
+            summary_lines.append("#### Network & DNS Connection Summary")
+            for (dest, port, proc, etype), stats in network_conns.items():
+                summary_lines.append(
+                    f"- **Process:** `{proc}` initiated `{etype}` to `{dest}:{port}`\n"
+                    f"  - **Connection Count:** {stats['count']} times | **Time window:** `{stats['first']}` to `{stats['last']}`"
+                )
+            summary_lines.append("")
+
+        if others:
+            summary_lines.append("#### Miscellaneous System Events Summary")
+            for (etype, product), count in others.items():
+                summary_lines.append(
+                    f"- **Type:** `{etype}` (Product: `{product}`) | **Count:** {count} times"
+                )
+            summary_lines.append("")
+
+        return "\n".join(summary_lines)
+
+    def _summarize_soar_cases(cases: list, tool_name: str) -> str:
+        total_cases = len(cases)
+        severities = {}
+        statuses = {}
+
+        # Sort cases by creation time if present
+        def get_ctime(x):
+            t = x.get("creationTime") or x.get("creation_time") or 0
+            return t if isinstance(t, (int, float)) else 0
+
+        sorted_cases = sorted(cases, key=get_ctime, reverse=True)
+
+        table_lines = [
+            "| Case ID | Title | Status | Severity | Creation Time |",
+            "| :--- | :--- | :---: | :---: | :---: |",
+        ]
+
+        detail_count = min(total_cases, 10)
+        for i in range(detail_count):
+            c = sorted_cases[i]
+            cid = c.get("id") or c.get("caseId") or "N/A"
+            title = c.get("title") or c.get("name") or "N/A"
+            status = c.get("status") or "N/A"
+            sev = c.get("severity") or "N/A"
+
+            ctime = c.get("creationTime") or c.get("creation_time") or "N/A"
+            if isinstance(ctime, (int, float)) and ctime > 1000000000:
+                if ctime > 1000000000000:
+                    ctime = ctime / 1000.0
+                ctime = datetime.datetime.utcfromtimestamp(ctime).isoformat() + "Z"
+
+            table_lines.append(
+                f"| `{cid}` | {title} | `{status}` | `{sev}` | `{ctime}` |"
+            )
+
+            severities[sev] = severities.get(sev, 0) + 1
+            statuses[status] = statuses.get(status, 0) + 1
+
+        for i in range(detail_count, total_cases):
+            c = sorted_cases[i]
+            sev = c.get("severity") or "N/A"
+            status = c.get("status") or "N/A"
+            severities[sev] = severities.get(sev, 0) + 1
+            statuses[status] = statuses.get(status, 0) + 1
+
+        summary_lines = [
+            f"### [SEMANTIC SUMMARY] SOAR Cases (Source: {tool_name})",
+            f"**Total Cases Found:** {total_cases}",
+            "**Severity Breakdown:** "
+            + ", ".join([f"`{k}`: {v}" for k, v in severities.items()]),
+            "**Status Breakdown:** "
+            + ", ".join([f"`{k}`: {v}" for k, v in statuses.items()]),
+            "",
+            f"#### Recent Cases (Showing top {detail_count} of {total_cases}):",
+            "",
+        ] + table_lines
+
+        return "\n".join(summary_lines)
+
+    def _summarize_gti_report(report: dict, tool_name: str) -> str:
+        attributes = report.get("attributes", {})
+        name = attributes.get("name") or report.get("id") or "Threat Intel Entity"
+        etype = report.get("type") or "collection"
+
+        description = attributes.get("description") or "No description available."
+        if len(description) > 500:
+            description = description[:500] + "... [TRUNCATED description]"
+
+        merged_actors = attributes.get("merged_actors", [])
+        alt_names = attributes.get("alt_names", [])
+
+        relationships = report.get("relationships", {})
+        associations = relationships.get("associations", {}).get("data", [])
+
+        counters = attributes.get("counters", {})
+        files_count = counters.get("files") or attributes.get("files_count") or 0
+        domains_count = counters.get("domains") or 0
+        ips_count = counters.get("ip_addresses") or 0
+        urls_count = counters.get("urls") or 0
+
+        summary_lines = [
+            f"### [SEMANTIC SUMMARY] Threat Intelligence Report: {name} (Type: `{etype}`)",
+            f"**Origin:** {tool_name} (Google Threat Intelligence)",
+            f"**Description:** {description}",
+            "",
+            "**Key Metrics & Associated Indicators:**",
+            f"- **Associated Files/Hashes:** {files_count}",
+            f"- **Associated Domains:** {domains_count}",
+            f"- **Associated IP Addresses:** {ips_count}",
+            f"- **Associated URLs:** {urls_count}",
+            "",
+        ]
+
+        if alt_names:
+            summary_lines.append(
+                "**Alias Names:** "
+                + ", ".join([f"`{name}`" for name in alt_names[:10]])
+            )
+
+        if merged_actors:
+            summary_lines.append(
+                "**Merged Actor/Campaign Profiles:** "
+                + ", ".join([f"`{a.get('value')}`" for a in merged_actors[:10]])
+            )
+
+        if associations:
+            summary_lines.append("#### Key Associated Intelligence Objects (Top 10):")
+            for assoc in associations[:10]:
+                summary_lines.append(
+                    f"- **Type:** `{assoc.get('type')}` | **ID:** `{assoc.get('id')}`"
+                )
+
+        return "\n".join(summary_lines)
+
+    def summarize_telemetry(text: str, tool_name: str) -> str:
+        if not isinstance(text, str) or len(text) < 10000:
+            return text
+
+        try:
+            data = json.loads(text)
+        except Exception:
+            return text
+
+        try:
+            # 1. UDM Search Event List
+            if (
+                isinstance(data, list)
+                and len(data) > 0
+                and isinstance(data[0], dict)
+                and "metadata" in data[0]
+            ):
+                return _summarize_udm_events(data, tool_name)
+
+            # 2. SOAR Cases (list or wrapped)
+            if (
+                isinstance(data, dict)
+                and "result" in data
+                and isinstance(data["result"], list)
+            ):
+                return _summarize_soar_cases(data["result"], tool_name)
+            if (
+                isinstance(data, list)
+                and len(data) > 0
+                and isinstance(data[0], dict)
+                and ("title" in data[0] or "severity" in data[0])
+            ):
+                return _summarize_soar_cases(data, tool_name)
+
+            # 3. GTI Report
+            if isinstance(data, dict) and (
+                "type" in data or "attributes" in data or "relationships" in data
+            ):
+                return _summarize_gti_report(data, tool_name)
+        except Exception:  # noqa: S110
+            pass
+
+        return text
+
+    # Define the patched run async wrapper
+    original_run_async_impl = McpTool._run_async_impl
+
+    async def _patched_run_async_impl(self, *args, **kwargs):
+        result = await original_run_async_impl(self, *args, **kwargs)
+        try:
+            if isinstance(result, dict) and "content" in result:
+                content_list = result["content"]
+                if isinstance(content_list, list):
+                    for item in content_list:
+                        if isinstance(item, dict) and item.get("type") == "text":
+                            text = item.get("text")
+                            if isinstance(text, str) and len(text) > 15000:
+                                # 1. Try to run semantic aggregation first
+                                aggregated_text = summarize_telemetry(text, self.name)
+                                if len(aggregated_text) < len(text):
+                                    logger.warning(
+                                        f"[RUNTIME_PATCH] Successfully aggregated tool '{self.name}' response from {len(text)} to {len(aggregated_text)} chars."
+                                    )
+                                    item["text"] = aggregated_text
+                                    text = aggregated_text
+
+                                # 2. Fall back to character truncation if it's still too large
+                                if len(text) > 15000:
+                                    logger.warning(
+                                        f"[RUNTIME_PATCH] Truncating tool '{self.name}' response from {len(text)} to 15000 chars as fallback."
+                                    )
+                                    item["text"] = (
+                                        text[:15000]
+                                        + "\n... [TRUNCATED due to large size] ..."
+                                    )
+        except Exception as ex:
+            logger.warning(
+                f"[RUNTIME_PATCH] Error while truncating/aggregating tool response: {ex}"
+            )
+        return result
+
+    McpTool._run_async_impl = _patched_run_async_impl
+    logger.warning("[RUNTIME_PATCH_DEBUG] Successfully patched McpTool._run_async_impl")
+except Exception as e:
+    logger.warning(
+        f"[RUNTIME_PATCH_DEBUG] Failed to patch McpTool._run_async_impl: {e}"
+    )
+
+# 7. Monkeypatch aiohttp to support extremely large streaming lines (e.g., 10MB)
+# to prevent LineTooLong errors during large threat intel/hunting telemetry dumps.
+try:
+    import aiohttp.streams
+
+    original_init = aiohttp.streams.StreamReader.__init__
+
+    def _patched_init(self, *args, **kwargs):
+        if "limit" in kwargs:
+            kwargs["limit"] = 10 * 1024 * 1024
+        elif len(args) >= 2:
+            # limit is the second positional argument after self (bound, so args[0] is protocol, args[1] is limit)
+            args = (args[0], 10 * 1024 * 1024) + args[2:]
+        else:
+            kwargs["limit"] = 10 * 1024 * 1024
+        original_init(self, *args, **kwargs)
+
+    aiohttp.streams.StreamReader.__init__ = _patched_init
+
+    # Also patch readline to override explicit max_line_length passed by HTTP parser
+    original_readline = aiohttp.streams.StreamReader.readline
+
+    async def _patched_readline(self, *args, **kwargs):
+        # Force max_line_length to 10MB in kwargs to override any default or passed value
+        kwargs["max_line_length"] = 10 * 1024 * 1024
+        return await original_readline(self, *args, **kwargs)
+
+    aiohttp.streams.StreamReader.readline = _patched_readline
+
+    logger.warning(
+        "[RUNTIME_PATCH_DEBUG] Successfully patched aiohttp StreamReader limit and readline to 10MB"
+    )
+except Exception as e:
+    logger.warning(
+        f"[RUNTIME_PATCH_DEBUG] Failed to patch aiohttp StreamReader: {e}"
+    )  # -------------------------------------------------------------------------
 
 
 from collections.abc import AsyncGenerator  # noqa: E402
@@ -628,6 +1064,55 @@ async def save_report_artifact(filename: str, report_content: str, ctx: Context)
         return f"Error saving report: {e}"
 
 
+def get_secret(secret_name: str, project_id: str | None) -> str:
+    """Retrieve a secret from Google Cloud Secret Manager with local env fallback."""
+    val = os.environ.get(secret_name, "")
+    if not project_id:
+        return val
+
+    try:
+        from google.cloud import secretmanager
+
+        client = secretmanager.SecretManagerServiceClient()
+        name = f"projects/{project_id}/secrets/{secret_name}/versions/latest"
+        response = client.access_secret_version(name=name)
+        secret_val = response.payload.data.decode("UTF-8").strip()
+        if secret_val:
+            logger.info(
+                f"Successfully loaded secret '{secret_name}' from Secret Manager."
+            )
+            return secret_val
+    except Exception as e:
+        logger.debug(
+            f"Secret Manager lookup failed for '{secret_name}': {e}. Using environment fallback."
+        )
+
+    return val
+
+
+_CYPHER_WRITE_CLAUSES = re.compile(
+    r"(?i)\b(CREATE|MERGE|DELETE|DETACH|SET|REMOVE|DROP|FOREACH|LOAD\s+CSV)\b"
+)
+
+
+def _reject_write_cypher(cypher_query: str) -> str | None:
+    """Return an error string if the query contains write clauses, else None.
+
+    session.execute_read() is only a cluster-routing hint in the Neo4j driver;
+    against a single instance it does NOT block CREATE/MERGE/DELETE. This
+    keyword gate is the actual read-only enforcement for LLM-supplied Cypher.
+    (Server-side enforcement via a read-only Neo4j role is preferable when
+    available; this guard is the in-process backstop.)
+    """
+    m = _CYPHER_WRITE_CLAUSES.search(cypher_query)
+    if m:
+        return (
+            f"Rejected: query contains write clause '{m.group(1)}'. "
+            "query_knowledge_graph is read-only; use MATCH/RETURN queries."
+        )
+    return None
+
+
 def create_agent():
     """
     Create the standalone Tier 2 Incident Responder Agent with MCP and containment tools.
@@ -649,6 +1134,15 @@ def create_agent():
     CHRONICLE_PROJECT_ID = os.environ.get("CHRONICLE_PROJECT_ID")
     CHRONICLE_REGION = os.environ.get("CHRONICLE_REGION", "us")
     CHRONICLE_SERVICE_ACCOUNT_PATH = os.environ.get("CHRONICLE_SERVICE_ACCOUNT_PATH")
+
+    # Elasticsearch Grounding Configuration
+    ELASTICSEARCH_GROUNDING_ENABLED = (
+        os.environ.get("ELASTICSEARCH_GROUNDING_ENABLED", "False") == "True"
+    )
+    ELASTICSEARCH_URL = os.environ.get("ELASTICSEARCH_URL", "http://localhost:9200")
+    ELASTICSEARCH_USER = os.environ.get("ELASTICSEARCH_USER", "elastic")
+    ELASTICSEARCH_PASSWORD = get_secret("ELASTICSEARCH_PASSWORD", GCP_PROJECT_ID)
+    ELASTICSEARCH_INDEX = os.environ.get("ELASTICSEARCH_INDEX", "agentic-soc-runbooks")
 
     if not CHRONICLE_PROJECT_ID:
         raise ValueError(
@@ -724,10 +1218,10 @@ def create_agent():
 
     # SOAR configuration
     SOAR_URL = os.environ.get("SOAR_URL")
-    SOAR_APP_KEY = os.environ.get("SOAR_APP_KEY")
+    SOAR_APP_KEY = get_secret("SOAR_APP_KEY", GCP_PROJECT_ID)
 
     # Google Threat Intelligence configuration
-    GTI_API_KEY = os.environ.get("GTI_API_KEY")
+    GTI_API_KEY = get_secret("GTI_API_KEY", GCP_PROJECT_ID)
 
     try:
         RAG_SIMILARITY_TOP_K = int(os.environ.get("RAG_SIMILARITY_TOP_K", "10"))
@@ -741,6 +1235,93 @@ def create_agent():
 
     # Get service account filename for MCP servers
     service_account_filename = service_account_path.name
+
+    async def query_knowledge_graph(cypher_query: str, ctx: Context) -> str:
+        """
+        Execute a read-only Cypher query against the Security Operations Neo4j knowledge graph
+        to query entity relationships, trace attack paths, and correlate logs.
+
+        Args:
+            cypher_query: The Cypher query string to execute. Example:
+              "MATCH (h:Host {name: 'WRK-SHASEK'})<-[:INVOLVES]-(i:Investigation) RETURN i.id, i.verdict"
+        """
+        logger.info(f"NEO4J_GRAPH_QUERY: query='{cypher_query}'")
+
+        rejection = _reject_write_cypher(cypher_query)
+        if rejection:
+            logger.warning(f"NEO4J_GRAPH_QUERY rejected write clause: {cypher_query!r}")
+            return rejection
+
+        uri = os.environ.get("NEO4J_URI", "bolt://localhost:7687")
+        user = os.environ.get("NEO4J_USER", "neo4j")
+        password = get_secret("NEO4J_PASSWORD", GCP_PROJECT_ID)
+
+        try:
+            from neo4j import GraphDatabase
+
+            with GraphDatabase.driver(uri, auth=(user, password)) as driver:
+                with driver.session() as session:
+
+                    def _run(tx):
+                        result = tx.run(cypher_query)
+                        return [record.data() for record in result]
+
+                    records = session.execute_read(_run)
+
+            if not records:
+                return "No matching records found in Neo4j."
+            return json.dumps(records, indent=2)
+        except Exception as e:
+            logger.error(f"Neo4j query failed: {e}")
+            return f"Error querying Neo4j: {e}"
+
+    async def search_knowledge_base(query: str, ctx: Context) -> str:
+        """
+        Search historical cases, alerts, and investigations metadata in the knowledge base.
+
+        Args:
+            query: The search term, keyword, indicator, or technique ID to query.
+        """
+        logger.info(f"KNOWLEDGE_BASE_SEARCH_CALL: query='{query}'")
+
+        try:
+            from elasticsearch import Elasticsearch
+
+            client = Elasticsearch(
+                ELASTICSEARCH_URL,
+                basic_auth=(ELASTICSEARCH_USER, ELASTICSEARCH_PASSWORD),
+                verify_certs=os.getenv("ELASTICSEARCH_VERIFY_CERTS", "false").lower()
+                in ("1", "true", "yes"),
+            )
+
+            resp = client.search(
+                index=ELASTICSEARCH_INDEX,
+                query={
+                    "multi_match": {
+                        "query": query,
+                        "fields": ["content", "title"],
+                    }
+                },
+                size=3,
+            )
+
+            results = []
+            for hit in resp["hits"]["hits"]:
+                source = hit["_source"]
+                results.append(
+                    f"Document: {source.get('title', 'Unknown')}\n"
+                    f"Path: {source.get('path', 'Unknown')}\n"
+                    f"Score: {hit['_score']}\n"
+                    f"Content:\n{source.get('content', '')}\n"
+                    f"========================================\n"
+                )
+
+            if not results:
+                return "No matching runbooks found in Elasticsearch."
+            return "\n".join(results)
+        except Exception as e:
+            logger.error(f"Elasticsearch search failed: {e}")
+            return f"Error searching Elasticsearch: {e}"
 
     # Initialize list to collect all tools
     tools = []
@@ -793,9 +1374,12 @@ def create_agent():
     tools.append(scc_tools)
 
     # ========================================================================
-    # Configure RAG Retrieval Tool (if RAG corpus is configured)
+    # Configure Grounding/Retrieval Tool
     # ========================================================================
-    if RAG_CORPUS_ID:
+    if ELASTICSEARCH_GROUNDING_ENABLED:
+        logger.info("Configuring knowledge base search grounding retrieval...")
+        tools.append(search_knowledge_base)
+    elif RAG_CORPUS_ID:
         logger.info(f"Configuring RAG retrieval with corpus: {RAG_CORPUS_ID}")
 
         def retrieve_agentic_soc_runbooks(query: str) -> str:
@@ -830,6 +1414,11 @@ def create_agent():
     # Add save_report_artifact as a standalone tool
     # ========================================================================
     tools.append(save_report_artifact)
+
+    # ========================================================================
+    # Add query_knowledge_graph as a standalone tool
+    # ========================================================================
+    tools.append(query_knowledge_graph)
 
     # ========================================================================
     # Add ChatOps Mitigation Skills

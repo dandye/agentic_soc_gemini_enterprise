@@ -88,6 +88,8 @@ INCLUDE_DIRECTORIES = [
     "adk_runbooks/rules-bank/ai",
     "adk_runbooks/rules-bank/multi_agent",
     "adk_runbooks/rules-bank/tools",
+    "investigations",
+    "docs/reference",
 ]
 
 
@@ -127,7 +129,18 @@ class RAGManager:
             raise typer.Exit(code=1)
 
         try:
-            credentials, _ = default()
+            sa_path = self.env_vars.get("SECOPS_SA_PATH") or self.env_vars.get(
+                "CHRONICLE_SERVICE_ACCOUNT_PATH"
+            )
+            if sa_path and os.path.exists(sa_path):
+                from google.oauth2 import service_account
+
+                scopes = ["https://www.googleapis.com/auth/cloud-platform"]
+                credentials = service_account.Credentials.from_service_account_file(
+                    sa_path, scopes=scopes
+                )
+            else:
+                credentials, _ = default()
             vertexai.init(
                 project=self.project_id, location=self.location, credentials=credentials
             )
@@ -140,7 +153,18 @@ class RAGManager:
         if self.storage_client:
             return
         try:
-            credentials, _ = default()
+            sa_path = self.env_vars.get("SECOPS_SA_PATH") or self.env_vars.get(
+                "CHRONICLE_SERVICE_ACCOUNT_PATH"
+            )
+            if sa_path and os.path.exists(sa_path):
+                from google.oauth2 import service_account
+
+                scopes = ["https://www.googleapis.com/auth/cloud-platform"]
+                credentials = service_account.Credentials.from_service_account_file(
+                    sa_path, scopes=scopes
+                )
+            else:
+                credentials, _ = default()
             self.storage_client = storage.Client(
                 project=self.project_id, credentials=credentials
             )
@@ -231,7 +255,7 @@ class RAGManager:
     def categorize_files(self) -> tuple[list[Path], list[Path]]:
         """Categorize files into keep and remove lists."""
         files = []
-        for source_dir in ["ai-runbooks", "adk_runbooks"]:
+        for source_dir in ["ai-runbooks", "adk_runbooks", "investigations", "docs"]:
             source_path = self.project_root / source_dir
             if source_path.exists():
                 files.extend(source_path.rglob("*.md"))
@@ -358,7 +382,7 @@ class RAGManager:
                 idx = parts.index("rules_bank")
                 subpath = "/".join(parts[idx + 1 :])
             else:
-                subpath = file_path.name
+                subpath = str(file_path.relative_to(self.project_root))
 
             blob_name = f"{prefix}{subpath}"
             local_state[blob_name] = file_path

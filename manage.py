@@ -18,16 +18,22 @@ from rich.console import Console
 # Import management apps from installation_scripts
 sys.path.insert(0, str(Path(__file__).parent / "installation_scripts"))
 
+from installation_scripts.harvest_investigations import app as harvest_app
 from installation_scripts.manage_agent_engine import app as agent_engine_app
 from installation_scripts.manage_agentspace import app as agentspace_app
+from installation_scripts.manage_alloydb import app as alloydb_app
 from installation_scripts.manage_chat_ops import app as chatops_app
 from installation_scripts.manage_datastore import app as datastore_app
+from installation_scripts.manage_elasticsearch import app as elastic_app
+from installation_scripts.manage_eval import app as eval_app
 from installation_scripts.manage_iam import app as iam_app
 from installation_scripts.manage_licenses import app as licenses_app
 from installation_scripts.manage_memories import app as memories_app
 from installation_scripts.manage_models import app as models_app
+from installation_scripts.manage_neo4j import app as neo4j_app
 from installation_scripts.manage_oauth import app as oauth_app
 from installation_scripts.manage_rag import app as rag_app
+from installation_scripts.manage_secret import app as secret_app
 from installation_scripts.manage_vertex_ai import app as vertex_app
 
 
@@ -52,6 +58,7 @@ app.add_typer(
     help="Manage Gemini Enterprise Agent Platform apps and agents",
 )
 app.add_typer(oauth_app, name="oauth", help="Manage OAuth authorizations")
+app.add_typer(secret_app, name="secret", help="Manage Secret Manager keys")
 app.add_typer(datastore_app, name="datastore", help="Manage data stores")
 app.add_typer(rag_app, name="rag", help="Manage RAG corpora")
 app.add_typer(memories_app, name="memories", help="Manage Agent Engine memories")
@@ -66,6 +73,17 @@ app.add_typer(
 )
 app.add_typer(
     models_app, name="models", help="List and discover available Gemini models"
+)
+app.add_typer(elastic_app, name="elastic", help="Manage Elasticsearch runbook index")
+app.add_typer(eval_app, name="eval", help="Run agent evaluations")
+app.add_typer(
+    harvest_app,
+    name="harvest",
+    help="Harvest and enrich investigations and detections from Chronicle SIEM",
+)
+app.add_typer(neo4j_app, name="neo4j", help="Manage Neo4j Graph Database")
+app.add_typer(
+    alloydb_app, name="alloydb", help="Manage AlloyDB detection reports database"
 )
 app.add_typer(
     licenses_app, name="licenses", help="Manage Gemini Enterprise user licenses"
