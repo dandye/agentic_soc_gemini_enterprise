@@ -18,7 +18,16 @@ def _get_secret():
 
     secret = os.getenv("CHRONICLE_CHATOPS_SECRET")
     if not secret:
-        # Fallback for development, should be explicitly set in production
+        # Fail closed on Cloud Run (K_SERVICE set): signing with the public
+        # fallback would let anyone mint valid approval tokens. An unset
+        # shell var in a deploy script must not silently weaken HMAC.
+        if os.getenv("K_SERVICE"):
+            raise ValueError(
+                "CHRONICLE_CHATOPS_SECRET is not set; refusing to sign or "
+                "verify ChatOps tokens with the development fallback secret "
+                "in a deployed service."
+            )
+        # Fallback for local development only
         return "development_fallback_secret_not_for_production"
     return secret
 

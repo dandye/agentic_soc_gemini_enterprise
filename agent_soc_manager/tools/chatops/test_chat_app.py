@@ -237,7 +237,7 @@ def test_worker_executes_and_syncs_card():
     message_name, card = updates[0]
     assert message_name == "spaces/S/messages/M"
     card_text = str(card)
-    assert "Confirmed" in card_text
+    assert "Processed" in card_text
     assert "Approve Block IP" in card_text
     print("test_worker_executes_and_syncs_card passed")
 
@@ -271,11 +271,98 @@ def test_worker_failure_syncs_honest_failure():
     print("test_worker_failure_syncs_honest_failure passed")
 
 
-def test_worker_invalid_token_rejected():
+def test_worker_invalid_token_dropped():
     client = TestClient(chat_app_handler.app)
     response = client.post("/tasks/execute", json={"token": "bogus.token"})
-    assert response.status_code == 400
-    print("test_worker_invalid_token_rejected passed")
+    # 200 with a dropped status: a 4xx would make Cloud Tasks retry every
+    # queued task to max attempts after a secret rotation.
+    assert response.status_code == 200
+    assert response.json()["status"] == "dropped"
+    print("test_worker_invalid_token_dropped passed")
+
+
+def test_approver_allowlist_rejects_unlisted_user():
+    token = _signed_token("Approve Block IP")
+    os.environ["CHATOPS_APPROVER_EMAILS"] = "lead@example.com"
+    try:
+        client = TestClient(chat_app_handler.app)
+        event = {
+            "type": "CARD_CLICKED",
+            "common": {
+                "invokedFunction": "execute_signed_action",
+                "parameters": {"token": token},
+            },
+            "user": {"displayName": "Mallory", "email": "mallory@example.com"},
+            "message": {"name": "spaces/S/messages/M"},
+        }
+        response = client.post("/chat/events", json=event)
+        assert response.status_code == 200
+        body = response.json()
+        assert "not authorized" in str(body)
+        # Error responses post a new message so the approval card's buttons
+        # survive for an authorized approver.
+        assert body["actionResponse"]["type"] == "NEW_MESSAGE"
+    finally:
+        os.environ.pop("CHATOPS_APPROVER_EMAILS", None)
+    print("test_approver_allowlist_rejects_unlisted_user passed")
+
+
+def test_double_click_dedupes_to_processing_card():
+    token = _signed_token("Approve Isolate Host")
+
+    class AlreadyExists(Exception):
+        pass
+
+    def raise_already_exists(payload):
+        raise AlreadyExists("task exists")
+
+    chat_app_handler._enqueue_task = raise_already_exists
+    client = TestClient(chat_app_handler.app)
+    event = {
+        "type": "CARD_CLICKED",
+        "common": {
+            "invokedFunction": "execute_signed_action",
+            "parameters": {"token": token},
+        },
+        "user": {"displayName": "Dana Analyst"},
+        "message": {"name": "spaces/S/messages/M"},
+    }
+    response = client.post("/chat/events", json=event)
+    assert response.status_code == 200
+    body = response.json()
+    # The duplicate click is acked with the processing card, not an error:
+    # the first click's execution stands.
+    assert body["actionResponse"]["type"] == "UPDATE_MESSAGE"
+    assert "Processing" in str(body["cardsV2"])
+    print("test_double_click_dedupes_to_processing_card passed")
+
+
+def test_secret_fails_closed_on_cloud_run():
+    from agent_soc_manager.tools.chatops import security as security_mod
+
+    real_secret = os.environ.pop("CHRONICLE_CHATOPS_SECRET")
+    os.environ["K_SERVICE"] = "chatops-chat-app"
+    try:
+        try:
+            security_mod._get_secret()
+            raise AssertionError("expected ValueError for missing secret")
+        except ValueError:
+            pass
+    finally:
+        os.environ.pop("K_SERVICE", None)
+        os.environ["CHRONICLE_CHATOPS_SECRET"] = real_secret
+    print("test_secret_fails_closed_on_cloud_run passed")
+
+
+def test_dev_flags_blocked_on_cloud_run():
+    os.environ["K_SERVICE"] = "chatops-chat-app"
+    try:
+        assert chat_app_handler._dev_flag("CHATOPS_SKIP_JWT_VERIFY") is False
+        assert chat_app_handler._dev_flag("CHATOPS_INLINE_EXECUTION") is False
+    finally:
+        os.environ.pop("K_SERVICE", None)
+    assert chat_app_handler._dev_flag("CHATOPS_SKIP_JWT_VERIFY") is True
+    print("test_dev_flags_blocked_on_cloud_run passed")
 
 
 def test_legacy_action_route_present():
@@ -322,7 +409,11 @@ if __name__ == "__main__":
     test_events_missing_bearer_rejected_when_verifying()
     test_worker_executes_and_syncs_card()
     test_worker_failure_syncs_honest_failure()
-    test_worker_invalid_token_rejected()
+    test_worker_invalid_token_dropped()
+    test_approver_allowlist_rejects_unlisted_user()
+    test_double_click_dedupes_to_processing_card()
+    test_secret_fails_closed_on_cloud_run()
+    test_dev_flags_blocked_on_cloud_run()
     test_legacy_action_route_present()
     test_dispatch_dual_mode_routing()
     print("\nAll chat_app tests passed.")

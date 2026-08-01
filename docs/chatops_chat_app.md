@@ -81,12 +81,42 @@ links (for example "View in Chronicle") are left as `openLink`.
 ### Failure semantics
 
 - If the queue is unavailable, the click is rejected with an explicit
-  "action was NOT executed" card. Delivery success is never fabricated.
-- If the agent query fails, the card is updated with the failure and the
-  worker still returns HTTP 200 -- retrying would duplicate agent
-  executions; the failure is surfaced to the human instead.
+  "action was NOT executed" message posted alongside the card (the approval
+  card and its buttons survive for a retry). Delivery success is never
+  fabricated.
+- The outcome card renders the agent's actual response ("Action
+  Processed"), not a fabricated confirmation -- the agent may decline or
+  report partial failure, and the human sees what it said.
+- The agent query is bounded by `CHATOPS_AGENT_TIMEOUT` (default 540s), and
+  the Cloud Tasks dispatch deadline is set above it so the queue never
+  redelivers a still-running task (redelivery would double-execute).
+- If the agent query fails or times out, the card is updated with the
+  failure and the worker still returns HTTP 200 -- retrying would duplicate
+  agent executions; the failure is surfaced to the human instead. Card
+  updates themselves retry three times before giving up loudly in logs.
 - Analyst double-clicks dedupe via deterministic Cloud Tasks task names
-  derived from the token hash.
+  derived from the token hash; the duplicate click re-acks with the
+  Processing card.
+- Tokens that fail HMAC verification at the worker are dropped with HTTP
+  200 (a 4xx would retry every queued task to max attempts after a secret
+  rotation).
+
+### Security posture
+
+- Interaction events require a valid Google-issued JWT; the worker requires
+  a Cloud Tasks OIDC token, pinned to `CHATOPS_INVOKER_SA` when set.
+- The HMAC layer fails closed on Cloud Run: a missing
+  `CHRONICLE_CHATOPS_SECRET` raises instead of falling back to the public
+  development secret.
+- `CHATOPS_SKIP_JWT_VERIFY` and `CHATOPS_INLINE_EXECUTION` are hard-blocked
+  when running on Cloud Run (`K_SERVICE` present).
+- `CHATOPS_APPROVER_EMAILS` (optional, comma-separated) restricts who may
+  click Approve/Deny; unset means any member of the space can approve.
+- User-supplied event text (display names, function names) is HTML-escaped
+  before rendering into cards or the legacy HTML pages.
+- Known residual gaps tracked for follow-up: legacy `/action` tokens are
+  replayable within their 1 hour TTL (no consumed-token store), and tokens
+  are not bound to a specific space or message.
 
 ## Setup
 

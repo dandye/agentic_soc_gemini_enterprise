@@ -44,11 +44,23 @@ def _get_app_token() -> str:
 
 
 def _is_signed_action_url(url: str) -> bool:
-    """True when the URL is a signed ChatOps action link (/action?t=...)."""
+    """True when the URL is a signed ChatOps action link (/action?t=...).
+
+    When CHATOPS_BASE_URL is configured, the host must match it so a
+    third-party link that merely resembles an action URL is never rewritten
+    into an action button.
+    """
     parsed = urlparse(url)
     if not parsed.path.endswith("/action"):
         return False
-    return "t" in parse_qs(parsed.query)
+    if "t" not in parse_qs(parsed.query):
+        return False
+    base_url = os.environ.get("CHATOPS_BASE_URL")
+    if base_url:
+        base_host = urlparse(base_url).netloc
+        if base_host and parsed.netloc != base_host:
+            return False
+    return True
 
 
 def _extract_token(url: str) -> str | None:
@@ -99,6 +111,13 @@ def convert_openlink_to_action(card_payload: dict) -> dict:
     return payload
 
 
+async def _mint_token() -> str:
+    """Non-blocking token mint: credentials.refresh is a sync HTTP call."""
+    import asyncio
+
+    return await asyncio.to_thread(_get_app_token)
+
+
 async def post_card_as_app(space: str, card_payload: dict) -> str:
     """Posts a card message to a space as the Chat App.
 
@@ -113,7 +132,7 @@ async def post_card_as_app(space: str, card_payload: dict) -> str:
     Raises:
         httpx.HTTPStatusError: on non-2xx responses from the Chat API.
     """
-    token = _get_app_token()
+    token = await _mint_token()
     async with httpx.AsyncClient(timeout=CHAT_HTTP_TIMEOUT) as client:
         response = await client.post(
             f"{CHAT_API_BASE}/{space}/messages",
@@ -133,7 +152,7 @@ async def update_card(message_name: str, card_payload: dict) -> None:
         message_name: Full message resource name ("spaces/X/messages/Y").
         card_payload: The replacement `{"cardsV2": [...]}` payload.
     """
-    token = _get_app_token()
+    token = await _mint_token()
     async with httpx.AsyncClient(timeout=CHAT_HTTP_TIMEOUT) as client:
         response = await client.patch(
             f"{CHAT_API_BASE}/{message_name}",

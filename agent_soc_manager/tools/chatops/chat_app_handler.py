@@ -20,7 +20,9 @@ imported lazily inside functions so the module imports cleanly in offline
 unit-test environments.
 """
 
+import asyncio
 import hashlib
+import html
 import json
 import logging
 import os
@@ -44,6 +46,23 @@ CHAT_CERTS_URL = (
     "https://www.googleapis.com/service_accounts/v1/metadata/x509/"
     "chat@system.gserviceaccount.com"
 )
+
+
+# Per-turn budget for the Agent Engine query; also sizes the Cloud Tasks
+# dispatch deadline so the queue never redelivers a still-running task
+# (redelivery would double-execute an approved action).
+AGENT_QUERY_TIMEOUT = float(os.environ.get("CHATOPS_AGENT_TIMEOUT", "540"))
+
+
+def _dev_flag(name: str) -> bool:
+    """Reads a dev-only toggle, hard-blocked on Cloud Run.
+
+    CHATOPS_SKIP_JWT_VERIFY and CHATOPS_INLINE_EXECUTION must never weaken a
+    deployed service; K_SERVICE is set by Cloud Run.
+    """
+    if os.environ.get("K_SERVICE"):
+        return False
+    return os.environ.get(name, "").lower() in ("1", "true", "yes")
 
 
 def _bearer_token(request: Request) -> str | None:
@@ -82,7 +101,14 @@ def _verify_tasks_oidc(token: str) -> dict:
     audience = os.environ.get("CHATOPS_SERVICE_URL")
     if not audience:
         raise ValueError("CHATOPS_SERVICE_URL is not set on the server")
-    return id_token.verify_oauth2_token(token, AuthRequest(), audience=audience)
+    claims = id_token.verify_oauth2_token(token, AuthRequest(), audience=audience)
+
+    # Audience alone proves any Google principal minted a token for this URL;
+    # pin the caller to the configured invoker service account when set.
+    invoker = os.environ.get("CHATOPS_INVOKER_SA")
+    if invoker and claims.get("email") != invoker:
+        raise ValueError(f"OIDC caller {claims.get('email')} is not {invoker}")
+    return claims
 
 
 def _extract_invoked_function(event: dict) -> tuple[str | None, dict]:
@@ -106,6 +132,8 @@ def _extract_invoked_function(event: dict) -> tuple[str | None, dict]:
         for item in raw_action:
             if isinstance(item, dict) and "key" in item:
                 parameters[item["key"]] = item.get("value")
+    elif isinstance(raw_action, dict):
+        parameters.update(raw_action)
 
     return function, parameters
 
@@ -149,7 +177,10 @@ def _processing_card(action: str, requester: str) -> dict:
 
 
 def _outcome_card(action: str, requester: str, succeeded: bool, detail: str) -> dict:
-    status = "Confirmed" if succeeded else "Failed"
+    # "Processed", not "Confirmed": the detail carries the agent's actual
+    # response, and the agent may have declined or partially completed the
+    # action even when the query itself succeeded.
+    status = "Processed" if succeeded else "Failed"
     icon = "STAR" if succeeded else "DESCRIPTION"
     return {
         "cardsV2": [
@@ -181,8 +212,11 @@ def _outcome_card(action: str, requester: str, succeeded: bool, detail: str) -> 
 
 
 def _error_card(message: str) -> dict:
+    # NEW_MESSAGE, not UPDATE_MESSAGE: replacing the approval card on a
+    # transient failure would destroy its buttons and leave the analyst no
+    # way to retry.
     return {
-        "actionResponse": {"type": "UPDATE_MESSAGE"},
+        "actionResponse": {"type": "NEW_MESSAGE"},
         "cardsV2": [
             {
                 "cardId": "chatops-error",
@@ -237,6 +271,10 @@ def _enqueue_task(payload: dict) -> str:
             "task": {
                 "name": f"{parent}/tasks/act-{digest}",
                 "http_request": http_request,
+                # Outlive the agent-query budget: Cloud Tasks redelivers on
+                # dispatch-deadline expiry, which would double-execute an
+                # approved action.
+                "dispatch_deadline": {"seconds": int(AGENT_QUERY_TIMEOUT) + 60},
             },
         }
     )
@@ -261,12 +299,31 @@ async def _run_agent_query(
     user_input = f"USER ACTION CONFIRMED via ChatOps: {action}"
 
     logger.info(f"Querying Agent Engine for action: {action} (user: {user_id})")
+    # Capture the agent's actual response instead of fabricating success:
+    # the agent may decline or report a partial failure, and the outcome
+    # card must reflect what it said.
+    texts: list[str] = []
     async for event in remote_app.async_stream_query(
         user_id=user_id, session_id=session_id, message=user_input
     ):
         logger.debug(f"Agent event: {event}")
+        try:
+            for part in (event.get("content") or {}).get("parts") or []:
+                text = part.get("text")
+                if text:
+                    texts.append(text)
+        except AttributeError:
+            continue
     logger.info(f"Agent Engine query completed for session {session_id}")
-    return f"The action '{action}' was processed by the AI agent."
+    if texts:
+        agent_reply = texts[-1].strip()
+        if len(agent_reply) > 1500:
+            agent_reply = agent_reply[:1500] + "..."
+        return f"Agent response: {agent_reply}"
+    return (
+        f"The agent processed '{action}' but returned no text response. "
+        "Check the session transcript to confirm the outcome."
+    )
 
 
 async def _execute_and_sync(payload: dict) -> None:
@@ -281,13 +338,28 @@ async def _execute_and_sync(payload: dict) -> None:
     message_name = payload.get("message_name")
 
     try:
-        detail = await _run_agent_query(
-            action=action,
-            session_id=payload["session_id"],
-            agent_engine_id=payload["agent_engine_id"],
-            user_id=payload.get("user_id") or "vais-query-reasoning-engine",
+        detail = await asyncio.wait_for(
+            _run_agent_query(
+                action=action,
+                session_id=payload["session_id"],
+                agent_engine_id=payload["agent_engine_id"],
+                user_id=payload.get("user_id") or "vais-query-reasoning-engine",
+            ),
+            timeout=AGENT_QUERY_TIMEOUT,
         )
         card = _outcome_card(action, requester, succeeded=True, detail=detail)
+    except TimeoutError:
+        logger.error(f"Agent query timed out for action '{action}'")
+        card = _outcome_card(
+            action,
+            requester,
+            succeeded=False,
+            detail=(
+                f"The agent did not complete within {int(AGENT_QUERY_TIMEOUT)}s. "
+                "The action may still be running; check the session transcript "
+                "before retrying."
+            ),
+        )
     except Exception as e:
         logger.error(f"Agent execution failed for action '{action}': {e}")
         card = _outcome_card(
@@ -300,22 +372,35 @@ async def _execute_and_sync(payload: dict) -> None:
             ),
         )
 
-    if message_name:
+    if not message_name:
+        logger.warning(
+            f"No message_name for action '{action}'; outcome not rendered to Chat."
+        )
+        return
+
+    # The outcome must reach the human: a swallowed patch failure leaves the
+    # card on "Processing" forever for an action that already ran. Retry
+    # locally (returning non-2xx instead would re-execute the agent query).
+    for attempt in range(3):
         try:
             await update_card(message_name, card)
+            return
         except Exception as e:
-            logger.error(f"Failed to update card {message_name}: {e}")
+            logger.error(
+                f"Failed to update card {message_name} "
+                f"(attempt {attempt + 1}/3): {e}"
+            )
+            await asyncio.sleep(2 * (attempt + 1))
+    logger.error(
+        f"Giving up updating card {message_name}; outcome for '{action}' "
+        "was not rendered to Chat."
+    )
 
 
 @app.post("/chat/events")
 async def chat_events(request: Request, background_tasks: BackgroundTasks):
     """Handles Google Chat interaction events for the registered Chat App."""
-    skip_verify = os.environ.get("CHATOPS_SKIP_JWT_VERIFY", "").lower() in (
-        "1",
-        "true",
-        "yes",
-    )
-    if not skip_verify:
+    if not _dev_flag("CHATOPS_SKIP_JWT_VERIFY"):
         token = _bearer_token(request)
         if not token:
             return JSONResponse({"error": "Missing bearer token"}, status_code=401)
@@ -347,7 +432,7 @@ async def chat_events(request: Request, background_tasks: BackgroundTasks):
     if event_type == "CARD_CLICKED":
         function, parameters = _extract_invoked_function(event)
         if function != "execute_signed_action":
-            return _error_card(f"Unknown action function: {function}")
+            return _error_card(f"Unknown action function: {html.escape(str(function))}")
 
         signed_token = parameters.get("token")
         if not signed_token:
@@ -361,8 +446,23 @@ async def chat_events(request: Request, background_tasks: BackgroundTasks):
                 f"This action could not be verified and was NOT executed: {e}"
             )
 
+        user = event.get("user") or {}
+        # Optional approver allowlist: without it, any member of the space
+        # can approve state-changing actions.
+        allowlist = [
+            entry.strip().lower()
+            for entry in os.environ.get("CHATOPS_APPROVER_EMAILS", "").split(",")
+            if entry.strip()
+        ]
+        if allowlist and (user.get("email") or "").lower() not in allowlist:
+            logger.warning(f"Rejected click from unauthorized user {user.get('email')}")
+            return _error_card(
+                "You are not authorized to approve this action. It was NOT "
+                "executed. (CHATOPS_APPROVER_EMAILS)"
+            )
+
         action = payload.get("action", "unknown action")
-        requester = (event.get("user") or {}).get("displayName", "unknown user")
+        requester = html.escape(user.get("displayName", "unknown user"))
         message_name = (event.get("message") or {}).get("name")
 
         task_payload = {
@@ -375,19 +475,27 @@ async def chat_events(request: Request, background_tasks: BackgroundTasks):
             "message_name": message_name,
         }
 
-        inline = os.environ.get("CHATOPS_INLINE_EXECUTION", "").lower() in (
-            "1",
-            "true",
-            "yes",
-        )
-        if inline:
-            # Dev-only fallback: execute within this instance after responding.
-            # Cloud Run may throttle CPU post-response; use Cloud Tasks in prod.
+        if _dev_flag("CHATOPS_INLINE_EXECUTION"):
+            # Dev-only fallback (hard-blocked on Cloud Run): execute within
+            # this instance after responding.
             background_tasks.add_task(_execute_and_sync, task_payload)
         else:
             try:
-                _enqueue_task(task_payload)
+                # to_thread: the Cloud Tasks client is sync/gRPC; blocking the
+                # event loop here would stall every concurrent /chat/events
+                # request against the 30-second Chat deadline.
+                await asyncio.to_thread(_enqueue_task, task_payload)
             except Exception as e:
+                if type(e).__name__ == "AlreadyExists":
+                    # Deterministic task name collision: this exact token is
+                    # already queued or ran recently (analyst double-click).
+                    # The first click's execution stands; just re-ack.
+                    logger.info(f"Duplicate click for action '{action}'; deduped.")
+                    processing = _processing_card(action, requester)
+                    return {
+                        "actionResponse": {"type": "UPDATE_MESSAGE"},
+                        "cardsV2": processing["cardsV2"],
+                    }
                 logger.error(f"Failed to enqueue ChatOps task: {e}")
                 return _error_card(
                     f"Could not queue this action for execution: {e}. "
@@ -407,12 +515,7 @@ async def chat_events(request: Request, background_tasks: BackgroundTasks):
 @app.post("/tasks/execute")
 async def tasks_execute(request: Request):
     """Cloud Tasks worker endpoint: executes the agent query and syncs state."""
-    skip_verify = os.environ.get("CHATOPS_SKIP_JWT_VERIFY", "").lower() in (
-        "1",
-        "true",
-        "yes",
-    )
-    if not skip_verify:
+    if not _dev_flag("CHATOPS_SKIP_JWT_VERIFY"):
         token = _bearer_token(request)
         if not token:
             return JSONResponse({"error": "Missing bearer token"}, status_code=401)
@@ -432,13 +535,18 @@ async def tasks_execute(request: Request):
         # re-verifying the HMAC signature that minted them.
         payload = verify_signed_payload(signed_token)
     except ValueError as e:
-        logger.error(f"Worker rejected invalid token: {e}")
-        return JSONResponse({"error": f"Invalid token: {e}"}, status_code=400)
+        # 200, not 4xx: after a secret rotation every queued token fails
+        # verification, and a non-2xx would make Cloud Tasks retry each one
+        # to max attempts. The task is terminally dropped either way.
+        logger.error(f"Worker dropped task with invalid token: {e}")
+        return {"status": "dropped", "error": f"Invalid token: {e}"}
 
     body["session_id"] = payload.get("session_id")
     body["agent_engine_id"] = payload.get("agent_engine_id")
     body["user_id"] = payload.get("user_id")
-    body["action"] = payload.get("action", body.get("action", "unknown action"))
+    # Only token-verified fields drive execution; the queue body's action is
+    # never trusted.
+    body["action"] = payload.get("action", "unknown action")
 
     # Always 200 after this point: the outcome (success or failure) is
     # reported into the card itself. Non-2xx here would trigger Cloud Tasks
@@ -469,7 +577,7 @@ async def legacy_action(t: str = Query(..., description="Signed action token")):
             <head><title>Action Confirmed</title></head>
             <body style="font-family: Arial; text-align: center; padding-top: 50px;">
                 <h1>Action Confirmed</h1>
-                <p>{detail}</p>
+                <p>{html.escape(detail)}</p>
                 <p>You can close this tab and return to Google Chat.</p>
             </body>
         </html>
@@ -481,7 +589,7 @@ async def legacy_action(t: str = Query(..., description="Signed action token")):
             <html>
                 <body style="font-family: Arial; text-align: center; padding-top: 50px;">
                     <h1>Action Failed</h1>
-                    <p>There was an error processing your request: {e}</p>
+                    <p>There was an error processing your request: {html.escape(str(e))}</p>
                 </body>
             </html>
             """,
