@@ -188,8 +188,12 @@ def compile_results():
 
     # Compile Markdown table
     report_artifacts_dir = Path(
-        "/Users/dandye/.gemini/jetski/brain/39525e8a-aae4-4a3e-8010-e6cbe24b229d"
+        os.environ.get(
+            "PARITY_ARTIFACT_DIR",
+            Path(__file__).resolve().parent.parent / "evalsets" / "parity",
+        )
     )
+    report_artifacts_dir.mkdir(parents=True, exist_ok=True)
 
     table_lines = [
         "| Campaign / Threat Triage | Telemetry | Timeline | Containment | OVERALL GRADE | QA Verdict / Rating |",

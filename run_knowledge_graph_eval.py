@@ -252,8 +252,12 @@ async def main():
 
     # Generate Report Artifact
     report_path = Path(
-        "/Users/dandye/.gemini/jetski/brain/fe077ded-a6c1-44a6-b58f-c1d13a382454/knowledge_graph_eval_report.md"
-    )
+        os.environ.get(
+            "PARITY_ARTIFACT_DIR",
+            Path(__file__).resolve().parent / "evalsets" / "parity",
+        )
+    ) / "knowledge_graph_eval_report.md"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
 
     report_content = []
     report_content.append("# INTEGRATION EVALUATION REPORT: ELASTICSEARCH & NEO4J")

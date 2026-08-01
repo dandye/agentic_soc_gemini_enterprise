@@ -1467,7 +1467,7 @@ provenance:
             shared_str = "<br>".join(shared_info) or "None"
 
             sections.append(
-                f"| {idx} | [`{m['id'][:8]}...`](file:///Users/dandye/Projects/agentic_soc_agentspace__worktrees/harvest_detection_reports/investigations/{m['id']}.md) | {m['display_name']} | `{m['verdict']}` | **{m['composite_score']:.4f}** | `{bd_str}` | {shared_str} |"
+                f"| {idx} | [`{m['id'][:8]}...`](../../investigations/{m['id']}.md) | {m['display_name']} | `{m['verdict']}` | **{m['composite_score']:.4f}** | `{bd_str}` | {shared_str} |"
             )
 
         sections.append("")

@@ -373,9 +373,14 @@ async def async_run_benchmark(incident_uuid: str, verbose: bool, local: bool = F
 
     # 5. Generate and Save Beautiful Markdown Artifact Report
     artifact_dir = Path(
-        "/Users/dandye/.gemini/jetski/brain/39525e8a-aae4-4a3e-8010-e6cbe24b229d"
+        os.environ.get(
+            "PARITY_ARTIFACT_DIR",
+            Path(__file__).resolve().parent.parent / "evalsets" / "parity",
+        )
     )
     artifact_path = artifact_dir / f"benchmark_{incident_uuid}_report.md"
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    artifact_path_uri = artifact_path.resolve().as_uri()
 
     # Generate timestamped filename for historical tracking
     from datetime import UTC, datetime
@@ -390,7 +395,7 @@ async def async_run_benchmark(incident_uuid: str, verbose: bool, local: bool = F
 type: "Evaluation Report"
 title: "Turing Test Quality Benchmark: AI vs. Human Analyst ({display_name})"
 description: "Rigorous semantic comparative audit of the AI Multi-Agent SOC network against a Gold-Standard Human Analyst report on incident {incident_uuid}."
-resource: "file:///Users/dandye/Projects/agentic_soc_agentspace__worktrees/harvest_detection_reports/investigations/{incident_uuid}.md"
+resource: "{artifact_path_uri}"
 timestamp: "{pd_timestamp()}"
 provenance:
   source_type: "generative_ai"

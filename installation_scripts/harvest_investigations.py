@@ -1,6 +1,7 @@
 import glob
 import json
 import os
+from pathlib import Path
 import re
 import time
 from datetime import UTC, datetime, timedelta
@@ -27,7 +28,11 @@ sa_path = os.path.expanduser(
 project_id = os.getenv("CHRONICLE_PROJECT_ID", "secops-demo-env")
 location = os.getenv("CHRONICLE_REGION", "us")
 instance_id = os.getenv("CHRONICLE_CUSTOMER_ID", "a13f6726-efed-452e-9008-8fe0d3cb0f75")
-output_dir = "/Users/dandye/Projects/agentic_soc_agentspace__worktrees/harvest_detection_reports/investigations"
+# Defaults to <repo-root>/investigations; override with HARVEST_OUTPUT_DIR.
+output_dir = os.getenv(
+    "HARVEST_OUTPUT_DIR",
+    str(Path(__file__).resolve().parent.parent / "investigations"),
+)
 
 # VirusTotal API configuration
 vt_api_key = os.getenv("GTI_API_KEY")
@@ -966,8 +971,13 @@ def generate_rich_case_markdown(case, alerts, output_dir):
                                 "confidence": inv.get("confidence", "N/A"),
                                 "summary": inv.get("summary", ""),
                             }
-    except Exception:
-        associated_invs = {}
+    except Exception as e:
+        # Keep whatever associations were matched before the failure; a silent
+        # reset made reports claim "No associated investigations found" even
+        # when links existed.
+        logger.warning(
+            f"Association lookup aborted early ({e}); report may be incomplete."
+        )
 
     md.append("## Associated SIEM Investigations")
     if not associated_invs:

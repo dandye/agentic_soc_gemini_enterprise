@@ -89,8 +89,12 @@ def parse_score(content):
 def main():
     project_root = Path.cwd()
     artifacts_dir = Path(
-        "/Users/dandye/.gemini/jetski/brain/39525e8a-aae4-4a3e-8010-e6cbe24b229d"
+        os.environ.get(
+            "PARITY_ARTIFACT_DIR",
+            Path(__file__).resolve().parent.parent / "evalsets" / "parity",
+        )
     )
+    artifacts_dir.mkdir(parents=True, exist_ok=True)
     playbooks_dir = project_root / "external" / "ai-runbooks" / "playbooks"
     playbooks_dir.mkdir(parents=True, exist_ok=True)
 
