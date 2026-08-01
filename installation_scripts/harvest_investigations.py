@@ -1034,7 +1034,7 @@ def harvest_detections(
     alert_to_case = {}
     case_times = []
     try:
-        res_cases = requests.get(url_cases, headers=headers, params=params)
+        res_cases = requests.get(url_cases, headers=headers, params=params, timeout=15)
         if res_cases.status_code == 200:
             cases_list = res_cases.json().get("cases", [])
             for case in cases_list:
@@ -1044,7 +1044,7 @@ def harvest_detections(
                 if ctime_ms:
                     case_times.append(int(ctime_ms))
                 url_alerts = f"{url_cases}/{case_id}/caseAlerts"
-                res_alerts = requests.get(url_alerts, headers=headers)
+                res_alerts = requests.get(url_alerts, headers=headers, timeout=15)
                 if res_alerts.status_code == 200:
                     case_alerts = res_alerts.json().get("caseAlerts", [])
                     for ca in case_alerts:

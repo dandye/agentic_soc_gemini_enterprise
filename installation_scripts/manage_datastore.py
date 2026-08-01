@@ -73,6 +73,7 @@ class DataStoreManager:
         headers.update(kwargs.pop("headers", {}))
 
         try:
+            kwargs.setdefault("timeout", 60)
             response = requests.request(method, url, headers=headers, **kwargs)
             response.raise_for_status()
             return response

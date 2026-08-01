@@ -255,7 +255,9 @@ class AgentSpaceManager:
         }
 
         try:
-            response = requests.post(api_url, headers=headers, json=agent_config)
+            response = requests.post(
+                api_url, headers=headers, json=agent_config, timeout=60
+            )
             response.raise_for_status()
         except requests.exceptions.RequestException as e:
             typer.secho(f" API request failed: {e}", fg=typer.colors.RED)
@@ -797,7 +799,7 @@ class AgentSpaceManager:
             ]
 
         try:
-            response = requests.post(url, headers=headers, json=data)
+            response = requests.post(url, headers=headers, json=data, timeout=60)
             response.raise_for_status()
 
             result = response.json()
@@ -887,7 +889,7 @@ class AgentSpaceManager:
         }
 
         try:
-            response = requests.delete(url, headers=headers)
+            response = requests.delete(url, headers=headers, timeout=60)
             response.raise_for_status()
 
             typer.secho(
@@ -992,7 +994,9 @@ class AgentSpaceManager:
         params = {"updateMask": ",".join(update_mask)}
 
         try:
-            response = requests.patch(url, headers=headers, json=data, params=params)
+            response = requests.patch(
+                url, headers=headers, json=data, params=params, timeout=60
+            )
             response.raise_for_status()
 
             typer.echo("Successfully updated agent configuration!")
@@ -1036,7 +1040,7 @@ class AgentSpaceManager:
         }
 
         try:
-            response = requests.get(url, headers=headers)
+            response = requests.get(url, headers=headers, timeout=60)
             response.raise_for_status()
 
             result = response.json()
@@ -1125,7 +1129,7 @@ class AgentSpaceManager:
         }
 
         try:
-            response = requests.get(url, headers=headers)
+            response = requests.get(url, headers=headers, timeout=60)
             response.raise_for_status()
 
             result = response.json()
@@ -1234,7 +1238,7 @@ class AgentSpaceManager:
         typer.echo(f"API URL: {url}\n")
 
         try:
-            response = requests.get(url, headers=headers)
+            response = requests.get(url, headers=headers, timeout=60)
             response.raise_for_status()
 
             result = response.json()

@@ -190,7 +190,9 @@ class OAuthManager:
         params = {"authorizationId": auth_id}
 
         try:
-            response = requests.post(url, headers=headers, json=data, params=params)
+            response = requests.post(
+                url, headers=headers, json=data, params=params, timeout=60
+            )
             response.raise_for_status()
 
             typer.echo(f"Successfully created OAuth authorization: {auth_id}")
@@ -238,7 +240,7 @@ class OAuthManager:
         }
 
         try:
-            response = requests.delete(url, headers=headers)
+            response = requests.delete(url, headers=headers, timeout=60)
             response.raise_for_status()
 
             typer.echo(f"Successfully deleted OAuth authorization: {auth_id}")
@@ -278,7 +280,7 @@ class OAuthManager:
         }
 
         try:
-            response = requests.get(url, headers=headers)
+            response = requests.get(url, headers=headers, timeout=60)
             response.raise_for_status()
             return response.json()
 

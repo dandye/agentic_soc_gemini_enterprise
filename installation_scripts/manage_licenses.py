@@ -203,6 +203,7 @@ class LicenseManager:
                 typer.echo(f"DEBUG Payload: {json_lib.dumps(kwargs['json'], indent=2)}")
 
         try:
+            kwargs.setdefault("timeout", 60)
             response = requests.request(method, url, headers=headers, **kwargs)
             response.raise_for_status()
             return response

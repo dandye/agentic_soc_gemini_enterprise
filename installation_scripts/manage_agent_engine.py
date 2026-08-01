@@ -1564,7 +1564,7 @@ class AgentEngineManager:
                         "Content-Type": "application/json",
                     }
 
-                    response = requests.get(api_url, headers=headers)
+                    response = requests.get(api_url, headers=headers, timeout=60)
                     if response.status_code == 200:
                         data = response.json()
 
