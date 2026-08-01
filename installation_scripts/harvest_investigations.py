@@ -1,10 +1,10 @@
 import glob
 import json
 import os
-from pathlib import Path
 import re
 import time
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import requests
 import typer
@@ -975,8 +975,8 @@ def generate_rich_case_markdown(case, alerts, output_dir):
         # Keep whatever associations were matched before the failure; a silent
         # reset made reports claim "No associated investigations found" even
         # when links existed.
-        logger.warning(
-            f"Association lookup aborted early ({e}); report may be incomplete."
+        print(
+            f"WARNING: Association lookup aborted early ({e}); report may be incomplete."
         )
 
     md.append("## Associated SIEM Investigations")

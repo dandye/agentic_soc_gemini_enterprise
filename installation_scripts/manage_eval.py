@@ -193,11 +193,13 @@ class EvaluationRunner:
                         commit_hash = parts[0].strip("+- ")
                         path = parts[1]
                         submodules[path] = commit_hash
-            except Exception:
+            except Exception as submodule_err:
                 # Submodule lookup failed; keep whatever was parsed and fall
                 # through so commit/branch/dirty are still returned (an early
                 # `return submodules` here made git_meta["commit"] KeyError).
-                pass
+                typer.echo(
+                    f"Warning: submodule status unavailable: {submodule_err}"
+                )
 
             return {
                 "commit": commit,
