@@ -29,6 +29,7 @@ manage_elastic := "installation_scripts/manage_elasticsearch.py"
 manage_eval := "installation_scripts/manage_eval.py"
 manage_neo4j := "installation_scripts/manage_neo4j.py"
 manage_alloydb := "installation_scripts/manage_alloydb.py"
+manage_licenses := "installation_scripts/manage_licenses.py"
 
 # Global options for GCS / RAG / Data Store (override on command line)
 bucket := ""
@@ -560,6 +561,26 @@ oauth-delete force="false":
     else
         {{ python }} {{ manage_oauth }} delete --env-file {{ env_file }}
     fi
+
+# ============================================================================
+# Gemini Enterprise User Licenses
+# ============================================================================
+
+# List all Gemini Enterprise user licenses (use args="--json" for JSON output)
+licenses-list args="":
+    {{ python }} {{ manage_licenses }} list {{ args }} --env-file {{ env_file }}
+
+# List available Gemini Enterprise license configs (subscriptions)
+licenses-configs:
+    {{ python }} {{ manage_licenses }} list-configs --env-file {{ env_file }}
+
+# Assign Gemini Enterprise licenses to users (use users="email1 email2", subscription="subscription_id")
+licenses-assign users subscription:
+    {{ python }} {{ manage_licenses }} assign {{ users }} --subscription "{{ subscription }}" --env-file {{ env_file }}
+
+# Remove user licenses (use users="email1 email2", keep_entry="false")
+licenses-remove users keep_entry="false":
+    {{ python }} {{ manage_licenses }} remove {{ users }} {{ if keep_entry == "true" { "--keep-entry" } else { "" } }} --env-file {{ env_file }}
 
 # Upload Chronicle service account to Secret Manager (use creds=/path/to/sa.json for different account)
 secret-upload:
