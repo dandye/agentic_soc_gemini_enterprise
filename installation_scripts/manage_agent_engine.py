@@ -722,9 +722,7 @@ class AgentEngineManager:
             # to omit it, so normalize rather than fail (issue #5).
             if GCP_STAGING_BUCKET and not GCP_STAGING_BUCKET.startswith("gs://"):
                 GCP_STAGING_BUCKET = f"gs://{GCP_STAGING_BUCKET}"
-                typer.echo(
-                    f"Note: prefixed staging bucket -> {GCP_STAGING_BUCKET}"
-                )
+                typer.echo(f"Note: prefixed staging bucket -> {GCP_STAGING_BUCKET}")
 
             vertexai.init(
                 project=GCP_PROJECT_ID,
