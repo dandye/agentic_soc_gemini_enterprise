@@ -21,10 +21,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy only the ChatOps Python files.
 # We skip the entire soc_agent/ folder to keep the container small.
-COPY webhook_handler.py security.py ./
+COPY webhook_handler.py chat_app_handler.py chat_api.py security.py ./
 
 # Expose the standard Cloud Run port
 EXPOSE 8080
 
-# Run the app. Note: and our handler is inside webhook_handler.py as 'app'
-CMD ["uvicorn", "webhook_handler:app", "--host", "0.0.0.0", "--port", "8080"]
+# Run the app. chat_app_handler serves /chat/events, /tasks/execute, and
+# the legacy /action route (webhook_handler.py kept for rollback).
+CMD ["uvicorn", "chat_app_handler:app", "--host", "0.0.0.0", "--port", "8080"]

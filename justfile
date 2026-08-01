@@ -1012,6 +1012,34 @@ alias agentspace-datastore := gem-ent-datastore
 alias agentspace-link-agent := gem-ent-link-agent
 alias agentspace-unlink-agent := gem-ent-unlink-agent
 alias agentspace-update-agent := gem-ent-update-agent
+# ============================================================================
+# ChatOps Native Chat App (issue #62)
+# ============================================================================
+
+# List available ChatOps card templates
+chatops-list:
+    {{ python }} manage.py chatops list --env-file {{ env_file }}
+
+# Send a specific ChatOps card to test delivery (webhook or chat_app mode)
+chatops-test card:
+    {{ python }} manage.py chatops test {{ card }} --env-file {{ env_file }}
+
+# Deploy the native Chat App handler (events + worker + legacy action) to Cloud Run
+chatops-deploy-app:
+    {{ python }} manage.py chatops deploy-app --env-file {{ env_file }}
+
+# Create the Cloud Tasks queue that decouples card clicks from agent latency
+chatops-create-queue:
+    {{ python }} manage.py chatops create-queue --env-file {{ env_file }}
+
+# Print the one-time Google Chat App registration steps
+chatops-registration-guide:
+    {{ python }} manage.py chatops registration-guide
+
+# Verify the environment is complete for the configured CHATOPS_MODE
+chatops-verify:
+    {{ python }} manage.py chatops verify-config --env-file {{ env_file }}
+
 alias agentspace-list-agents := gem-ent-list-agents
 alias agentspace-list-apps := gem-ent-list-apps
 alias agentspace-create-app := gem-ent-create-app

@@ -236,3 +236,25 @@ just harvest-detections                  # Harvest active alerting detections
 python manage.py harvest investigations  # Harvest security cases
 python manage.py harvest detections      # Harvest alerting detections
 ```
+
+## 10. ChatOps (Google Chat)
+
+Manage the ChatOps card library and the native Chat App integration
+(background button actions -- see [chatops_chat_app.md](chatops_chat_app.md)):
+
+### using justfile:
+```bash
+just chatops-list                       # List available card templates
+just chatops-test <card>                # Send a card to test delivery
+just chatops-deploy-app                 # Deploy the Chat App handler to Cloud Run
+just chatops-create-queue               # Create the Cloud Tasks action queue
+just chatops-registration-guide         # Print one-time Chat App registration steps
+just chatops-verify                     # Validate env for the configured mode
+```
+
+### using Python CLI:
+```bash
+python manage.py chatops list
+python manage.py chatops deploy-app
+python manage.py chatops verify-config
+```

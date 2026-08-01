@@ -5,3 +5,5 @@ google-cloud-aiplatform
 python-dotenv
 pyjwt
 cryptography
+google-auth
+google-cloud-tasks
