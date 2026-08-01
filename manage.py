@@ -26,6 +26,7 @@ from installation_scripts.manage_datastore import app as datastore_app
 from installation_scripts.manage_elasticsearch import app as elastic_app
 from installation_scripts.manage_eval import app as eval_app
 from installation_scripts.manage_iam import app as iam_app
+from installation_scripts.manage_licenses import app as licenses_app
 from installation_scripts.manage_memories import app as memories_app
 from installation_scripts.manage_models import app as models_app
 from installation_scripts.manage_neo4j import app as neo4j_app
@@ -80,6 +81,9 @@ app.add_typer(
     help="Harvest and enrich investigations and detections from Chronicle SIEM",
 )
 app.add_typer(neo4j_app, name="neo4j", help="Manage Neo4j Graph Database")
+app.add_typer(
+    licenses_app, name="licenses", help="Manage Gemini Enterprise user licenses"
+)
 
 
 # Workflow subcommand group
