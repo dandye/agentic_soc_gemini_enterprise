@@ -4,6 +4,7 @@ import os
 
 import httpx
 
+
 # Explicit webhook timeout (issue #64): httpx's implicit 5s default was relied
 # on before; make it visible and configurable.
 CHATOPS_HTTP_TIMEOUT = float(os.environ.get("CHATOPS_HTTP_TIMEOUT", "30"))
