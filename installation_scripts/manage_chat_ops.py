@@ -272,6 +272,232 @@ def test_card(
     manager.test_card(card_name, cards_dir)
 
 
+@app.command("deploy-app")
+def deploy_app(
+    env_file: Annotated[Path, typer.Option(help="Path to .env file")] = Path(".env"),
+    service: Annotated[str, typer.Option(help="Cloud Run service name")] = (
+        "chatops-chat-app"
+    ),
+    source: Annotated[Path, typer.Option(help="Handler source directory")] = Path(
+        "agent_soc_manager/tools/chatops"
+    ),
+):
+    """Deploy the native Chat App handler to Cloud Run (issue #62).
+
+    Serves /chat/events (interaction events), /tasks/execute (Cloud Tasks
+    worker), and the legacy /action route.
+    """
+    manager = ChatOpsManager(env_file)
+    if not manager.project_id:
+        typer.secho("Error: GCP_PROJECT_ID not set in .env", fg=typer.colors.RED)
+        raise typer.Exit(1)
+
+    env = manager.env_vars
+    project_number = env.get("GCP_PROJECT_NUMBER", "")
+    if not project_number:
+        try:
+            project_number = subprocess.check_output(
+                [
+                    "gcloud",
+                    "projects",
+                    "describe",
+                    manager.project_id,
+                    "--format",
+                    "value(projectNumber)",
+                ],
+                text=True,
+            ).strip()
+        except Exception:
+            typer.secho(
+                "Warning: could not resolve GCP_PROJECT_NUMBER; "
+                "Chat JWT verification will fail until it is set.",
+                fg=typer.colors.YELLOW,
+            )
+
+    run_env = {
+        "CHRONICLE_CHATOPS_SECRET": env.get("CHRONICLE_CHATOPS_SECRET", ""),
+        "GCP_PROJECT_ID": manager.project_id,
+        "GCP_LOCATION": manager.region,
+        "GCP_PROJECT_NUMBER": project_number,
+        "CHATOPS_TASKS_QUEUE": env.get("CHATOPS_TASKS_QUEUE", "chatops-actions"),
+        "CHATOPS_TASKS_LOCATION": env.get("CHATOPS_TASKS_LOCATION", manager.region),
+        "CHATOPS_SERVICE_URL": env.get("CHATOPS_SERVICE_URL", ""),
+        "CHATOPS_INVOKER_SA": env.get("CHATOPS_INVOKER_SA", ""),
+    }
+    env_vars_arg = ",".join(f"{k}={v}" for k, v in run_env.items() if v)
+
+    cmd = [
+        "gcloud",
+        "run",
+        "deploy",
+        service,
+        "--project",
+        manager.project_id,
+        "--region",
+        manager.region,
+        f"--source={source}",
+        "--allow-unauthenticated",
+        f"--set-env-vars={env_vars_arg}",
+    ]
+    typer.echo(f"Deploying {service} to Cloud Run in {manager.region}...")
+    try:
+        subprocess.run(cmd, check=True)
+        typer.secho(f"Successfully deployed {service}.", fg=typer.colors.GREEN)
+        typer.echo(
+            "If this is the first deploy, set CHATOPS_SERVICE_URL in .env to the "
+            "service URL above and redeploy so the worker OIDC audience matches."
+        )
+    except subprocess.CalledProcessError as e:
+        typer.secho(f"Deploy failed: {e}", fg=typer.colors.RED)
+        raise typer.Exit(1)
+
+
+@app.command("create-queue")
+def create_queue(
+    env_file: Annotated[Path, typer.Option(help="Path to .env file")] = Path(".env"),
+):
+    """Create the Cloud Tasks queue that decouples clicks from agent latency."""
+    manager = ChatOpsManager(env_file)
+    if not manager.project_id:
+        typer.secho("Error: GCP_PROJECT_ID not set in .env", fg=typer.colors.RED)
+        raise typer.Exit(1)
+
+    queue = manager.env_vars.get("CHATOPS_TASKS_QUEUE", "chatops-actions")
+    location = manager.env_vars.get("CHATOPS_TASKS_LOCATION", manager.region)
+
+    describe = subprocess.run(
+        [
+            "gcloud",
+            "tasks",
+            "queues",
+            "describe",
+            queue,
+            "--project",
+            manager.project_id,
+            "--location",
+            location,
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if describe.returncode == 0:
+        typer.secho(
+            f"Queue '{queue}' already exists in {location}.", fg=typer.colors.GREEN
+        )
+        return
+
+    typer.echo(f"Creating Cloud Tasks queue '{queue}' in {location}...")
+    try:
+        subprocess.run(
+            [
+                "gcloud",
+                "tasks",
+                "queues",
+                "create",
+                queue,
+                "--project",
+                manager.project_id,
+                "--location",
+                location,
+                "--max-attempts=3",
+                "--max-concurrent-dispatches=10",
+            ],
+            check=True,
+        )
+        typer.secho(f"Queue '{queue}' created.", fg=typer.colors.GREEN)
+    except subprocess.CalledProcessError as e:
+        typer.secho(f"Queue creation failed: {e}", fg=typer.colors.RED)
+        raise typer.Exit(1)
+
+
+@app.command("registration-guide")
+def registration_guide():
+    """Print the manual Google Chat App registration steps (one-time setup)."""
+    typer.secho("Google Chat App Registration (manual, one-time)", bold=True)
+    typer.echo(
+        """
+1. Enable the Google Chat API:
+   gcloud services enable chat.googleapis.com
+
+2. Open the Chat API configuration page:
+   https://console.cloud.google.com/apis/api/chat.googleapis.com/hangouts-chat
+
+3. Under "Application info", set:
+   - App name:        SOC Agent ChatOps
+   - Avatar URL:      any hosted icon
+   - Description:     Background approval actions for SOC agents
+
+4. Under "Interactive features":
+   - Enable "Receive 1:1 messages" and "Join spaces and group conversations"
+   - Connection settings: select "HTTP endpoint URL"
+   - HTTP endpoint URL: <CHATOPS_SERVICE_URL>/chat/events
+     (deploy first with: python manage.py chatops deploy-app)
+
+5. Under "Visibility", make the app available to your domain or
+   specific users, then click Save.
+
+6. In Google Chat, add the app to your SOC space, then set in .env:
+   - CHAT_SPACE=spaces/<space id>      (from the space URL)
+   - CHATOPS_MODE=chat_app
+   - GCP_PROJECT_NUMBER=<project number>
+
+7. Grant the Cloud Run service account permission to enqueue tasks
+   (roles/cloudtasks.enqueuer) and set CHATOPS_INVOKER_SA to a service
+   account with run.invoker on the Cloud Run service.
+
+8. Redeploy the Agent Engine agents so the new CHATOPS_MODE takes effect.
+"""
+    )
+
+
+@app.command("verify-config")
+def verify_config(
+    env_file: Annotated[Path, typer.Option(help="Path to .env file")] = Path(".env"),
+):
+    """Check that the environment is complete for the configured ChatOps mode."""
+    manager = ChatOpsManager(env_file)
+    env = manager.env_vars
+    mode = env.get("CHATOPS_MODE", "webhook").strip().lower()
+    typer.echo(f"CHATOPS_MODE: {mode}")
+
+    if mode == "chat_app":
+        required = [
+            "CHAT_SPACE",
+            "GCP_PROJECT_ID",
+            "GCP_PROJECT_NUMBER",
+            "CHATOPS_SERVICE_URL",
+            "CHRONICLE_CHATOPS_SECRET",
+        ]
+        recommended = [
+            "CHATOPS_TASKS_QUEUE",
+            "CHATOPS_TASKS_LOCATION",
+            "CHATOPS_INVOKER_SA",
+        ]
+    else:
+        required = ["WEBHOOK_URL", "CHATOPS_BASE_URL", "CHRONICLE_CHATOPS_SECRET"]
+        recommended = []
+
+    ok = True
+    for name in required:
+        if env.get(name):
+            typer.secho(f"  [set]     {name}", fg=typer.colors.GREEN)
+        else:
+            typer.secho(f"  [MISSING] {name}", fg=typer.colors.RED)
+            ok = False
+    for name in recommended:
+        if env.get(name):
+            typer.secho(f"  [set]     {name}", fg=typer.colors.GREEN)
+        else:
+            typer.secho(
+                f"  [default] {name} (using built-in default)", fg=typer.colors.YELLOW
+            )
+
+    if not ok:
+        typer.secho("Configuration incomplete for this mode.", fg=typer.colors.RED)
+        raise typer.Exit(1)
+    typer.secho("Configuration looks complete.", fg=typer.colors.GREEN)
+
+
 @app.command("deploy")
 def deploy(
     env_file: Annotated[Path, typer.Option(help="Path to .env file")] = Path(".env"),

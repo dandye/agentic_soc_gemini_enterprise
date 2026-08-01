@@ -307,6 +307,7 @@ Vertex AI charges per API call. Security products require separate licensing.
 
 ## Resources
 
+- [ChatOps Chat App](docs/chatops_chat_app.md) - Background approval actions in Google Chat (`CHATOPS_MODE=chat_app`)
 - [Google ADK Docs](https://google.github.io/adk-docs/) - Agent Development Kit
 - [Vertex AI Docs](https://cloud.google.com/vertex-ai/docs) - Platform documentation
 - [MCP Protocol](https://modelcontextprotocol.io/) - Model Context Protocol

@@ -95,9 +95,10 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["S101"]  # Allow assert in tests
-"agent_soc_manager/tools/chatops/test_*.py" = ["S101"]
+"agent_soc_manager/tools/chatops/test_*.py" = ["S101", "S105", "E402"]  # test secrets and post-bootstrap imports
 "agent_soc_manager/tools/chatops/generate_test_url.py" = ["S105", "E402"]
 "agent_soc_manager/tools/chatops/webhook_handler.py" = ["S104"]
+"agent_soc_manager/tools/chatops/chat_app_handler.py" = ["S104"]
 "installation_scripts/*.py" = [
   "S603",  # subprocess calls are trusted (gcloud CLI)
   "S607",  # partial executable paths are acceptable (gcloud in PATH)

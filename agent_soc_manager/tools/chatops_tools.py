@@ -16,6 +16,48 @@ CHATOPS_HTTP_TIMEOUT = float(os.environ.get("CHATOPS_HTTP_TIMEOUT", "30"))
 logger = logging.getLogger(__name__)
 
 
+def _chat_app_mode() -> bool:
+    """True when ChatOps should post as the registered Chat App (issue #62).
+
+    Native app posting enables background button actions (no browser tab).
+    Webhook mode remains the default until CHATOPS_MODE=chat_app is set.
+    """
+    return os.environ.get("CHATOPS_MODE", "webhook").strip().lower() == "chat_app"
+
+
+async def _send_via_chat_app(payload: dict) -> str:
+    """Posts a card as the Chat App with action buttons converted in place.
+
+    The one-seam migration: every card template's signed openLink buttons
+    are rewritten to native onClick.action payloads here, so no template
+    needs editing and clicks execute in the background.
+    """
+    from agent_soc_manager.tools.chatops.chat_api import (
+        convert_openlink_to_action,
+        post_card_as_app,
+    )
+
+    space = os.environ.get("CHAT_SPACE")
+    if not space:
+        logger.error("CHATOPS_MODE=chat_app but CHAT_SPACE is not set.")
+        return (
+            "Error: CHATOPS_MODE=chat_app requires CHAT_SPACE (e.g. "
+            "'spaces/AAAA1234'). No message was sent to a human analyst."
+        )
+
+    try:
+        converted = convert_openlink_to_action(payload)
+        message_name = await post_card_as_app(space, converted)
+        logger.info(f"ChatOps card posted as Chat App: {message_name}")
+        return f"Successfully sent ChatOps card as Chat App. (Message: {message_name})"
+    except Exception as e:
+        logger.error(f"Failed to post ChatOps card as Chat App: {e}")
+        return (
+            f"Error sending ChatOps card via Chat App: {e}. "
+            "No human analyst was notified."
+        )
+
+
 def _get_context_ids(
     ctx: Context,
 ) -> tuple[str | None, str | None, str | None]:
@@ -88,7 +130,13 @@ def _get_context_ids(
 async def send_raw_card(payload: dict) -> str:
     """
     Sends a complete raw JSON card payload to the configured Google Chat webhook asynchronously.
+
+    When CHATOPS_MODE=chat_app, posts as the registered Chat App instead so
+    card buttons execute in the background (issue #62).
     """
+    if _chat_app_mode():
+        return await _send_via_chat_app(payload)
+
     webhook_url = os.environ.get("WEBHOOK_URL")
     if not webhook_url:
         logger.error("WEBHOOK_URL environment variable is not set.")
@@ -237,12 +285,7 @@ async def send_chatops_card(
         card_id: Unique ID for the card (optional).
         image_url: URL for the header icon (optional).
     """
-    webhook_url = os.environ.get("WEBHOOK_URL")
-    if not webhook_url:
-        logger.error("WEBHOOK_URL environment variable is not set.")
-        return "Error: WEBHOOK_URL environment variable is not set. Please configure it in .env."
-
-    payload = {
+    payload_for_chat_app = {
         "cardsV2": [
             {
                 "cardId": card_id,
@@ -258,6 +301,15 @@ async def send_chatops_card(
             }
         ]
     }
+    if _chat_app_mode():
+        return await _send_via_chat_app(payload_for_chat_app)
+
+    webhook_url = os.environ.get("WEBHOOK_URL")
+    if not webhook_url:
+        logger.error("WEBHOOK_URL environment variable is not set.")
+        return "Error: WEBHOOK_URL environment variable is not set. Please configure it in .env."
+
+    payload = payload_for_chat_app
 
     try:
         async with httpx.AsyncClient(timeout=CHATOPS_HTTP_TIMEOUT) as client:

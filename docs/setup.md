@@ -75,6 +75,13 @@ These variables are required to link your agent with the Gemini Enterprise Agent
 - `OAUTH_AUTH_URI`: The OAuth authorization URI.
 - `OAUTH_TOKEN_URI`: The OAuth token exchange URI.
 
+### Stage 5: ChatOps (optional)
+Human-in-the-loop approval cards in Google Chat. Webhook mode needs only
+`WEBHOOK_URL` and `CHRONICLE_CHATOPS_SECRET`. For background button actions
+(no browser tab), set `CHATOPS_MODE=chat_app` and follow the registration
+steps in [chatops_chat_app.md](chatops_chat_app.md); validate with
+`just chatops-verify`.
+
 ## Service Accounts & IAM
 
 Four distinct identities interact with this platform. Granting the wrong set to the wrong identity is the most common deployment failure, so they are documented separately. Official references: [Agent Engine set-up: identity and permissions](https://docs.cloud.google.com/agent-builder/agent-engine/set-up#identity-and-permissions) and [custom service accounts](https://cloud.google.com/agent-builder/agent-engine/set-up#custom-service-account).
