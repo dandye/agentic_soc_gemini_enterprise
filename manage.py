@@ -57,6 +57,12 @@ app.add_typer(
     name="agentspace",
     help="Manage Gemini Enterprise Agent Platform apps and agents",
 )
+app.add_typer(
+    agentspace_app,
+    name="gem-ent",
+    help="Manage Gemini Enterprise Agent Platform apps and agents",
+    hidden=True,
+)
 app.add_typer(oauth_app, name="oauth", help="Manage OAuth authorizations")
 app.add_typer(secret_app, name="secret", help="Manage Secret Manager keys")
 app.add_typer(datastore_app, name="datastore", help="Manage data stores")

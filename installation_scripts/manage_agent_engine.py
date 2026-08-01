@@ -718,6 +718,11 @@ class AgentEngineManager:
             GCP_PROJECT_ID = os.environ.get("GCP_PROJECT_ID")
             GCP_LOCATION = self.get_module_location(agent_module)
             GCP_STAGING_BUCKET = os.environ.get("GCP_STAGING_BUCKET")
+            # vertexai.init requires the gs:// prefix; older .env guidance said
+            # to omit it, so normalize rather than fail (issue #5).
+            if GCP_STAGING_BUCKET and not GCP_STAGING_BUCKET.startswith("gs://"):
+                GCP_STAGING_BUCKET = f"gs://{GCP_STAGING_BUCKET}"
+                typer.echo(f"Note: prefixed staging bucket -> {GCP_STAGING_BUCKET}")
 
             vertexai.init(
                 project=GCP_PROJECT_ID,
