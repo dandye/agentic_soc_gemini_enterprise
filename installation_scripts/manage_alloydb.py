@@ -22,7 +22,9 @@ import importlib.util
 import sys
 from pathlib import Path
 
-_IMPL = Path(__file__).resolve().parent.parent / "agent_soc_manager" / "manage_alloydb.py"
+_IMPL = (
+    Path(__file__).resolve().parent.parent / "agent_soc_manager" / "manage_alloydb.py"
+)
 
 if not _IMPL.is_file():  # pragma: no cover - packaging error
     raise ModuleNotFoundError(

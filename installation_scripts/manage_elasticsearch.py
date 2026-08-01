@@ -31,7 +31,6 @@ def _es_verify_certs() -> bool:
     )
 
 
-
 app = typer.Typer(
     add_completion=False,
     help="Manage Elasticsearch index for the Google MCP Security Agent.",

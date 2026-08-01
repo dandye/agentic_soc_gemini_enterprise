@@ -1290,9 +1290,7 @@ def create_agent():
             client = Elasticsearch(
                 ELASTICSEARCH_URL,
                 basic_auth=(ELASTICSEARCH_USER, ELASTICSEARCH_PASSWORD),
-                verify_certs=os.getenv(
-                    "ELASTICSEARCH_VERIFY_CERTS", "false"
-                ).lower()
+                verify_certs=os.getenv("ELASTICSEARCH_VERIFY_CERTS", "false").lower()
                 in ("1", "true", "yes"),
             )
 

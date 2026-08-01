@@ -265,7 +265,8 @@ class VertexAIManager:
             return True
         except Exception as e:
             typer.secho(
-                f"  ERROR: Cannot access project: {self.project_id}", fg=typer.colors.RED
+                f"  ERROR: Cannot access project: {self.project_id}",
+                fg=typer.colors.RED,
             )
             typer.secho(f"    Error: {str(e)}", fg=typer.colors.RED)
             typer.echo()
@@ -454,7 +455,9 @@ class VertexAIManager:
             )
             return True
         except Exception as e:
-            typer.secho(f"  WARNING: Could not check permissions: {e}", fg=typer.colors.YELLOW)
+            typer.secho(
+                f"  WARNING: Could not check permissions: {e}", fg=typer.colors.YELLOW
+            )
             typer.echo(
                 "    Note: Use GCP Console IAM page to verify permissions manually"
             )

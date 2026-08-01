@@ -251,12 +251,15 @@ async def main():
             )
 
     # Generate Report Artifact
-    report_path = Path(
-        os.environ.get(
-            "PARITY_ARTIFACT_DIR",
-            Path(__file__).resolve().parent / "evalsets" / "parity",
+    report_path = (
+        Path(
+            os.environ.get(
+                "PARITY_ARTIFACT_DIR",
+                Path(__file__).resolve().parent / "evalsets" / "parity",
+            )
         )
-    ) / "knowledge_graph_eval_report.md"
+        / "knowledge_graph_eval_report.md"
+    )
     report_path.parent.mkdir(parents=True, exist_ok=True)
 
     report_content = []

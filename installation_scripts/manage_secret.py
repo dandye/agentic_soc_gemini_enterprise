@@ -142,7 +142,8 @@ class SecretManager:
         sa_file = Path(self.sa_path)
         if not sa_file.exists():
             typer.secho(
-                f"ERROR: Service account file not found: {self.sa_path}", fg=typer.colors.RED
+                f"ERROR: Service account file not found: {self.sa_path}",
+                fg=typer.colors.RED,
             )
             raise typer.Exit(1)
 
@@ -225,7 +226,9 @@ class SecretManager:
             typer.secho(f"ERROR: Secret not found: {secret_name}", fg=typer.colors.RED)
             raise typer.Exit(1)
         except exceptions.PermissionDenied:
-            typer.secho("ERROR: Permission denied accessing secret", fg=typer.colors.RED)
+            typer.secho(
+                "ERROR: Permission denied accessing secret", fg=typer.colors.RED
+            )
             typer.echo(
                 "  Ensure your credentials have 'secretmanager.versions.access' permission"
             )
@@ -273,7 +276,9 @@ class SecretManager:
                 )
                 synced_count += 1
             except Exception as e:
-                typer.secho(f"ERROR: Failed to sync '{secret_id}': {e}", fg=typer.colors.RED)
+                typer.secho(
+                    f"ERROR: Failed to sync '{secret_id}': {e}", fg=typer.colors.RED
+                )
 
         typer.echo("\n" + "=" * 80)
         typer.secho(
