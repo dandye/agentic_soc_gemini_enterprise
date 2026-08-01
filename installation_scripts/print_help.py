@@ -81,6 +81,12 @@ GROUPS = {
         "oauth-verify",
         "oauth-delete",
     ],
+    "Gemini Enterprise User Licenses": [
+        "licenses-list",
+        "licenses-configs",
+        "licenses-assign",
+        "licenses-remove",
+    ],
     "Secret Manager": ["secret-upload", "secret-upload-force", "secret-verify"],
     "Validation & Verification": [
         "check-env",
@@ -117,7 +123,8 @@ def parse_justfile(justfile_path):
     recipes = {}
     pending_desc = []
 
-    recipe_re = re.compile(r"^([a-zA-Z0-9_-]+)(?:\s+[^:=]*)?:(?!=)")
+    # Match recipes (allowing spaces/arguments, but not ':' or '=' inside argument list structure until final ':')
+    recipe_re = re.compile(r"^([a-zA-Z0-9_-]+)(?:\s+[^:]*)?:(?!=)")
 
     with open(justfile_path) as f:
         for line in f:
@@ -126,13 +133,16 @@ def parse_justfile(justfile_path):
             # Match comment lines
             if line.startswith("#"):
                 desc_line = line[1:].strip()
-                # Skip comments that are headers or lines with dashes
+                # Clear pending description or skip if it is a section separator line
                 if (
-                    desc_line
-                    and not desc_line.startswith("==")
-                    and not desc_line.startswith("--")
+                    not desc_line
+                    or desc_line.startswith("=")
+                    or desc_line.startswith("-")
+                    or desc_line.startswith("*")
                 ):
-                    pending_desc.append(desc_line)
+                    pending_desc = []
+                    continue
+                pending_desc.append(desc_line)
             # Match recipe definitions
             else:
                 match = recipe_re.match(line)
