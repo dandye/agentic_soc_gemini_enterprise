@@ -85,32 +85,32 @@ Register, link, and manage your agent applications in the Gemini Enterprise Agen
 
 ### using justfile:
 ```bash
-just agentspace-register                # Register agent with the platform
-just agentspace-update                  # Update platform agent configuration
-just agentspace-verify                  # Verify configuration and status
-just agentspace-delete                  # Delete agent from the platform
-just agentspace-url                     # Display the platform UI URL for your app
-just agentspace-test query="T1003"      # Test search/chat functionality directly
-just agentspace-link-agent              # Link the deployed Reasoning Engine agent with OAuth
-just agentspace-unlink-agent            # Unlink the agent from the platform
+just gem-ent-register                # Register agent with the platform
+just gem-ent-update                  # Update platform agent configuration
+just gem-ent-verify                  # Verify configuration and status
+just gem-ent-delete                  # Delete agent from the platform
+just gem-ent-url                     # Display the platform UI URL for your app
+just gem-ent-test query="T1003"      # Test search/chat functionality directly
+just gem-ent-link-agent              # Link the deployed Reasoning Engine agent with OAuth
+just gem-ent-unlink-agent            # Unlink the agent from the platform
 
 # App and Datastore management
-just agentspace-create-app app_name="My App" type="SOLUTION_TYPE_CHAT"  # Create a new platform app
+just gem-ent-create-app app_name="My App" type="SOLUTION_TYPE_CHAT"  # Create a new platform app
 just datastore-list                     # List all data stores in the project
 just datastore-create name="my-store"   # Create a new Search/Chat data store
 ```
 
 ### using Python CLI:
 ```bash
-python manage.py agentspace register    # Register agent with the platform
-python manage.py agentspace verify      # Verify configuration and status
-python manage.py agentspace delete      # Delete agent from the platform
-python manage.py agentspace url         # Display platform UI URL
-python manage.py agentspace search      # Test search/chat functionality
-python manage.py agentspace link-agent  # Link the deployed agent with OAuth
+python manage.py gem-ent register    # Register agent with the platform
+python manage.py gem-ent verify      # Verify configuration and status
+python manage.py gem-ent delete      # Delete agent from the platform
+python manage.py gem-ent url         # Display platform UI URL
+python manage.py gem-ent search      # Test search/chat functionality
+python manage.py gem-ent link-agent  # Link the deployed agent with OAuth
 
 # App and Datastore management
-python manage.py agentspace create-app  # Create a new platform app
+python manage.py gem-ent create-app  # Create a new platform app
 python manage.py datastore list         # List all data stores
 python manage.py datastore create       # Create a new data store
 ```

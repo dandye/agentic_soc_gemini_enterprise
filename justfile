@@ -15,7 +15,7 @@ export PYTHONPATH := "."
 python := if path_exists(".venv") == "true" { ".venv/bin/python" } else if path_exists("venv") == "true" { "venv/bin/python" } else { "python3" }
 
 # Management scripts
-manage_agentspace := "installation_scripts/manage_agentspace.py"
+manage_gem_ent := "installation_scripts/manage_gem_ent.py"
 manage_agent_engine := "installation_scripts/manage_agent_engine.py"
 manage_oauth := "installation_scripts/manage_oauth.py"
 manage_datastore := "installation_scripts/manage_datastore.py"
@@ -74,7 +74,7 @@ check-deploy:
 check-integration: check-deploy
     #!/usr/bin/env bash
     set -a; [ -f "{{env_file}}" ] && source "{{env_file}}"; set +a
-    if [ -z "$AGENTSPACE_APP_ID" ]; then echo "WARNING: AGENTSPACE_APP_ID not set - required for Gemini Enterprise Agent Platform operations"; fi
+    if [ -z "$GEM_ENT_APP_ID" ]; then echo "WARNING: GEM_ENT_APP_ID not set - required for Gemini Enterprise Agent Platform operations"; fi
     echo "Stage 3 integration requirements checked"
 
 # Install Python dependencies
@@ -147,66 +147,66 @@ agent-engine-warmup: check-deploy
     {{ python }} {{ manage_agent_engine }} warmup
 
 # Register agent with Gemini Enterprise Agent Platform (use force=true to force re-register)
-agentspace-register force="false": check-integration
+gem-ent-register force="false": check-integration
     #!/usr/bin/env bash
     if [ "{{ force }}" = "true" ] || [ "{{ force }}" = "1" ]; then
-        {{ python }} {{ manage_agentspace }} register --force --env-file {{ env_file }}
+        {{ python }} {{ manage_gem_ent }} register --force --env-file {{ env_file }}
     else
-        {{ python }} {{ manage_agentspace }} register --env-file {{ env_file }}
+        {{ python }} {{ manage_gem_ent }} register --env-file {{ env_file }}
         echo "========================================"
         echo "REGISTRATION COMPLETE - Save this value to .env:"
         echo "========================================"
         echo "Check the output above for:"
-        echo "  AGENTSPACE_AGENT_ID=<numeric_id>"
+        echo "  GEM_ENT_AGENT_ID=<numeric_id>"
         echo "========================================"
     fi
 
 # Update existing Gemini Enterprise Agent Platform agent configuration
-agentspace-update: check-integration
-    {{ python }} {{ manage_agentspace }} update --env-file {{ env_file }}
+gem-ent-update: check-integration
+    {{ python }} {{ manage_gem_ent }} update --env-file {{ env_file }}
 
 # Verify Gemini Enterprise Agent Platform agent configuration and status
-agentspace-verify: check-integration
-    {{ python }} {{ manage_agentspace }} verify --env-file {{ env_file }}
+gem-ent-verify: check-integration
+    {{ python }} {{ manage_gem_ent }} verify --env-file {{ env_file }}
 
 # Delete agent from Gemini Enterprise Agent Platform (use force=true to delete without confirmation)
-agentspace-delete force="false":
+gem-ent-delete force="false":
     #!/usr/bin/env bash
     if [ "{{ force }}" = "true" ] || [ "{{ force }}" = "1" ]; then
-        {{ python }} {{ manage_agentspace }} delete --force --env-file {{ env_file }}
+        {{ python }} {{ manage_gem_ent }} delete --force --env-file {{ env_file }}
     else
-        {{ python }} {{ manage_agentspace }} delete --env-file {{ env_file }}
+        {{ python }} {{ manage_gem_ent }} delete --env-file {{ env_file }}
     fi
 
 # Display Gemini Enterprise Agent Platform UI URL
-agentspace-url:
-    {{ python }} {{ manage_agentspace }} url --env-file {{ env_file }}
+gem-ent-url:
+    {{ python }} {{ manage_gem_ent }} url --env-file {{ env_file }}
 
-# Test Gemini Enterprise Agent Platform search functionality (use: just agentspace-test "your query")
-agentspace-test query="":
+# Test Gemini Enterprise Agent Platform search functionality (use: just gem-ent-test "your query")
+gem-ent-test query="":
     #!/usr/bin/env bash
     if [ -n "{{ query }}" ]; then
-        {{ python }} {{ manage_agentspace }} search --query {{ quote(query) }} --env-file {{ env_file }}
+        {{ python }} {{ manage_gem_ent }} search --query {{ quote(query) }} --env-file {{ env_file }}
     else
-        {{ python }} {{ manage_agentspace }} search --env-file {{ env_file }}
+        {{ python }} {{ manage_gem_ent }} search --env-file {{ env_file }}
     fi
 
 # Ensure the Gemini Enterprise Agent Platform engine has a data store configured
-agentspace-datastore:
-    {{ python }} {{ manage_agentspace }} ensure-datastore --env-file {{ env_file }}
+gem-ent-datastore:
+    {{ python }} {{ manage_gem_ent }} ensure-datastore --env-file {{ env_file }}
 
 # Link deployed agent to Gemini Enterprise Agent Platform with OAuth
-agentspace-link-agent: check-integration
-    @{{ python }} {{ manage_agentspace }} link-agent --env-file {{ env_file }}
+gem-ent-link-agent: check-integration
+    @{{ python }} {{ manage_gem_ent }} link-agent --env-file {{ env_file }}
     @echo "========================================"
     @echo "AGENT LINK COMPLETE - Save this value to .env:"
     @echo "========================================"
     @echo "Check the output above for:"
-    @echo "  AGENTSPACE_AGENT_ID=<numeric_id>"
+    @echo "  GEM_ENT_AGENT_ID=<numeric_id>"
     @echo "========================================"
 
 # Unlink agent from Gemini Enterprise Agent Platform (use agent_id for specific agent, force=true to skip confirmation)
-agentspace-unlink-agent agent_id="" force="false":
+gem-ent-unlink-agent agent_id="" force="false":
     #!/usr/bin/env bash
     ARGS=""
     if [ "{{ force }}" = "true" ] || [ "{{ force }}" = "1" ]; then
@@ -215,22 +215,22 @@ agentspace-unlink-agent agent_id="" force="false":
     if [ -n "{{ agent_id }}" ]; then
         ARGS="$ARGS --agent-id {{ quote(agent_id) }}"
     fi
-    {{ python }} {{ manage_agentspace }} unlink-agent $ARGS --env-file {{ env_file }}
+    {{ python }} {{ manage_gem_ent }} unlink-agent $ARGS --env-file {{ env_file }}
 
 # Update agent configuration in Gemini Enterprise Agent Platform
-agentspace-update-agent:
-    {{ python }} {{ manage_agentspace }} update-agent-config --env-file {{ env_file }}
+gem-ent-update-agent:
+    {{ python }} {{ manage_gem_ent }} update-agent-config --env-file {{ env_file }}
 
 # List all agents in Gemini Enterprise Agent Platform app
-agentspace-list-agents:
-    {{ python }} {{ manage_agentspace }} list-agents --env-file {{ env_file }}
+gem-ent-list-agents:
+    {{ python }} {{ manage_gem_ent }} list-agents --env-file {{ env_file }}
 
 # List all apps in Gemini Enterprise Agent Platform collection
-agentspace-list-apps:
-    {{ python }} {{ manage_agentspace }} list-apps --env-file {{ env_file }}
+gem-ent-list-apps:
+    {{ python }} {{ manage_gem_ent }} list-apps --env-file {{ env_file }}
 
-# Create a new Gemini Enterprise Agent Platform app (use: just agentspace-create-app "My App" "SOLUTION_TYPE_SEARCH")
-agentspace-create-app app_name="" type="" data_store="" enable_chat="0":
+# Create a new Gemini Enterprise Agent Platform app (use: just gem-ent-create-app "My App" "SOLUTION_TYPE_SEARCH")
+gem-ent-create-app app_name="" type="" data_store="" enable_chat="0":
     #!/usr/bin/env bash
     echo "Creating new Gemini Enterprise Agent Platform app..."
     echo "Options:"
@@ -251,7 +251,7 @@ agentspace-create-app app_name="" type="" data_store="" enable_chat="0":
     if [ "{{ enable_chat }}" = "1" ] || [ "{{ enable_chat }}" = "true" ]; then
         ARGS="$ARGS --enable-chat"
     fi
-    {{ python }} {{ manage_agentspace }} create-app $ARGS --env-file {{ env_file }}
+    {{ python }} {{ manage_gem_ent }} create-app $ARGS --env-file {{ env_file }}
 
 # Create a new data store (use name, type, content, industry)
 datastore-create name="" type="" content="" industry="":
@@ -705,11 +705,11 @@ agent-engine-redeploy description="": agent-engine-deploy
     @echo "Agent engine redeployment completed successfully!"
 
 # Update Gemini Enterprise Agent Platform configuration
-agentspace-redeploy: agentspace-update
+gem-ent-redeploy: gem-ent-update
     @echo "Gemini Enterprise Agent Platform configuration update completed successfully!"
 
 # Redeploy agent engine and update Gemini Enterprise Agent Platform
-redeploy-all: agent-engine-deploy agentspace-update
+redeploy-all: agent-engine-deploy gem-ent-update
     @echo "Full redeployment completed successfully!"
 
 # Complete OAuth setup (create auth and verify)
@@ -717,11 +717,11 @@ oauth-workflow: oauth-create-auth oauth-verify
     @echo "OAuth authorization setup completed successfully!"
 
 # Deploy agent with OAuth and link to Gemini Enterprise Agent Platform
-full-deploy-with-oauth: setup agent-engine-deploy oauth-workflow agentspace-link-agent
+full-deploy-with-oauth: setup agent-engine-deploy oauth-workflow gem-ent-link-agent
     @echo "Full deployment with OAuth completed successfully!"
 
 # Check status of Gemini Enterprise Agent Platform registration
-status: agentspace-verify
+status: gem-ent-verify
     @echo "Status check completed!"
 
 # List agents and instruct how to clean up old instances
@@ -982,13 +982,13 @@ agent-engine-deploy-alloydb display_name="SOC Manager (AlloyDB)": check-prereqs
     @echo "========================================"
 
 # Register dedicated AlloyDB Agent with Gemini Enterprise Agent Platform (GEAP)
-agentspace-register-alloydb display_name="SOC Manager (AlloyDB)": check-prereqs
-    {{ python }} {{ manage_agentspace }} link-agent \
+gem-ent-register-alloydb display_name="SOC Manager (AlloyDB)": check-prereqs
+    {{ python }} {{ manage_gem_ent }} link-agent \
         --display-name {{ quote(display_name) }} \
         --description "SOC Manager grounded with Google Cloud AlloyDB historical detection reports, similarity engine, and SIEM/SOAR tools" \
         --tool-description "Multi-modal SOC investigation, historical detection reports grounding, and threat triage" \
         --reasoning-engine {{ env_var('AGENT_ENGINE_ALLOYDB_RESOURCE_NAME') }} \
-        --output-var-name AGENTSPACE_ALLOYDB_AGENT_ID \
+        --output-var-name GEM_ENT_ALLOYDB_AGENT_ID \
         --env-file {{ env_file }}
     @echo "========================================"
     @echo "AlloyDB Agent registered with Gemini Enterprise"
@@ -997,3 +997,23 @@ agentspace-register-alloydb display_name="SOC Manager (AlloyDB)": check-prereqs
 # Run a local-vs-cloud environment parity audit for a campaign
 parity-audit uuid: check-prereqs
     {{ python }} installation_scripts/audit_environment_parity.py {{ uuid }}
+
+# ---------------------------------------------------------------------------
+# Back-compat aliases for the Gemini Enterprise rebrand (issue #36).
+# The agentspace-* names still work; gem-ent-* is canonical.
+# ---------------------------------------------------------------------------
+alias agentspace-register := gem-ent-register
+alias agentspace-update := gem-ent-update
+alias agentspace-verify := gem-ent-verify
+alias agentspace-delete := gem-ent-delete
+alias agentspace-url := gem-ent-url
+alias agentspace-test := gem-ent-test
+alias agentspace-datastore := gem-ent-datastore
+alias agentspace-link-agent := gem-ent-link-agent
+alias agentspace-unlink-agent := gem-ent-unlink-agent
+alias agentspace-update-agent := gem-ent-update-agent
+alias agentspace-list-agents := gem-ent-list-agents
+alias agentspace-list-apps := gem-ent-list-apps
+alias agentspace-create-app := gem-ent-create-app
+alias agentspace-redeploy := gem-ent-redeploy
+alias agentspace-register-alloydb := gem-ent-register-alloydb

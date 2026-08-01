@@ -63,7 +63,7 @@ python manage.py iam setup
 just agent-engine-deploy
 
 # 3. Register with Gemini Enterprise
-just agentspace-register
+just gem-ent-register
 ```
 
 Run `just` to see all available commands.
@@ -170,7 +170,7 @@ gcloud services enable aiplatform.googleapis.com storage.googleapis.com \
 
 5. **Register with Gemini Enterprise:**
    ```bash
-   just agentspace-register
+   just gem-ent-register
    ```
 
 ## Configuration
@@ -207,8 +207,8 @@ See [.env.example](.env.example) for all environment variables. Key variables:
 ```bash
 just agent-engine-deploy      # Deploy agent
 just agent-engine-redeploy    # Redeploy existing agent
-just agentspace-register      # Register with Gemini Enterprise
-just agentspace-update        # Update registration
+just gem-ent-register      # Register with Gemini Enterprise
+just gem-ent-update        # Update registration
 just agent-engine-warmup      # Pre-warm MCP connections
 just status                   # Check system status
 ```
@@ -234,15 +234,15 @@ just rag-delete RAG_CORPUS_ID=projects/.../ragCorpora/...
 **Create via Console (Recommended):**
 1. Navigate to Vertex AI > Search & Conversation > Apps
 2. Click **Create App** > Select **Agent** type
-3. Copy App ID to `.env` as `AGENTSPACE_APP_ID`
-4. Run `just agentspace-register`
+3. Copy App ID to `.env` as `GEM_ENT_APP_ID`
+4. Run `just gem-ent-register`
 
 ## CLI Reference
 
 | justfile | Python CLI |
 |----------|------------|
 | `just agent-engine-list` | `python manage.py agent-engine list` |
-| `just agentspace-register` | `python manage.py agentspace register` |
+| `just gem-ent-register` | `python manage.py gem-ent register` |
 | `just rag-list` | `python manage.py rag list` |
 | `just status` | `python manage.py workflow status` |
 
@@ -280,7 +280,7 @@ uv run server.py
 | **403/401 Auth Error** | `gcloud auth application-default login` |
 | **API not enabled** | `gcloud services enable aiplatform.googleapis.com` |
 | **MCP module missing** | `git submodule update --init --recursive` |
-| **Agent not in Gemini Enterprise** | `just agentspace-verify` then `just agentspace-link-agent` |
+| **Agent not in Gemini Enterprise** | `just gem-ent-verify` then `just gem-ent-link-agent` |
 | **Agent not responding** | `gcloud logging tail "resource.type=aiplatform.googleapis.com/ReasoningEngine"` |
 
 ## FAQ
@@ -293,7 +293,7 @@ Default is `gemini-3.1-pro-preview` for orchestrator, `gemini-3-flash-preview` f
 
 **How do I update the agent?**
 ```bash
-git pull && just agent-engine-redeploy && just agentspace-update
+git pull && just agent-engine-redeploy && just gem-ent-update
 ```
 
 **What are the costs?**

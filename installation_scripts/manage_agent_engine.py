@@ -31,7 +31,7 @@ from vertexai import agent_engines
 from vertexai.preview.reasoning_engines import AdkApp
 
 # Added AgentSpaceManager for synchronized UI purges
-from installation_scripts.manage_agentspace import AgentSpaceManager
+from installation_scripts.manage_gem_ent import AgentSpaceManager
 
 
 # Import Discovery Engine client for Agent Builder assistants
@@ -2022,9 +2022,7 @@ def deploy(
                             proxy_id = proxy.get("name", "").split("/")[-1]
 
                             # Never nuke the active .env proxy!
-                            if proxy_id != ui_manager.env_vars.get(
-                                "AGENTSPACE_AGENT_ID"
-                            ):
+                            if proxy_id != ui_manager.env_vars.get("GEM_ENT_AGENT_ID"):
                                 typer.secho(
                                     f"Unlinking stale Workspace Proxy: {proxy_id}",
                                     fg=typer.colors.YELLOW,

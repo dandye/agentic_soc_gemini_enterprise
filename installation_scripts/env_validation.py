@@ -35,8 +35,8 @@ PLACEHOLDER_PATTERNS = {
     "RAG_CORPUS_ID": [
         "projects/your-project-id/locations/us-central1/ragCorpora/1234567890"
     ],
-    "AGENTSPACE_APP_ID": ["your-app-id"],
-    "AGENTSPACE_AGENT_ID": ["your-agent-id"],
+    "GEM_ENT_APP_ID": ["your-app-id"],
+    "GEM_ENT_AGENT_ID": ["your-agent-id"],
 }
 
 # Additional pattern-based checks for values that contain placeholders

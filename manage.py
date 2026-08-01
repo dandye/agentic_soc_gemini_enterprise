@@ -18,14 +18,15 @@ from rich.console import Console
 # Import management apps from installation_scripts
 sys.path.insert(0, str(Path(__file__).parent / "installation_scripts"))
 
+from installation_scripts.env_migration import app as env_app
 from installation_scripts.harvest_investigations import app as harvest_app
 from installation_scripts.manage_agent_engine import app as agent_engine_app
-from installation_scripts.manage_agentspace import app as agentspace_app
 from installation_scripts.manage_alloydb import app as alloydb_app
 from installation_scripts.manage_chat_ops import app as chatops_app
 from installation_scripts.manage_datastore import app as datastore_app
 from installation_scripts.manage_elasticsearch import app as elastic_app
 from installation_scripts.manage_eval import app as eval_app
+from installation_scripts.manage_gem_ent import app as agentspace_app
 from installation_scripts.manage_iam import app as iam_app
 from installation_scripts.manage_licenses import app as licenses_app
 from installation_scripts.manage_memories import app as memories_app
@@ -62,6 +63,9 @@ app.add_typer(
     name="gem-ent",
     help="Manage Gemini Enterprise Agent Platform apps and agents",
     hidden=True,
+)
+app.add_typer(
+    env_app, name="env", help="Inspect and migrate environment variable names"
 )
 app.add_typer(oauth_app, name="oauth", help="Manage OAuth authorizations")
 app.add_typer(secret_app, name="secret", help="Manage Secret Manager keys")
@@ -170,7 +174,7 @@ def full_deploy(
     console.print(
         "\n[yellow]Step 3: Link Agent to Gemini Enterprise Agent Platform[/yellow]"
     )
-    from installation_scripts.manage_agentspace import AgentSpaceManager
+    from installation_scripts.manage_gem_ent import AgentSpaceManager
 
     as_manager = AgentSpaceManager(env_file)
     if as_manager.link_agent_to_agentspace():
@@ -216,7 +220,7 @@ def redeploy_all(
     console.print(
         "\n[yellow]Step 2: Update Gemini Enterprise Agent Platform Configuration[/yellow]"
     )
-    from installation_scripts.manage_agentspace import AgentSpaceManager
+    from installation_scripts.manage_gem_ent import AgentSpaceManager
 
     manager = AgentSpaceManager(env_file)
     if manager.update_agent():
@@ -250,7 +254,7 @@ def status(
     """
     console.print("\n[bold blue]System Status Check[/bold blue]\n")
 
-    from installation_scripts.manage_agentspace import AgentSpaceManager
+    from installation_scripts.manage_gem_ent import AgentSpaceManager
 
     manager = AgentSpaceManager(env_file)
 
@@ -261,8 +265,8 @@ def status(
         "GCP_PROJECT_NUMBER",
         "GCP_LOCATION",
         "AGENT_ENGINE_RESOURCE_NAME",
-        "AGENTSPACE_APP_ID",
-        "AGENTSPACE_AGENT_ID",
+        "GEM_ENT_APP_ID",
+        "GEM_ENT_AGENT_ID",
         "OAUTH_AUTH_ID",
         "RAG_CORPUS_ID",
     ]

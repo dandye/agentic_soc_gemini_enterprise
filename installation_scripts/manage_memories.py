@@ -22,6 +22,7 @@ from typing import Annotated
 import typer
 import vertexai
 from dotenv import load_dotenv
+from env_migration import apply_legacy_env_aliases, legacy_deprecation_notice
 
 from installation_scripts.manage_agent_engine import AgentEngineManager
 
@@ -55,7 +56,12 @@ class MemoryManager:
         """Load environment variables from the .env file."""
         if self.env_file.exists():
             load_dotenv(self.env_file, override=True)
-        return dict(os.environ)
+        env_vars = dict(os.environ)
+        # Gemini Enterprise rebrand (#36): honor legacy AGENTSPACE_* names.
+        used_legacy = apply_legacy_env_aliases(env_vars)
+        if used_legacy:
+            typer.echo(legacy_deprecation_notice(used_legacy))
+        return env_vars
 
     def _initialize_vertex_ai(self) -> None:
         """Initialize the Gemini Enterprise Agent Platform SDK."""
@@ -605,7 +611,7 @@ def retrieve(
         typer.Option(
             "--app",
             "-a",
-            help="App name scope. Defaults to AGENTSPACE_APP_ID in .env or 'secops_agent'",
+            help="App name scope. Defaults to GEM_ENT_APP_ID in .env or 'secops_agent'",
         ),
     ] = None,
     query: Annotated[
@@ -632,7 +638,7 @@ def retrieve(
     manager = MemoryManager(env_file)
 
     if not app_name:
-        app_name = manager.env_vars.get("AGENTSPACE_APP_ID", "secops_agent")
+        app_name = manager.env_vars.get("GEM_ENT_APP_ID", "secops_agent")
 
     manager.retrieve(
         engine=engine,
@@ -707,7 +713,7 @@ def create(
         typer.Option(
             "--app",
             "-a",
-            help="App name scope. Defaults to AGENTSPACE_APP_ID in .env or 'secops_agent'",
+            help="App name scope. Defaults to GEM_ENT_APP_ID in .env or 'secops_agent'",
         ),
     ] = None,
     env_file: Annotated[
@@ -718,7 +724,7 @@ def create(
     manager = MemoryManager(env_file)
 
     if not app_name:
-        app_name = manager.env_vars.get("AGENTSPACE_APP_ID", "secops_agent")
+        app_name = manager.env_vars.get("GEM_ENT_APP_ID", "secops_agent")
 
     manager.create(
         engine=engine,
