@@ -32,8 +32,15 @@ from fastapi.responses import HTMLResponse, JSONResponse
 
 
 try:  # Package layout (local dev, Agent Engine extra_packages)
+    from agent_soc_manager.tools.chatops.audit import emit_audit_event
+    from agent_soc_manager.tools.chatops.decision import (
+        DENIED,
+        build_session_message,
+    )
     from agent_soc_manager.tools.chatops.security import verify_signed_payload
 except ImportError:  # Flat layout (Cloud Run container copies files into /app)
+    from audit import emit_audit_event
+    from decision import DENIED, build_session_message
     from security import verify_signed_payload
 
 logging.basicConfig(level=logging.INFO)
@@ -284,8 +291,12 @@ def _enqueue_task(payload: dict) -> str:
 
 async def _run_agent_query(
     action: str, session_id: str, agent_engine_id: str, user_id: str
-) -> str:
-    """Runs the Agent Engine query for a confirmed action (may take minutes)."""
+) -> tuple[str, str]:
+    """Runs the Agent Engine query for a human decision (may take minutes).
+
+    Returns (decision, detail). The session message is the rigid template
+    from decision.py -- a Deny must never read as a confirmation (issue #83).
+    """
     import vertexai
     from vertexai import agent_engines
 
@@ -296,7 +307,15 @@ async def _run_agent_query(
 
     vertexai.init(project=project, location=location)
     remote_app = agent_engines.get(agent_engine_id)
-    user_input = f"USER ACTION CONFIRMED via ChatOps: {action}"
+    decision, user_input = build_session_message(action)
+    emit_audit_event(
+        stage="decision_injected",
+        action=action,
+        decision=decision,
+        session_id=session_id,
+        agent_engine_id=agent_engine_id,
+        detail=user_input,
+    )
 
     logger.info(f"Querying Agent Engine for action: {action} (user: {user_id})")
     # Capture the agent's actual response instead of fabricating success:
@@ -319,8 +338,8 @@ async def _run_agent_query(
         agent_reply = texts[-1].strip()
         if len(agent_reply) > 1500:
             agent_reply = agent_reply[:1500] + "..."
-        return f"Agent response: {agent_reply}"
-    return (
+        return decision, f"Agent response: {agent_reply}"
+    return decision, (
         f"The agent processed '{action}' but returned no text response. "
         "Check the session transcript to confirm the outcome."
     )
@@ -336,9 +355,20 @@ async def _execute_and_sync(payload: dict) -> None:
     action = payload.get("action", "unknown action")
     requester = payload.get("requester", "unknown user")
     message_name = payload.get("message_name")
+    approver_email = payload.get("approver_email")
+
+    emit_audit_event(
+        stage="worker_start",
+        action=action,
+        approver=requester,
+        approver_email=approver_email,
+        session_id=payload.get("session_id"),
+        agent_engine_id=payload.get("agent_engine_id"),
+        message_name=message_name,
+    )
 
     try:
-        detail = await asyncio.wait_for(
+        decision, detail = await asyncio.wait_for(
             _run_agent_query(
                 action=action,
                 session_id=payload["session_id"],
@@ -347,7 +377,20 @@ async def _execute_and_sync(payload: dict) -> None:
             ),
             timeout=AGENT_QUERY_TIMEOUT,
         )
+        if decision == DENIED:
+            detail = "Denial recorded - the proposed action was NOT executed. " + detail
         card = _outcome_card(action, requester, succeeded=True, detail=detail)
+        emit_audit_event(
+            stage="outcome_success",
+            action=action,
+            decision=decision,
+            approver=requester,
+            approver_email=approver_email,
+            session_id=payload.get("session_id"),
+            message_name=message_name,
+            outcome="success",
+            detail=detail[:500],
+        )
     except TimeoutError:
         logger.error(f"Agent query timed out for action '{action}'")
         card = _outcome_card(
@@ -360,6 +403,15 @@ async def _execute_and_sync(payload: dict) -> None:
                 "before retrying."
             ),
         )
+        emit_audit_event(
+            stage="outcome_timeout",
+            action=action,
+            approver=requester,
+            approver_email=approver_email,
+            session_id=payload.get("session_id"),
+            message_name=message_name,
+            outcome="timeout",
+        )
     except Exception as e:
         logger.error(f"Agent execution failed for action '{action}': {e}")
         card = _outcome_card(
@@ -370,6 +422,16 @@ async def _execute_and_sync(payload: dict) -> None:
                 f"The agent failed to execute this action: {e}. "
                 "No state change was confirmed."
             ),
+        )
+        emit_audit_event(
+            stage="outcome_failure",
+            action=action,
+            approver=requester,
+            approver_email=approver_email,
+            session_id=payload.get("session_id"),
+            message_name=message_name,
+            outcome="failure",
+            detail=str(e)[:500],
         )
 
     if not message_name:
@@ -442,6 +504,12 @@ async def chat_events(request: Request, background_tasks: BackgroundTasks):
             payload = verify_signed_payload(signed_token)
         except ValueError as e:
             logger.warning(f"Rejected card click with invalid token: {e}")
+            emit_audit_event(
+                stage="click_rejected_invalid_token",
+                approver=(event.get("user") or {}).get("displayName"),
+                approver_email=(event.get("user") or {}).get("email"),
+                detail=str(e),
+            )
             return _error_card(
                 f"This action could not be verified and was NOT executed: {e}"
             )
@@ -456,6 +524,13 @@ async def chat_events(request: Request, background_tasks: BackgroundTasks):
         ]
         if allowlist and (user.get("email") or "").lower() not in allowlist:
             logger.warning(f"Rejected click from unauthorized user {user.get('email')}")
+            emit_audit_event(
+                stage="click_rejected_unauthorized",
+                action=payload.get("action"),
+                approver=user.get("displayName"),
+                approver_email=user.get("email"),
+                session_id=payload.get("session_id"),
+            )
             return _error_card(
                 "You are not authorized to approve this action. It was NOT "
                 "executed. (CHATOPS_APPROVER_EMAILS)"
@@ -463,7 +538,18 @@ async def chat_events(request: Request, background_tasks: BackgroundTasks):
 
         action = payload.get("action", "unknown action")
         requester = html.escape(user.get("displayName", "unknown user"))
+        approver_email = user.get("email")
         message_name = (event.get("message") or {}).get("name")
+
+        emit_audit_event(
+            stage="click_accepted",
+            action=action,
+            approver=requester,
+            approver_email=approver_email,
+            session_id=payload.get("session_id"),
+            agent_engine_id=payload.get("agent_engine_id"),
+            message_name=message_name,
+        )
 
         task_payload = {
             "token": signed_token,
@@ -472,6 +558,7 @@ async def chat_events(request: Request, background_tasks: BackgroundTasks):
             "agent_engine_id": payload.get("agent_engine_id"),
             "user_id": payload.get("user_id"),
             "requester": requester,
+            "approver_email": approver_email,
             "message_name": message_name,
         }
 
@@ -488,19 +575,44 @@ async def chat_events(request: Request, background_tasks: BackgroundTasks):
             except Exception as e:
                 if type(e).__name__ == "AlreadyExists":
                     # Deterministic task name collision: this exact token is
-                    # already queued or ran recently (analyst double-click).
+                    # already queued or ran recently (analyst double-click,
+                    # or a second decision on an already-consumed token).
                     # The first click's execution stands; just re-ack.
                     logger.info(f"Duplicate click for action '{action}'; deduped.")
+                    emit_audit_event(
+                        stage="enqueue_deduped",
+                        action=action,
+                        approver=requester,
+                        approver_email=approver_email,
+                        session_id=payload.get("session_id"),
+                        message_name=message_name,
+                    )
                     processing = _processing_card(action, requester)
                     return {
                         "actionResponse": {"type": "UPDATE_MESSAGE"},
                         "cardsV2": processing["cardsV2"],
                     }
                 logger.error(f"Failed to enqueue ChatOps task: {e}")
+                emit_audit_event(
+                    stage="enqueue_failed",
+                    action=action,
+                    approver=requester,
+                    approver_email=approver_email,
+                    session_id=payload.get("session_id"),
+                    detail=str(e)[:500],
+                )
                 return _error_card(
                     f"Could not queue this action for execution: {e}. "
                     "The action was NOT executed."
                 )
+            emit_audit_event(
+                stage="enqueued",
+                action=action,
+                approver=requester,
+                approver_email=approver_email,
+                session_id=payload.get("session_id"),
+                message_name=message_name,
+            )
 
         processing = _processing_card(action, requester)
         return {
@@ -566,17 +678,26 @@ async def legacy_action(t: str = Query(..., description="Signed action token")):
         if not action or not session_id or not agent_engine_id:
             raise ValueError("Incomplete payload inside token")
 
-        detail = await _run_agent_query(
+        decision, detail = await _run_agent_query(
             action=action,
             session_id=session_id,
             agent_engine_id=agent_engine_id,
             user_id=payload.get("user_id") or "vais-query-reasoning-engine",
         )
+        emit_audit_event(
+            stage="legacy_action_executed",
+            action=action,
+            decision=decision,
+            session_id=session_id,
+            agent_engine_id=agent_engine_id,
+            outcome="success",
+        )
+        heading = "Decision Recorded" if decision == DENIED else "Action Confirmed"
         return f"""
         <html>
-            <head><title>Action Confirmed</title></head>
+            <head><title>{heading}</title></head>
             <body style="font-family: Arial; text-align: center; padding-top: 50px;">
-                <h1>Action Confirmed</h1>
+                <h1>{heading}</h1>
                 <p>{html.escape(detail)}</p>
                 <p>You can close this tab and return to Google Chat.</p>
             </body>
@@ -584,6 +705,11 @@ async def legacy_action(t: str = Query(..., description="Signed action token")):
         """
     except Exception as e:
         logger.error(f"Legacy action failed: {e}")
+        emit_audit_event(
+            stage="legacy_action_failed",
+            outcome="failure",
+            detail=str(e)[:500],
+        )
         return HTMLResponse(
             content=f"""
             <html>

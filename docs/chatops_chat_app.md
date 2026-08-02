@@ -179,6 +179,43 @@ App auth requires the Chat App to be registered in the same GCP project as
 the identities above (or `GOOGLE_APPLICATION_CREDENTIALS` pointing at the
 app project's service account key).
 
+## Human decision semantics
+
+Button clicks reach the agent session as a rigid template, never free
+text: `HUMAN DECISION via ChatOps [decision=APPROVED|DENIED|UNSPECIFIED]
+action="..."`. A Deny explicitly instructs the agent NOT to execute and to
+record the denial; an unparseable decision demands fresh confirmation
+before any state change. The action name is sanitized (single-line,
+bounded, control phrases redacted) before it may appear in the session --
+the approval channel writes into a tool-bearing agent and must not be an
+injection path. Raw values are preserved in the audit trail instead.
+
+## Audit trail
+
+Every approval lifecycle transition emits a single-line JSON event
+(marker `CHATOPS_AUDIT`, versioned schema) via the `chatops.audit`
+logger: click accepted/rejected (invalid token, unauthorized approver),
+enqueued/deduped/enqueue-failed, worker start, decision injected into the
+session, outcome (success/failure/timeout), and legacy `/action`
+executions. Events carry approver display name and email, action (raw --
+this is how an auditor detects injection attempts), decision, session and
+message correlation, and outcome detail.
+
+On Cloud Run these land in Cloud Logging automatically. For durable,
+queryable, append-only evidence, export them to BigQuery once:
+
+```bash
+bq mk --dataset "${GCP_PROJECT_ID}:chatops_audit"
+gcloud logging sinks create chatops-audit-sink \
+  "bigquery.googleapis.com/projects/${GCP_PROJECT_ID}/datasets/chatops_audit" \
+  --log-filter='resource.type="cloud_run_revision" AND jsonPayload.marker="CHATOPS_AUDIT" OR textPayload:"CHATOPS_AUDIT"'
+# Grant the sink's writer identity (printed by the previous command)
+# BigQuery Data Editor on the dataset.
+```
+
+Audit emission never raises into the request path; a serialization
+failure degrades to a minimal `audit_emit_error` event.
+
 ## Development
 
 - `CHATOPS_INLINE_EXECUTION=true` executes actions with FastAPI background

@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 
 
 sys.path.append(str(Path(__file__).parent))
+from decision import build_session_message
 from security import generate_signed_payload
 from webhook_handler import app
 
@@ -63,7 +64,7 @@ def test_webhook_integration(mock_vertex_init, mock_reasoning_engine, mock_env):
     mock_reasoning_engine.assert_called_with(payload["agent_engine_id"])
     mock_agent_instance.query.assert_called_once_with(
         session_id=payload["session_id"],
-        input=f"USER ACTION CONFIRMED via ChatOps: {payload['action']}",
+        input=build_session_message(payload["action"])[1],
     )
 
 

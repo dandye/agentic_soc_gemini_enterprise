@@ -1,5 +1,5 @@
-# Use a slim Python 3.10 base
-FROM python:3.10-slim
+# Use a slim Python base matching the repo target (pyproject: py312)
+FROM python:3.12-slim
 
 # Set environment variables
 ENV HOST=0.0.0.0
@@ -21,7 +21,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy only the ChatOps Python files.
 # We skip the entire soc_agent/ folder to keep the container small.
-COPY webhook_handler.py chat_app_handler.py chat_api.py security.py ./
+COPY webhook_handler.py chat_app_handler.py chat_api.py security.py decision.py audit.py ./
 
 # Expose the standard Cloud Run port
 EXPOSE 8080
