@@ -61,6 +61,15 @@ CHAT_CERTS_URL = (
 AGENT_QUERY_TIMEOUT = float(os.environ.get("CHATOPS_AGENT_TIMEOUT", "540"))
 
 
+def _feature_enabled() -> bool:
+    """ChatOps kill switch (issues #85-#90): disabled unless explicitly on."""
+    return os.environ.get("CHATOPS_ENABLED", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+
+
 def _dev_flag(name: str) -> bool:
     """Reads a dev-only toggle, hard-blocked on Cloud Run.
 
@@ -462,6 +471,11 @@ async def _execute_and_sync(payload: dict) -> None:
 @app.post("/chat/events")
 async def chat_events(request: Request, background_tasks: BackgroundTasks):
     """Handles Google Chat interaction events for the registered Chat App."""
+    if not _feature_enabled():
+        return JSONResponse(
+            {"error": "ChatOps is disabled (CHATOPS_ENABLED is not set)."},
+            status_code=503,
+        )
     if not _dev_flag("CHATOPS_SKIP_JWT_VERIFY"):
         token = _bearer_token(request)
         if not token:
@@ -627,6 +641,11 @@ async def chat_events(request: Request, background_tasks: BackgroundTasks):
 @app.post("/tasks/execute")
 async def tasks_execute(request: Request):
     """Cloud Tasks worker endpoint: executes the agent query and syncs state."""
+    if not _feature_enabled():
+        return JSONResponse(
+            {"error": "ChatOps is disabled (CHATOPS_ENABLED is not set)."},
+            status_code=503,
+        )
     if not _dev_flag("CHATOPS_SKIP_JWT_VERIFY"):
         token = _bearer_token(request)
         if not token:
@@ -670,6 +689,13 @@ async def tasks_execute(request: Request):
 @app.get("/action", response_class=HTMLResponse)
 async def legacy_action(t: str = Query(..., description="Signed action token")):
     """Legacy openLink route: kept so in-flight signed URLs work during cutover."""
+    if not _feature_enabled():
+        return HTMLResponse(
+            content="<html><body><h1>ChatOps is disabled</h1>"
+            "<p>This feature is turned off (CHATOPS_ENABLED is not set). "
+            "No action was executed.</p></body></html>",
+            status_code=503,
+        )
     try:
         payload = verify_signed_payload(t)
         action = payload.get("action")

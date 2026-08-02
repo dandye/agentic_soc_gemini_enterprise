@@ -16,6 +16,26 @@ CHATOPS_HTTP_TIMEOUT = float(os.environ.get("CHATOPS_HTTP_TIMEOUT", "30"))
 logger = logging.getLogger(__name__)
 
 
+def _chatops_enabled() -> bool:
+    """ChatOps kill switch (issues #85-#90): disabled unless explicitly on.
+
+    Checked at call time, in every send path, so even a deployment with
+    stale tool registration cannot deliver cards while the feature is dark.
+    """
+    return os.environ.get("CHATOPS_ENABLED", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+
+
+_DISABLED_MESSAGE = (
+    "ChatOps is DISABLED (CHATOPS_ENABLED is not set): no card was sent and "
+    "NO human analyst was notified. Record in your report that automated "
+    "human notification is unavailable and manual notification is required."
+)
+
+
 def _chat_app_mode() -> bool:
     """True when ChatOps should post as the registered Chat App (issue #62).
 
@@ -134,6 +154,9 @@ async def send_raw_card(payload: dict) -> str:
     When CHATOPS_MODE=chat_app, posts as the registered Chat App instead so
     card buttons execute in the background (issue #62).
     """
+    if not _chatops_enabled():
+        return _DISABLED_MESSAGE
+
     if _chat_app_mode():
         return await _send_via_chat_app(payload)
 
@@ -166,6 +189,9 @@ async def dispatch_card(template_name: str, ctx: Context, **kwargs) -> str:
         ctx: ADK Context to extract session and user IDs
         **kwargs: Dynamic variables to pass to the card's get_card() function.
     """
+    if not _chatops_enabled():
+        return _DISABLED_MESSAGE
+
     try:
         import sys
         from pathlib import Path
@@ -285,6 +311,9 @@ async def send_chatops_card(
         card_id: Unique ID for the card (optional).
         image_url: URL for the header icon (optional).
     """
+    if not _chatops_enabled():
+        return _DISABLED_MESSAGE
+
     payload_for_chat_app = {
         "cardsV2": [
             {

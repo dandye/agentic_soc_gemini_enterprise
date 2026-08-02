@@ -12,6 +12,14 @@ provenance:
 
 # ChatOps Native Chat App Migration
 
+> **STATUS: DISABLED BY DEFAULT.** The ChatOps human-approval flow is
+> feature-gated behind `CHATOPS_ENABLED` and ships OFF pending a redesign
+> (audit durability, non-response escalation, severity tiers, fatigue
+> controls -- issues #85-#90). With the flag unset: agents do not register
+> ChatOps tools, the send paths refuse with an honest message, and the
+> Cloud Run handlers return 503. Everything below describes the feature as
+> it behaves when explicitly re-enabled.
+
 This document covers the migration from Google Chat incoming webhooks to a
 registered Google Chat App (issue #62), which delivers three UX and
 reliability upgrades:

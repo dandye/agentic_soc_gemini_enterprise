@@ -16,6 +16,7 @@ import types
 from pathlib import Path
 
 
+os.environ["CHATOPS_ENABLED"] = "true"  # kill switch off for these tests
 os.environ["CHATOPS_SKIP_JWT_VERIFY"] = "true"
 os.environ["CHRONICLE_CHATOPS_SECRET"] = "unit-test-secret"
 os.environ["CHATOPS_BASE_URL"] = "https://handler.example.com/chatops"
@@ -559,6 +560,51 @@ def test_audit_never_raises():
     print("test_audit_never_raises passed")
 
 
+def test_kill_switch_dark_by_default():
+    # With CHATOPS_ENABLED unset: senders refuse, endpoints 503
+    os.environ.pop("CHATOPS_ENABLED", None)
+    try:
+        from agent_soc_manager.tools import chatops_tools
+
+        result = asyncio.run(chatops_tools.send_raw_card({"cardsV2": []}))
+        assert "DISABLED" in result
+        assert "NO human analyst was notified" in result
+
+        result = asyncio.run(
+            chatops_tools.send_chatops_card(title="T", subtitle="S", sections=[])
+        )
+        assert "DISABLED" in result
+
+        client = TestClient(chat_app_handler.app)
+        assert client.post("/chat/events", json={"type": "MESSAGE"}).status_code == 503
+        assert client.post("/tasks/execute", json={}).status_code == 503
+        response = client.get("/action", params={"t": "x.y"})
+        assert response.status_code == 503
+        assert "disabled" in response.text.lower()
+    finally:
+        os.environ["CHATOPS_ENABLED"] = "true"
+    print("test_kill_switch_dark_by_default passed")
+
+
+def test_kill_switch_strip_filter():
+    # The registration filter drops every chatops tool when disabled
+    import agent_soc_manager.tools.chatops_tools as ct
+
+    fns = {
+        obj
+        for obj in vars(ct).values()
+        if callable(obj)
+        and getattr(obj, "__module__", None) == "agent_soc_manager.tools.chatops_tools"
+    }
+    assert ct.send_raw_card in fns
+    assert ct.request_human_confirmation in fns
+    marker = object()
+    tools = [marker, ct.send_chatops_card, ct.deliver_report]
+    stripped = [t for t in tools if t not in fns]
+    assert stripped == [marker]
+    print("test_kill_switch_strip_filter passed")
+
+
 if __name__ == "__main__":
     test_transform()
     test_events_card_clicked_enqueues_and_acks()
@@ -579,4 +625,6 @@ if __name__ == "__main__":
     test_deny_worker_outcome_says_not_executed()
     test_audit_flow_ordered_and_parseable()
     test_audit_never_raises()
+    test_kill_switch_dark_by_default()
+    test_kill_switch_strip_filter()
     print("\nAll chat_app tests passed.")
