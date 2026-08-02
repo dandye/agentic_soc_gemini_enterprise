@@ -25,6 +25,17 @@ async def handle_action(t: str = Query(..., description="Signed action token")):
     """
     Handles a ChatOps button click by verifying the token and notifying the Agent Engine.
     """
+    if os.environ.get("CHATOPS_ENABLED", "").strip().lower() not in (
+        "1",
+        "true",
+        "yes",
+    ):
+        return HTMLResponse(
+            content="<html><body><h1>ChatOps is disabled</h1>"
+            "<p>This feature is turned off (CHATOPS_ENABLED is not set). "
+            "No action was executed.</p></body></html>",
+            status_code=503,
+        )
     try:
         # 1. Verify and decode payload
         payload = verify_signed_payload(t)

@@ -914,6 +914,7 @@ from google.genai.types import (  # noqa: E402
     Part,
 )
 
+import agent_soc_manager.tools.chatops_tools as _chatops_tools_module  # noqa: E402
 from agent_soc_manager.tools.chatops_tools import (  # noqa: E402
     deliver_report,
     generic_notification,
@@ -968,6 +969,32 @@ from agent_soc_manager.tools.chatops_tools import (  # noqa: E402
     trigger_vulnerability_patch_approval_card,
     verify_user_travel,
 )
+
+
+# ChatOps kill switch: the feature is DISABLED unless CHATOPS_ENABLED is
+# explicitly set. The human-approval flow needs redesign (see issues
+# #85-#90); until then no agent registers ChatOps tools. Everything defined
+# in chatops_tools is gated automatically, so new tools cannot leak past
+# the switch.
+CHATOPS_ENABLED = os.environ.get("CHATOPS_ENABLED", "").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+)
+
+_CHATOPS_TOOL_FNS = {
+    obj
+    for obj in vars(_chatops_tools_module).values()
+    if callable(obj)
+    and getattr(obj, "__module__", None) == "agent_soc_manager.tools.chatops_tools"
+}
+
+
+def _strip_chatops(tools: list) -> list:
+    """Removes ChatOps tools from a tool list when the feature is disabled."""
+    if CHATOPS_ENABLED:
+        return tools
+    return [t for t in tools if t not in _CHATOPS_TOOL_FNS]
 
 
 # Monkey-patch version property to prevent Vertex AI Agent Engine serialization errors
@@ -2898,11 +2925,14 @@ def create_agent():
     logger.info("Loading ADK Skills...")
     skill_dir = Path(__file__).parent / "skills"
     malware_triage_skill = load_skill_from_dir(skill_dir / "malware-triage-skill")
-    chatops_skill = load_skill_from_dir(skill_dir / "chatops-skill")
+    tier1_skills = [malware_triage_skill]
+    if CHATOPS_ENABLED:
+        chatops_skill = load_skill_from_dir(skill_dir / "chatops-skill")
+        tier1_skills.append(chatops_skill)
+    else:
+        logger.info("ChatOps disabled (CHATOPS_ENABLED unset); skill not loaded.")
 
-    tier1_skill_toolset = skill_toolset.SkillToolset(
-        skills=[malware_triage_skill, chatops_skill]
-    )
+    tier1_skill_toolset = skill_toolset.SkillToolset(skills=tier1_skills)
 
     # ========================================================================
     # SUB-AGENT 2: Tier 1 SOC Analyst (Chronicle + SOAR + basic GTI)
@@ -2926,6 +2956,7 @@ def create_agent():
         list_chatops_capabilities,
         send_all_example_cards,
     ]
+    tier1_tools = _strip_chatops(tier1_tools)
 
     # Configure grounding/retrieval for Tier 1 Analyst
     ALLOYDB_GROUNDING_ENABLED = (
@@ -3098,6 +3129,7 @@ You MUST use the following exact values for any Chronicle or SecOps tool calls (
         delegate_to_detection_engineer,
         delegate_concurrently,
     ]
+    orchestrator_tools = _strip_chatops(orchestrator_tools)
 
     # Add grounding/retrieval tool based on configuration
     ELASTICSEARCH_GROUNDING_ENABLED = (

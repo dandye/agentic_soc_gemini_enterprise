@@ -1423,8 +1423,17 @@ def create_agent():
     # ========================================================================
     # Add ChatOps Mitigation Skills
     # ========================================================================
-    logger.info("Importing ChatOps mitigation tools...")
+    # ChatOps kill switch: disabled unless CHATOPS_ENABLED is explicitly set
+    # (feature pending redesign; see issues #85-#90).
+    chatops_enabled = os.environ.get("CHATOPS_ENABLED", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
     try:
+        if not chatops_enabled:
+            raise ImportError("ChatOps disabled via CHATOPS_ENABLED kill switch")
+        logger.info("Importing ChatOps mitigation tools...")
         from agent_soc_manager.tools.chatops_tools import (
             deliver_report,
             generic_notification,
