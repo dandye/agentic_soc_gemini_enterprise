@@ -456,7 +456,6 @@ class LicenseManager:
         payload = {
             "inlineSource": {
                 "userLicenses": user_licenses,
-                "updateMask": {"paths": ["userPrincipal", "licenseConfig"]},
             },
             "deleteUnassignedUserLicenses": False,
         }
@@ -473,14 +472,32 @@ class LicenseManager:
                 result = self._poll_operation(operation_name, location)
 
             if result and "error" not in result:
-                typer.secho("Licenses assigned successfully!", fg=typer.colors.GREEN)
                 response_data = result.get("response", {})
                 updated_licenses = response_data.get("userLicenses", [])
+                all_assigned = True
                 for ul in updated_licenses:
-                    typer.echo(
-                        f"  - {ul.get('userPrincipal')}: {ul.get('licenseAssignmentState')}"
+                    state = ul.get("licenseAssignmentState", "N/A")
+                    user_principal = ul.get("userPrincipal", "N/A")
+                    if state == "ASSIGNED":
+                        state_style = typer.style(state, fg=typer.colors.GREEN)
+                    else:
+                        all_assigned = False
+                        state_style = typer.style(state, fg=typer.colors.YELLOW)
+                    typer.echo(f"  - {user_principal}: {state_style}")
+
+                if all_assigned and updated_licenses:
+                    typer.secho("Licenses assigned successfully!", fg=typer.colors.GREEN)
+                elif not updated_licenses:
+                    typer.secho(
+                        "Warning: No user licenses returned in response.",
+                        fg=typer.colors.YELLOW,
                     )
-                return True
+                else:
+                    typer.secho(
+                        "Warning: Some licenses were not assigned with state ASSIGNED.",
+                        fg=typer.colors.YELLOW,
+                    )
+                return all_assigned
             else:
                 error_msg = result.get("error", {}).get("message", "Unknown error")
                 typer.secho(
@@ -520,7 +537,6 @@ class LicenseManager:
         payload = {
             "inlineSource": {
                 "userLicenses": user_licenses,
-                "updateMask": {"paths": ["userPrincipal", "licenseConfig"]},
             },
             "deleteUnassignedUserLicenses": delete_unassigned,
         }
