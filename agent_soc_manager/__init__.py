@@ -14,11 +14,16 @@ Usage:
     my_agent = create_agent()
 """
 
-# Import the agent module (ADK standard pattern)
-from . import agent
+try:
+    # Import the agent module (ADK standard pattern)
+    from . import agent
 
-# Also expose the main functions for convenience
-from .agent import create_agent, root_agent
+    # Also expose the main functions for convenience
+    from .agent import create_agent, root_agent
+except ImportError:
+    agent = None
+    create_agent = None
+    root_agent = None
 
 
 __version__ = "1.0.0"

@@ -94,6 +94,11 @@ If you find credible evidence of the following high-severity threats, you MUST i
    - **notify_human_incident**: Send high-priority alerts to the team.
    - **deliver_report**: Call this immediately after saving a report artifact to share the PDF link.
 - **GTI**: Basic reputation checks for suspicious indicators.
+- **Progressive MCP Discovery & Execution**:
+  - To query external systems (SIEM, SOAR, GTI, SecOps), use progressive MCP discovery:
+    1. Use `search_mcp_tools(query, server)` to find available tools.
+    2. Use `get_mcp_tool_schema(tool_name)` to inspect parameter definitions and requirements.
+    3. Use `execute_mcp_tool(tool_name, arguments)` to run them.
 
 **TRANSPARENCY IN RESPONSES:**
 When reporting results, ALWAYS include:
