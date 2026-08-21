@@ -99,6 +99,10 @@ If you find credible evidence of the following high-severity threats, you MUST i
     1. Use `search_mcp_tools(query, server)` to find available tools.
     2. Use `get_mcp_tool_schema(tool_name)` to inspect parameter definitions and requirements.
     3. Use `execute_mcp_tool(tool_name, arguments)` to run them.
+- **Progressive Skill Disclosure**:
+  - Review your **Available Skills** in your persona catalog.
+  - Call `load_skill(skill_name)` to retrieve the complete step-by-step runbook/procedure (such as `malware-triage`, `basic-ioc-enrichment`, `suspicious-login-triage`) before performing alert assessment.
+  - Call `list_available_skills(category)` to query available skills by category.
 
 **TRANSPARENCY IN RESPONSES:**
 When reporting results, ALWAYS include:

@@ -970,11 +970,12 @@ from agent_soc_manager.tools.chatops_tools import (  # noqa: E402
     verify_user_travel,
 )
 from agent_soc_manager.tools.progressive_mcp_tools import (  # noqa: E402
-    execute_mcp_tool,
-    get_mcp_tool_schema,
     get_progressive_mcp_meta_tools,
     global_mcp_registry,
-    search_mcp_tools,
+)
+from agent_soc_manager.tools.skill_tools import (  # noqa: E402
+    get_progressive_skill_tools,
+    load_persona_with_skills_catalog,
 )
 
 
@@ -3034,8 +3035,26 @@ def create_agent():
     global_mcp_registry.register_mcp_toolset(secops_toolset, server_name="siem")
     global_mcp_registry.register_mcp_toolset(gti_toolset, server_name="gti")
 
-    # Add progressive discovery meta-tools
+    # Add progressive discovery meta-tools (MCP and Skills)
     tier1_tools.extend(get_progressive_mcp_meta_tools())
+    tier1_tools.extend(get_progressive_skill_tools())
+
+    # Load dynamic persona with skills catalog
+    tier1_persona = load_persona_with_skills_catalog(
+        persona_file_path="",
+        skill_names=[
+            "triage-alerts",
+            "close-duplicate-cases",
+            "investigate-case-external-tools",
+            "group-cases",
+            "group-cases-v2",
+            "basic-ioc-enrichment",
+            "suspicious-login-triage",
+            "report-writing-guidelines",
+            "malware-triage",
+        ],
+        default_persona_description=TIER1_PERSONA,
+    )
 
     # Load Tier 1 Analyst instructions from prompt file
     current_dir = Path(__file__).parent
@@ -3062,7 +3081,7 @@ You MUST use the following exact values for any Chronicle or SecOps tool calls (
     tier1_subagent = PatchedAgent(
         name="tier1_analyst",
         model=TIER1_ANALYST_MODEL,
-        description=TIER1_PERSONA,
+        description=tier1_persona,
         instruction=tier1_instruction,
         tools=tier1_tools,
         before_model_callback=prevent_runaway_loop_callback,
@@ -3184,8 +3203,23 @@ You MUST use the following exact values for any Chronicle or SecOps tool calls (
     orchestrator_tools.append(LoadMemoryTool())  # On-demand memory queries
     orchestrator_tools.append(query_knowledge_graph)  # On-demand Neo4j queries
 
-    # Add Progressive MCP Discovery meta-tools
+    # Add Progressive Discovery meta-tools (MCP and Skills)
     orchestrator_tools.extend(get_progressive_mcp_meta_tools())
+    orchestrator_tools.extend(get_progressive_skill_tools())
+
+    # Build orchestrator dynamic persona with skills catalog
+    orchestrator_persona = load_persona_with_skills_catalog(
+        persona_file_path="",
+        skill_names=[
+            "compromised-user-account-response",
+            "phishing-response",
+            "ransomware-response",
+            "malware-incident-response",
+            "report-writing-guidelines",
+            "create-investigation-report",
+        ],
+        default_persona_description="SecOps Security Agent - An intelligent SOC orchestrator for Google SecOps that delegates security operations to specialized persona-based agents.",
+    )
 
     # Build orchestrator instruction
     # Load Orchestrator instructions from prompt file
@@ -3201,7 +3235,7 @@ You MUST use the following exact values for any Chronicle or SecOps tool calls (
     orchestrator = PatchedAgent(
         name="secops_assistant",
         model=ORCHESTRATOR_MODEL,
-        description="SecOps Security Agent - An intelligent SOC orchestrator for Google SecOps that delegates security operations to specialized persona-based agents.",
+        description=orchestrator_persona,
         instruction=orchestrator_instruction,
         tools=orchestrator_tools,
         sub_agents=[tier1_subagent],  # LLM delegation to specialists
