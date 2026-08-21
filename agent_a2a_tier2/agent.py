@@ -1121,7 +1121,7 @@ def create_agent():
     load_dotenv(Path(".env"), override=True)
 
     # Model Configuration
-    TIER2_RESPONDER_MODEL = os.environ.get("TIER2_RESPONDER_MODEL", "gemini-2.5-pro")
+    TIER2_RESPONDER_MODEL = os.environ.get("TIER2_RESPONDER_MODEL", "gemini-3.7-flash")
 
     # Get all required environment variables
     GCP_PROJECT_ID = os.environ.get("GCP_PROJECT_ID")

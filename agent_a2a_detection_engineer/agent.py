@@ -940,7 +940,7 @@ def create_agent():
 
     # Model Configuration
     DETECTION_ENGINEER_MODEL = os.environ.get(
-        "DETECTION_ENGINEER_MODEL", "gemini-3.5-flash"
+        "DETECTION_ENGINEER_MODEL", "gemini-3.7-flash"
     )
 
     # Get all required environment variables
