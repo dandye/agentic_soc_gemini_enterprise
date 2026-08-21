@@ -49,6 +49,11 @@ from google.adk.tools.mcp_tool.mcp_toolset import McpToolset
 from google.genai.types import Part
 from vertexai.preview import rag
 
+from agent_soc_manager.tools.skill_tools import (
+    get_progressive_skill_tools,
+    load_persona_with_skills_catalog,
+)
+
 
 # Add text/markdown mimetype for .md files
 mimetypes.add_type("text/markdown", ".md")
@@ -1469,6 +1474,26 @@ def create_agent():
         )
 
     # ========================================================================
+    # Add progressive skill tools
+    # ========================================================================
+    tools.extend(get_progressive_skill_tools())
+
+    tier2_persona = load_persona_with_skills_catalog(
+        persona_file_path="",
+        skill_names=[
+            "compromised-user-account-response",
+            "phishing-response",
+            "ransomware-response",
+            "malware-incident-response",
+            "ioc-containment",
+            "confirm-action",
+            "document-in-soar",
+            "report-writing-guidelines",
+        ],
+        default_persona_description=TIER2_PERSONA,
+    )
+
+    # ========================================================================
     # Create the Agent with all configured tools
     # ========================================================================
     logger.info(f"Creating Tier 2 Incident Responder Agent with {len(tools)} tools...")
@@ -1476,8 +1501,8 @@ def create_agent():
     agent = PatchedAgent(
         model=TIER2_RESPONDER_MODEL,
         name="soc_analyst_tier2_responder",
-        description=TIER2_PERSONA,
-        instruction="""You are a Tier 2 Incident Responder - a senior security operations engineer responsible for active threat containment, containment validation, and host/network remediation.
+        description=tier2_persona,
+        instruction="""You are a Tier 2 Incident Responder - a senior security operations engineer responsible for active threat containment, containment validation, and host/network remediation. When executing a task, check your Available Skills. Call `load_skill(skill_name)` to retrieve detailed procedural guidance and rubrics when relevant.
 
 CRITICAL SAFETY RULE - HUMAN-IN-THE-LOOP MANDATORY:
 **You are strictly forbidden from executing containment or mitigation actions (such as host isolation, domain/IP blocks, user credential suspension, or container teardowns) without first obtaining explicit human confirmation. You MUST call the `request_human_confirmation` tool to present an interactive card to the security analyst and receive positive confirmation before initiating any state-changing containment steps. Honesty about tool failures is mandatory.**

@@ -35,6 +35,11 @@ from google.adk.tools.mcp_tool.mcp_toolset import McpToolset
 from google.genai.types import Part
 from vertexai.preview import rag
 
+from agent_soc_manager.tools.skill_tools import (
+    get_progressive_skill_tools,
+    load_persona_with_skills_catalog,
+)
+
 
 # Add text/markdown mimetype for .md files
 mimetypes.add_type("text/markdown", ".md")
@@ -1193,6 +1198,23 @@ def create_agent():
     tools.append(save_report_artifact)
 
     # ========================================================================
+    # Add progressive skill tools
+    # ========================================================================
+    tools.extend(get_progressive_skill_tools())
+
+    det_persona = load_persona_with_skills_catalog(
+        persona_file_path="",
+        skill_names=[
+            "detection-as-code-rule-tuning",
+            "detection-as-code-workflows",
+            "detection-rule-validation-tuning",
+            "detection-engineering-coverage-evaluation",
+            "report-writing-guidelines",
+        ],
+        default_persona_description=DETECTION_ENGINEER_PERSONA,
+    )
+
+    # ========================================================================
     # Create the Agent with all configured tools
     # ========================================================================
     logger.info(f"Creating Detection Engineer Agent with {len(tools)} tools...")
@@ -1200,8 +1222,8 @@ def create_agent():
     agent = Agent(
         model=DETECTION_ENGINEER_MODEL,
         name="soc_analyst_detection_engineer",
-        description=DETECTION_ENGINEER_PERSONA,
-        instruction=f"""You are a Detection Engineer - a security content developer responsible for designing, testing, tuning, and deploying detection rules within Google SecOps.
+        description=det_persona,
+        instruction=f"""You are a Detection Engineer - a security content developer responsible for designing, testing, tuning, and deploying detection rules within Google SecOps. When executing a task, check your Available Skills. Call `load_skill(skill_name)` to retrieve detailed procedural guidance and rubrics when relevant.
 
 CRITICAL RUNTIME REQUIREMENT:
 When calling ANY remote Google SecOps/Chronicle MCP tool, you MUST ALWAYS provide the following arguments in the tool call:
@@ -1217,7 +1239,7 @@ ROLE & FOCUS:
 
 WORKFLOW APPROACH:
 1. **Intake & Discovery:** Review requests to write or tune rules, or analyze threat behaviors reported by CTI/Hunters.
-2. **Runbook Retrieval:** Use `retrieve_agentic_soc_runbooks` to load runbooks like `detection_rule_validation_tuning.md` or `detection_as_code_workflows.md`.
+2. **Runbook Retrieval:** Check available skills and use `load_skill` or `retrieve_agentic_soc_runbooks` to load runbooks like `detection_rule_validation_tuning.md` or `detection_as_code_workflows.md`.
 3. **Telemetry & Log Analysis:** Call Chronicle logs (`search_security_events`) to examine log events, fields, and UDM schemas.
 4. **Rule Logic Development:** Formulate rule logic. Review existing coverage using rule listing tools (`list_rules`).
 5. **Testing & Tuning:** Test rule performance against historical logs or verify syntax. Tune rule exceptions (exclusions) or thresholds to address false positives.
