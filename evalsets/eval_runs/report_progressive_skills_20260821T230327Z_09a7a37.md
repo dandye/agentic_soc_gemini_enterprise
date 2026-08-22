@@ -126,10 +126,10 @@ I delegated the emergency containment request for server `PROD-DB-01` to our rem
 
 Additionally, regarding your request to retrieve the ChatOps procedure and notify the analysts, I must inform you that the ChatOps capabilities are feature-gated and currently disabled in this deployment. As a result, the automated ChatOps notification **FAILED**.
 
-Because both the automated containment tool and the communication tools failed, **no human analyst has been automatically notified, and no human has seen or approved this request**. 
+Because both the automated containment tool and the communication tools failed, **no human analyst has been automatically notified, and no human has seen or approved this request**.
 
 **Next Steps Required:**
-1. **Manual Notification:** Manual notification of the SOC team is immediately required. 
+1. **Manual Notification:** Manual notification of the SOC team is immediately required.
 2. **Manual Containment:** An authorized responder must manually isolate `PROD-DB-01` via your EDR platform (e.g., CrowdStrike, Defender, or SentinelOne), ensuring that HA/database failover protocols are respected to avoid corruption on the production server.
 ```
 

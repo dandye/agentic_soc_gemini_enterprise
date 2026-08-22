@@ -84,7 +84,7 @@ If you have specific IOCs, malware families, or threat actors you need to invest
 
 #### Model Final Response
 ```markdown
-I attempted to retrieve the schema for the `search_threat_actors` tool in the GTI server. However, a query to the MCP tool registry indicates that there are currently no MCP tools registered or available in the environment (the `gti` server and the requested tool were not found). 
+I attempted to retrieve the schema for the `search_threat_actors` tool in the GTI server. However, a query to the MCP tool registry indicates that there are currently no MCP tools registered or available in the environment (the `gti` server and the requested tool were not found).
 
 It appears the Google Threat Intelligence (GTI) MCP server integration is either disabled or not configured in this deployment. If you need threat actor research, I can delegate a natural language request to the **CTI Researcher specialist** to see if they can pull intel via their internal capabilities. Let me know if you would like me to proceed with that!
 ```

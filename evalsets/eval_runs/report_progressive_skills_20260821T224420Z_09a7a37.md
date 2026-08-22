@@ -58,7 +58,7 @@ Here are the security skills and runbooks currently available in my catalog:
 - **`ioc-enrichment-skill`**: A foundational procedural skill for extracting, contextualizing, and evaluating Indicators of Compromise (IOCs) against internal telemetry and external threat intelligence.
 - **`malware-triage-skill`**: A comprehensive runbook that provides the step-by-step logic, instructions, and workflows for properly identifying, analyzing, and containing malware samples discovered in the environment.
 
-Whenever we encounter a task that requires one of these workflows, I can dynamically load the detailed step-by-step instructions to execute the required investigation or response procedure. 
+Whenever we encounter a task that requires one of these workflows, I can dynamically load the detailed step-by-step instructions to execute the required investigation or response procedure.
 
 Is there a specific skill you'd like me to load or a security task you need assistance with?
 ```
@@ -120,14 +120,14 @@ Is there a specific skill you'd like me to load or a security task you need assi
 I retrieved the **ChatOps analyst notification protocol** from our knowledge base and engaged our remote **Tier 2 Incident Responder specialist** to initiate the emergency host isolation. Here is the status of your request:
 
 ### 1. Analyst Notification Protocol Status
-Our `chatops-skill` procedure dictates that before performing any irreversible or high-risk action like isolating a production server, the system MUST propose the action to a human analyst for explicit authorization (Human-in-the-Loop) using predefined alert cards. 
+Our `chatops-skill` procedure dictates that before performing any irreversible or high-risk action like isolating a production server, the system MUST propose the action to a human analyst for explicit authorization (Human-in-the-Loop) using predefined alert cards.
 
 **CRITICAL NOTICE:** The automated ChatOps communication tools are **disabled** in this deployment. Consequently, the automated ChatOps notification **FAILED** and **no human analyst was notified**. You must manually notify the SOC team and Incident Commander immediately to fulfill the communication protocol.
 
 ### 2. Host Isolation Execution Status
 I delegated the emergency containment task to our **Tier 2 Incident Responder specialist** to isolate `PROD-DB-01`.
 
-*   **Result:** The Tier 2 specialist was **unable to automatically execute** the network isolation. 
+*   **Result:** The Tier 2 specialist was **unable to automatically execute** the network isolation.
 *   **Context Provided by Specialist:** Isolating a high-impact production database (`PROD-DB-01`) will result in immediate service disruption. Automated containment integrations for this specific tier of asset are restricted. The specialist advises that this requires an Incident Commander's authorization and direct manual execution by an administrator through your Endpoint Detection and Response (EDR) or Network Access Control (NAC) management console.
 
 ### Recommended Next Steps

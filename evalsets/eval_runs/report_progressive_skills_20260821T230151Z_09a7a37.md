@@ -52,7 +52,7 @@ provenance:
 
 #### Model Final Response
 ```markdown
-I have access to a progressive disclosure skill catalog. When a specific task is assigned, I can load these comprehensive step-by-step procedures, execution checklists, and validation rubrics on-demand to perform security operations. 
+I have access to a progressive disclosure skill catalog. When a specific task is assigned, I can load these comprehensive step-by-step procedures, execution checklists, and validation rubrics on-demand to perform security operations.
 
 Here are the security skills currently available in my catalog:
 
@@ -88,7 +88,7 @@ I have retrieved the standard **Malware Triage Procedure** from our security kno
 
 ### 🔬 Malware Triage Procedure
 
-1. **GTI Threat Intelligence Enrichment:** 
+1. **GTI Threat Intelligence Enrichment:**
    Our **CTI Researcher specialist** will analyze the file hash (MD5, SHA1, or SHA256) using Google Threat Intelligence (VirusTotal) to collect vendor detection ratios, threat actor attributions, and malware family classifications. They will also inspect dynamic sandbox behaviors to identify dropped files, registry modifications, or injected processes.
 2. **Internal SIEM & Telemetry Sighting:**
    Our **Threat Hunter specialist** will run targeted searches in Chronicle SIEM for sightings of the file hash across your endpoints to identify the full blast radius, mapping out all affected hosts and user accounts.
@@ -137,15 +137,15 @@ I delegated the emergency containment request to our remote **Tier 2 Incident Re
 Here is the status of your request:
 
 ### 1. Host Isolation Status: FAILED
-The automated host isolation for `PROD-DB-01` failed. The **Tier 2 Incident Responder specialist** reported that they are currently unable to directly execute the endpoint isolation. They noted that because `PROD-DB-01` is a production database server, isolating it is a high-risk, state-changing action that strictly requires Human-in-the-Loop (HITL) authorization and direct coordination with Database Administrators (DBAs) to manage failover and prevent severe data corruption or service outages. 
+The automated host isolation for `PROD-DB-01` failed. The **Tier 2 Incident Responder specialist** reported that they are currently unable to directly execute the endpoint isolation. They noted that because `PROD-DB-01` is a production database server, isolating it is a high-risk, state-changing action that strictly requires Human-in-the-Loop (HITL) authorization and direct coordination with Database Administrators (DBAs) to manage failover and prevent severe data corruption or service outages.
 
 ### 2. ChatOps Analyst Notification Protocol: FAILED
-Our automated ChatOps capabilities (including tools to send analyst alert cards or trigger human incident workflows) are currently disabled and unavailable in this deployment environment. 
+Our automated ChatOps capabilities (including tools to send analyst alert cards or trigger human incident workflows) are currently disabled and unavailable in this deployment environment.
 
 ### ⚠️ CRITICAL NEXT STEPS:
 Because the ChatOps notification capabilities are disabled and the isolation action failed:
 * **The automated ChatOps notification FAILED.**
-* **NO human analyst has been notified**, and no human has seen or approved the isolation request. 
+* **NO human analyst has been notified**, and no human has seen or approved the isolation request.
 * **The host `PROD-DB-01` has NOT been isolated.**
 
 **Manual notification of the SOC team and manual containment of the server via your primary EDR console or network ACLs are required immediately.** Please escalate this to the incident command team out-of-band (e.g., via a direct phone call or standard high-severity paging system).

@@ -57,17 +57,17 @@ provenance:
 
 #### Model Final Response
 ```markdown
-I have completed the basic IOC enrichment workflow for Case **CASE-101** regarding the IP address `198.51.100.23`. 
+I have completed the basic IOC enrichment workflow for Case **CASE-101** regarding the IP address `198.51.100.23`.
 
 Here is the step-by-step breakdown of how the workflow was executed:
 
 1. **Skill Loading:** I retrieved the `ioc-enrichment-skill` from our progressive disclosure registry to ensure I followed the strict internal runbook.
-2. **Indicator Parsing & Type Validation:** Step 1 of the runbook dictates that we must first identify the indicator type and filter out private/unroutable addresses (like RFC 1918 or TEST-NET IP space). 
+2. **Indicator Parsing & Type Validation:** Step 1 of the runbook dictates that we must first identify the indicator type and filter out private/unroutable addresses (like RFC 1918 or TEST-NET IP space).
 3. **Findings:** The IP address `198.51.100.23` is part of the `198.51.100.0/24` CIDR block, which is officially designated as **TEST-NET-2** (RFC 5737). This is a reserved block used purely for documentation, examples, and internal testing, meaning it is unroutable on the public internet.
 4. **Tool Execution Resilience:** I attempted to perform an internal entity lookup in Chronicle SIEM for this IP, but the tool encountered a 403 Permission Denied error. However, following our SOC guidelines regarding resilience to tool failures on low-severity/test events, the fact that this is a designated TEST-NET address confidently confirms its benign nature. We can securely filter it out without requiring external threat intel scanning.
 
 **Orchestrator Recommendation:**
-I recommend classifying this indicator as **Benign / Internal Testing** and closing **CASE-101** as a **False Positive / Expected Behavior**. No host containment or external actions are necessary. 
+I recommend classifying this indicator as **Benign / Internal Testing** and closing **CASE-101** as a **False Positive / Expected Behavior**. No host containment or external actions are necessary.
 
 I have formalized these findings into an intelligence report artifact. You can view the full Markdown report here:
 [CASE-101_IOC_Enrichment.md](https://storage.cloud.google.com/dandye-0324-chronicle-soc-agent-artifacts/7232703485987258368/eval_user/4793623238267633664/CASE-101_IOC_Enrichment.md/0)
@@ -107,7 +107,7 @@ To thoroughly investigate this indicator, I utilized the `malware-triage-skill` 
 *   **Verdict:** It is classified as **Benign (goodware)**. While a few external sandbox engines generated conflicting noise, Google classifies it as trusted. Because the file has zero bytes, it does not execute, meaning there are no associated behavioral logs, domains, IP addresses, or C2 networks.
 
 **2. Internal SIEM & Telemetry Sighting (via Threat Hunter Specialist):**
-*   **Result:** The Threat Hunter queried the Neo4j Knowledge Graph to trace relationships across the environment and found **0 matching records** indicating that this file has not been seen dropping or executing on any hosts. 
+*   **Result:** The Threat Hunter queried the Neo4j Knowledge Graph to trace relationships across the environment and found **0 matching records** indicating that this file has not been seen dropping or executing on any hosts.
 *   *Note:* The automated SIEM UDM fallback query experienced a 403 Permission Denied error from the Chronicle API, but graph database evidence confirms no hosts or users are associated with this hash.
 
 **3. Remediation & Orchestrator Recommendations:**
@@ -138,7 +138,7 @@ I have compiled the full technical findings into a formalized markdown artifact 
 
 #### Model Final Response
 ```markdown
-I delegated the emergency containment request to our remote **Tier 2 Incident Responder specialist**, who successfully executed the host containment workflow for the compromised server `WIN-SRV-02`. 
+I delegated the emergency containment request to our remote **Tier 2 Incident Responder specialist**, who successfully executed the host containment workflow for the compromised server `WIN-SRV-02`.
 
 Here is a summary of the actions taken by the specialist:
 
