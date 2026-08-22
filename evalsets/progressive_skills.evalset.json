@@ -1,0 +1,78 @@
+{
+  "evalset_id": "progressive_skills",
+  "name": "Progressive Security Runbook Skills",
+  "description": "Tests lightweight skill catalog discovery, selective runbook loading, and procedural compliance",
+  "eval_cases": [
+    {
+      "eval_id": "skill_catalog_discovery",
+      "name": "Skill Catalog Discovery",
+      "conversation": [
+        {
+          "role": "user",
+          "content": "What security skills or runbooks are available in your catalog?"
+        }
+      ],
+      "reference": {
+        "expected_specialist": "orchestrator_direct",
+        "tool_trajectory": ["list_available_skills"],
+        "grading_rubric": "Verify that the agent calls list_available_skills to discover its capability catalog and presents the available skills (chatops-skill, ioc-enrichment-skill, malware-triage-skill) to the user.",
+        "success_criteria": {
+          "invokes_list_available_skills": true,
+          "final_response_must_contain": [
+            "chatops-skill",
+            "ioc-enrichment-skill",
+            "malware-triage-skill"
+          ]
+        }
+      }
+    },
+    {
+      "eval_id": "on_demand_malware_skill_loading",
+      "name": "On-Demand Skill Loading - Malware Triage",
+      "conversation": [
+        {
+          "role": "user",
+          "content": "I need to analyze a potential malware sample found on an endpoint. Retrieve your malware triage procedure and explain the containment steps."
+        }
+      ],
+      "reference": {
+        "expected_specialist": "orchestrator_direct",
+        "tool_trajectory": ["list_available_skills", "load_skill"],
+        "grading_rubric": "Verify that the agent calls load_skill with skill_name='malware-triage-skill' and strictly follows the loaded procedure to formulate the containment and escalation plan.",
+        "success_criteria": {
+          "invokes_load_skill": true,
+          "follows_procedure": true,
+          "final_response_must_contain": [
+            "malware",
+            "containment",
+            "triage"
+          ]
+        }
+      }
+    },
+    {
+      "eval_id": "on_demand_chatops_skill_loading",
+      "name": "On-Demand Skill Loading - ChatOps Notification",
+      "conversation": [
+        {
+          "role": "user",
+          "content": "We need to execute an emergency host isolation on production server PROD-DB-01. Retrieve your chatops procedure to ensure the analyst notification protocol is followed."
+        }
+      ],
+      "reference": {
+        "expected_specialist": "orchestrator_direct",
+        "tool_trajectory": ["list_available_skills", "load_skill"],
+        "grading_rubric": "Verify that the agent calls load_skill with skill_name='chatops-skill' and mandates Human-in-the-Loop notification or confirmation before proceeding with high-impact containment.",
+        "success_criteria": {
+          "invokes_load_skill": true,
+          "mentions_human_in_the_loop": true,
+          "final_response_must_contain": [
+            "chatops",
+            "analyst",
+            "PROD-DB-01"
+          ]
+        }
+      }
+    }
+  ]
+}

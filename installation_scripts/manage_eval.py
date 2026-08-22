@@ -126,12 +126,18 @@ class EvaluationRunner:
         self.location = self.env_vars.get("GCP_LOCATION", "us-central1")
         self._client_lock = None
 
-        # Enforce GOOGLE_APPLICATION_CREDENTIALS to use Service Account to prevent gcloud fork conflicts
+        # Only set GOOGLE_APPLICATION_CREDENTIALS if SA file matches current project
         sa_path = self.env_vars.get("SECOPS_SA_PATH") or self.env_vars.get(
             "CHRONICLE_SERVICE_ACCOUNT_PATH"
         )
         if sa_path and Path(sa_path).exists():
-            os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = str(sa_path)
+            try:
+                with open(sa_path, "r") as f:
+                    sa_data = json.load(f)
+                    if sa_data.get("project_id") == self.project_id:
+                        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = str(sa_path)
+            except Exception:
+                pass
 
         if self.project_id:
             vertexai.init(project=self.project_id, location=self.location)
@@ -236,13 +242,17 @@ class EvaluationRunner:
             return self.env_vars.get("THREAT_HUNTER_AGENT_RESOURCE_NAME")
         elif evalset_id == "incident_response":
             return self.env_vars.get("TIER2_AGENT_RESOURCE_NAME")
-        elif evalset_id == "tier1_triage":
+        elif evalset_id in (
+            "tier1_triage",
+            "soc_basic",
+            "multi_specialist",
+            "progressive_mcp_discovery",
+            "progressive_skills",
+            "adk_graph_workflows",
+        ):
             return self.env_vars.get("AGENT_ENGINE_RESOURCE_NAME")  # Orchestrator
-        elif evalset_id == "soc_basic":
-            return self.env_vars.get("AGENT_ENGINE_RESOURCE_NAME")  # Orchestrator
-        elif evalset_id == "multi_specialist":
-            return self.env_vars.get("AGENT_ENGINE_RESOURCE_NAME")  # Orchestrator
-        return None
+        # Fallback to main Orchestrator resource name
+        return self.env_vars.get("AGENT_ENGINE_RESOURCE_NAME")
 
     async def _async_run_case(
         self,
@@ -284,10 +294,13 @@ class EvaluationRunner:
                     for part in event["content"]["parts"]:
                         if "function_call" in part:
                             tool_name = part["function_call"]["name"]
-                            tool_calls.append(tool_name)
+                            tool_args = part["function_call"].get("args", {})
+                            args_str = json.dumps(tool_args) if isinstance(tool_args, dict) else str(tool_args)
+                            tool_call_desc = f"{tool_name}({args_str})"
+                            tool_calls.append(tool_call_desc)
                             if not quiet:
                                 typer.secho(
-                                    f"    [Tool Call] {tool_name}",
+                                    f"    [Tool Call] {tool_call_desc}",
                                     fg=typer.colors.YELLOW,
                                 )
                         elif "text" in part and verbose and not quiet:
@@ -822,6 +835,155 @@ provenance:
         with open(report_path, "w") as f:
             f.write(md_content)
 
+    def push_to_vertex_experiment(
+        self,
+        evalset_file: Path,
+        experiment_name: str | None = None,
+        agent_resource: str | None = None,
+        verbose: bool = False,
+    ) -> None:
+        """Run evaluation using Vertex AI GenAI EvalTask and publish experiment metrics directly to Cloud Console."""
+        from vertexai.preview.evaluation import EvalTask
+        import pandas as pd
+
+        if not evalset_file.exists():
+            typer.secho(
+                f"[ERROR] Evalset file not found: {evalset_file}", fg=typer.colors.RED
+            )
+            raise typer.Exit(1)
+
+        with open(evalset_file, "r") as f:
+            evalset = json.load(f)
+
+        evalset_id = evalset.get(
+            "evalset_id", evalset_file.stem.replace(".evalset", "")
+        )
+        name = evalset.get("name", evalset_id)
+        eval_cases = evalset.get("eval_cases", [])
+
+        target_resource = agent_resource or self._get_agent_resource(evalset_id)
+        if not target_resource:
+            typer.secho(
+                f"[ERROR] Could not resolve agent resource name for evalset '{evalset_id}'.",
+                fg=typer.colors.RED,
+            )
+            raise typer.Exit(1)
+
+        target_location = self.location
+        if target_resource.startswith("projects/"):
+            parts = target_resource.split("/")
+            if len(parts) >= 4 and parts[2] == "locations":
+                target_location = parts[3]
+
+        typer.echo("\n" + "=" * 80)
+        typer.secho(
+            f"Pushing Evaluation to Vertex AI Experiments: {name}",
+            fg=typer.colors.BLUE,
+            bold=True,
+        )
+        typer.echo(f"Agent Resource: {target_resource}")
+        typer.echo(f"Location:       {target_location}")
+        typer.echo(f"Total Cases:    {len(eval_cases)}")
+        typer.echo("=" * 80 + "\n")
+
+        # Initialize Vertex AI for the target region
+        vertexai.init(project=self.project_id, location=target_location)
+        remote_app = agent_engines.get(target_resource)
+
+        # Build DataFrame from eval cases
+        records = []
+        for i, case in enumerate(eval_cases, start=1):
+            conversation = case.get("conversation", [])
+            query = ""
+            for turn in conversation:
+                if turn.get("role") == "user":
+                    query = turn.get("content", "")
+                    break
+            reference_rubric = case.get("reference", {}).get(
+                "grading_rubric", ""
+            )
+            records.append(
+                {
+                    "prompt": query,
+                    "reference": reference_rubric,
+                }
+            )
+
+        df = pd.DataFrame(records)
+
+        exp_name = (
+            experiment_name
+            or f"soc-agent-{evalset_id}"
+        ).replace("_", "-").lower()
+        import uuid
+        git_meta = self._get_git_metadata()
+        commit_hash = git_meta.get("commit", "unknown")[:7].lower()
+        clean_eval_id = evalset_id.replace("_", "-").lower()
+        rand_suffix = uuid.uuid4().hex[:4]
+        run_name = f"eval-{clean_eval_id}-{datetime.now().strftime('%Y%m%d-%H%M%S')}-{commit_hash}-{rand_suffix}"
+
+        typer.secho(
+            f"Creating EvalTask for Experiment: {exp_name} (Run: {run_name})...",
+            fg=typer.colors.CYAN,
+        )
+
+        def agent_runnable(prompt: str) -> dict[str, str]:
+            """Query the live Reasoning Engine stream and accumulate model response parts."""
+            response_text = ""
+            try:
+                for event in remote_app.stream_query(message=prompt):
+                    if event.get("role") == "model" and "content" in event:
+                        for part in event["content"].get("parts", []):
+                            if "text" in part:
+                                response_text += part["text"]
+            except Exception as e:
+                response_text = f"Error during query execution: {e}"
+            return {"response": response_text}
+
+        from installation_scripts.soc_eval_metrics import get_all_soc_metrics
+
+        soc_metrics = get_all_soc_metrics()
+        eval_task = EvalTask(
+            dataset=df,
+            metrics=soc_metrics,
+            experiment=exp_name,
+        )
+
+        try:
+            eval_result = eval_task.evaluate(
+                runnable=agent_runnable,
+                experiment_run_name=run_name,
+            )
+
+            typer.echo("\n" + "=" * 80)
+            typer.secho(
+                "EXPERIMENT SUCCESSFULLY PUBLISHED TO CLOUD CONSOLE",
+                fg=typer.colors.GREEN,
+                bold=True,
+            )
+            typer.echo("=" * 80)
+            engine_id = (
+                target_resource.split("/")[-1]
+                if "/" in target_resource
+                else target_resource
+            )
+            console_eval_url = f"https://console.cloud.google.com/agent-platform/runtimes/locations/{target_location}/agent-engines/{engine_id}/evaluation?project={self.project_id}"
+            console_exp_url = f"https://console.cloud.google.com/vertex-ai/experiments/locations/{target_location}/experiments/{exp_name}?project={self.project_id}"
+
+            typer.echo(f"\nAgent Engine Evaluation Dashboard:\n  {console_eval_url}")
+            typer.echo(f"\nVertex AI Experiments Dashboard:\n  {console_exp_url}\n")
+            typer.echo("Metrics Summary:")
+            if hasattr(eval_result, "summary_metrics"):
+                for k, v in eval_result.summary_metrics.items():
+                    typer.echo(f"  - {k}: {v}")
+            typer.echo("=" * 80 + "\n")
+        except Exception as e:
+            typer.secho(
+                f"[ERROR] Failed to run Vertex AI evaluation: {e}",
+                fg=typer.colors.RED,
+            )
+            raise typer.Exit(1)
+
 
 def _save_compare_report(
     evalset_id: str,
@@ -1004,6 +1166,44 @@ def run(
     runner = EvaluationRunner(env_file)
     asyncio.run(
         runner.async_run_evaluation(evalset_file, resource, verbose, quiet=False)
+    )
+
+
+@app.command("push-to-vertex")
+@app.command("push-experiment")
+def push_experiment(
+    evalset_file: Annotated[
+        Path, typer.Option("--file", "-f", help="Path to the evalset JSON file")
+    ],
+    experiment: Annotated[
+        str,
+        typer.Option(
+            "--experiment",
+            "-e",
+            help="Vertex AI Experiment name to track runs under",
+        ),
+    ] = None,
+    resource: Annotated[
+        str,
+        typer.Option("--resource", "-r", help="Optional cloud agent resource name"),
+    ] = None,
+    env_file: Annotated[
+        Path, typer.Option("--env-file", help="Path to .env file")
+    ] = Path(".env"),
+    verbose: Annotated[
+        bool,
+        typer.Option(
+            "--verbose", "-v", help="Print verbose intermediate thought events"
+        ),
+    ] = False,
+) -> None:
+    """Run evaluation and publish experiment metrics directly to Vertex AI / Cloud Console."""
+    runner = EvaluationRunner(env_file)
+    runner.push_to_vertex_experiment(
+        evalset_file=evalset_file,
+        experiment_name=experiment,
+        agent_resource=resource,
+        verbose=verbose,
     )
 
 

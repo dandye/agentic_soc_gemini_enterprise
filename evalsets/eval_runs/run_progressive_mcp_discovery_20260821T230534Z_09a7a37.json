@@ -1,0 +1,95 @@
+{
+  "metadata": {
+    "evalset_id": "progressive_mcp_discovery",
+    "timestamp": "2026-08-21T23:05:34.370250Z",
+    "git": {
+      "commit": "09a7a3791aca41fc160cebbb30b7640fd3e74fbd",
+      "branch": "feat/progressive-mcp-discovery",
+      "dirty": true,
+      "submodules": {
+        "external/adk_runbooks": "d4ccf85d393eacae34bc006689601f013a03479b",
+        "external/ai-runbooks": "fca5f8eba3fff9964680ae035915c87a74e2f767",
+        "external/mcp-security": "fb807e909aa12356b0b52db02cb4b651af1ae35b"
+      }
+    },
+    "environment": {
+      "project_id": "dandye-0324-chronicle",
+      "location": "us-central1",
+      "orchestrator_model": "gemini-3.1-pro-preview",
+      "agent_resource": "projects/1002894625780/locations/us-central1/reasoningEngines/7232703485987258368",
+      "knowledge_graph_hash": "not_found"
+    }
+  },
+  "summary": {
+    "total_cases": 3,
+    "average_score": 70.0,
+    "status": "WARNING"
+  },
+  "cases": {
+    "mcp_search_gti_server": {
+      "name": "MCP Discovery - Google Threat Intelligence Server",
+      "score": 1.0,
+      "tool_calls": [
+        "search_mcp_tools({\"server\": \"gti\"})",
+        "search_mcp_tools({\"query\": \"threat\"})",
+        "search_mcp_tools({\"server\": \"virustotal\"})",
+        "search_mcp_tools({\"query\": \"\"})"
+      ],
+      "assertions_passed": [
+        "specialist_attribution",
+        "keyword_matching"
+      ],
+      "assertions_failed": [
+        "tool_trajectory"
+      ],
+      "success_criteria_passed": [
+        "uses_progressive_discovery",
+        "invokes_search_mcp_tools",
+        "no_hallucinated_tools"
+      ],
+      "success_criteria_failed": []
+    },
+    "mcp_inspect_tool_schema": {
+      "name": "MCP Discovery - Tool Schema Retrieval",
+      "score": 0.1,
+      "tool_calls": [
+        "get_mcp_tool_schema({\"tool_name\": \"search_threat_actors\"})",
+        "search_mcp_tools({\"query\": \"threat actor\", \"server\": \"gti\"})",
+        "search_mcp_tools({\"query\": \"\", \"server\": \"gti\"})",
+        "search_mcp_tools({\"server\": \"\", \"query\": \"actor\"})",
+        "search_mcp_tools({\"server\": \"\", \"query\": \"\"})"
+      ],
+      "assertions_passed": [
+        "specialist_attribution",
+        "keyword_matching"
+      ],
+      "assertions_failed": [
+        "tool_trajectory"
+      ],
+      "success_criteria_passed": [
+        "invokes_get_mcp_tool_schema",
+        "describes_parameters"
+      ],
+      "success_criteria_failed": []
+    },
+    "mcp_unconfigured_server_fallback": {
+      "name": "MCP Discovery - Unconfigured Server Fallback",
+      "score": 1.0,
+      "tool_calls": [
+        "search_mcp_tools({\"server\": \"kubernetes_cluster\"})"
+      ],
+      "assertions_passed": [
+        "specialist_attribution",
+        "keyword_matching"
+      ],
+      "assertions_failed": [
+        "tool_trajectory"
+      ],
+      "success_criteria_passed": [
+        "handles_missing_cleanly",
+        "no_hallucinated_tools"
+      ],
+      "success_criteria_failed": []
+    }
+  }
+}

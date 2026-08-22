@@ -24,6 +24,7 @@ class SkillMetadata:
     category: str
     path: Path
     version: str = "1.0.0"
+    content: str = ""
 
 
 class SkillRegistry:
@@ -92,6 +93,7 @@ class SkillRegistry:
                 category=category,
                 path=path,
                 version="1.0.0",
+                content=content,
             )
 
         fm_text = match.group(1)
@@ -114,6 +116,7 @@ class SkillRegistry:
             category=category,
             path=path,
             version=version,
+            content=content,
         )
 
     def get_skill(self, name: str) -> SkillMetadata | None:
@@ -134,9 +137,13 @@ class SkillRegistry:
     def get_skill_content(self, name: str) -> str:
         """Retrieve full markdown content of a skill."""
         meta = self.get_skill(name)
-        if not meta or not meta.path.exists():
+        if not meta:
             return f"Error: Skill '{name}' not found in registry."
-        return meta.path.read_text(encoding="utf-8")
+        if meta.content:
+            return meta.content
+        if meta.path and meta.path.exists():
+            return meta.path.read_text(encoding="utf-8")
+        return f"Error: Skill content for '{name}' unavailable."
 
     def get_skill_catalog(self, skill_names: list[str] | None = None) -> str:
         """Generate formatted Markdown catalog for system prompt injection."""

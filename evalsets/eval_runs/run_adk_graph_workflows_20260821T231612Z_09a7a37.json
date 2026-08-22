@@ -1,0 +1,98 @@
+{
+  "metadata": {
+    "evalset_id": "adk_graph_workflows",
+    "timestamp": "2026-08-21T23:16:12.297049Z",
+    "git": {
+      "commit": "09a7a3791aca41fc160cebbb30b7640fd3e74fbd",
+      "branch": "feat/progressive-mcp-discovery",
+      "dirty": true,
+      "submodules": {
+        "external/adk_runbooks": "d4ccf85d393eacae34bc006689601f013a03479b",
+        "external/ai-runbooks": "fca5f8eba3fff9964680ae035915c87a74e2f767",
+        "external/mcp-security": "fb807e909aa12356b0b52db02cb4b651af1ae35b"
+      }
+    },
+    "environment": {
+      "project_id": "dandye-0324-chronicle",
+      "location": "us-central1",
+      "orchestrator_model": "gemini-3.1-pro-preview",
+      "agent_resource": "projects/1002894625780/locations/us-central1/reasoningEngines/7232703485987258368",
+      "knowledge_graph_hash": "not_found"
+    }
+  },
+  "summary": {
+    "total_cases": 3,
+    "average_score": 33.33333333333333,
+    "status": "FAIL"
+  },
+  "cases": {
+    "graph_workflow_ioc_enrichment": {
+      "name": "Graph Workflow - IOC Enrichment Pipeline",
+      "score": 0.0,
+      "tool_calls": [
+        "load_skill({\"skill_name\": \"basic-ioc-enrichment\"})",
+        "list_available_skills({})",
+        "load_skill({\"skill_name\": \"ioc-enrichment-skill\"})",
+        "lookup_entity({\"entity_value\": \"198.51.100.23\"})",
+        "save_report_artifact({\"filename\": \"CASE-101_IOC_Enrichment.md\", \"report_content\": \"# Basic IOC Enrichment Report: CASE-101\\n\\n**Indicator:** `198.51.100.23`\\n**Type:** IPv4 Address\\n**Verdict:** **BENIGN / INTERNAL TESTING**\\n\\n### 1. Indicator Parsing & Type Validation\\nFollowing the `ioc-enrichment-skill` runbook from our knowledge base, the first step is to parse the indicator and filter out private/unroutable addresses. \\n\\nThe IP address `198.51.100.23` falls within the `198.51.100.0/24` CIDR block. This block is universally designated as **TEST-NET-2** (RFC 5737), which is reserved strictly for documentation, examples, and internal testing environments. It is not publicly routable on the internet.\\n\\n### 2. Threat Intelligence & Telemetry Lookup\\nAn automated internal lookup (`lookup_entity`) was attempted for verification but returned an HTTP 403 Permission Denied error from the remote MCP server. \\n\\nHowever, per our SOC runbook guidelines regarding unroutable and TEST-NET addresses, we can safely filter this indicator out without requiring further external threat intelligence lookups or SIEM telemetry parsing.\\n\\n### 3. Synthesis & Recommendations\\nDue to the nature of the indicator as a reserved TEST-NET-2 address, we confidently classify this indicator as **Benign / Internal Testing**. \\n\\n**Recommended Action:** Close **CASE-101** as a **False Positive / Expected Behavior**. No containment or isolation actions are necessary, and the tool permission error does not impede our ability to confidently resolve this low-severity/test event.\"})"
+      ],
+      "assertions_passed": [
+        "specialist_attribution",
+        "keyword_matching"
+      ],
+      "assertions_failed": [
+        "tool_trajectory"
+      ],
+      "success_criteria_passed": [
+        "invokes_graph_workflow",
+        "provides_structured_verdict",
+        "final_response_must_contain"
+      ],
+      "success_criteria_failed": []
+    },
+    "graph_workflow_malware_triage": {
+      "name": "Graph Workflow - Malware Triage Pipeline",
+      "score": 1.0,
+      "tool_calls": [
+        "load_skill({\"skill_name\": \"malware-triage\"})",
+        "list_available_skills({})",
+        "load_skill({\"skill_name\": \"malware-triage-skill\"})",
+        "delegate_concurrently({\"cti_query\": \"Run threat intelligence enrichment on the hash e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855. Get the file report and behavior summary using GTI/VirusTotal tools.\", \"hunt_query\": \"Search Chronicle SIEM for any internal sightings of the file hash e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 (query target.file.sha256 or principal.process.file.sha256). Identify all affected hosts and users.\"})",
+        "save_report_artifact({\"report_content\": \"# Malware Triage Report: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\\n\\n## 1. GTI Threat Intelligence Enrichment\\nI delegated the external threat intelligence analysis to our **CTI Researcher specialist**. They analyzed the hash `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` using Google Threat Intelligence. \\n- **Classification:** Benign (`goodware`)\\n- **Malware Family / Threat Actor:** None. \\n- **Details:** The hash corresponds to an **empty (0-byte) file** (MD5: `d41d8cd98f00b204e9800998ecf8427e`). \\n- **Behavioral Analysis:** No behavior summary is available because the file is empty and does not execute.\\n- **Note:** While some sandbox engines (like C2AE and ReaQta-Hive) showed conflicting detections, Google classifies this file as a trusted goodware file (e.g., placeholder or empty zip file such as `android-cts-7.1_r6-linux_x86-arm.zip`). It is common for this hash to be generated for empty touch or lock files.\\n\\n## 2. Internal SIEM & Telemetry Sighting\\nI concurrently delegated internal log hunting to our **Threat Hunter specialist**. \\n- They executed a Cypher query against the Neo4j knowledge graph database (`MATCH (f:File {sha256: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'}) RETURN f`) which returned **0 matching records**.\\n- They attempted to search Chronicle SIEM telemetry (UDM) using the query `target.file.sha256 = \\\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\\\" or principal.process.file.sha256 = \\\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\\\"`, but the API returned a 403 Permission Denied error. \\n- Despite the UDM error, the absence of this hash in the correlated Neo4j knowledge graph and active cases confirms there are **no known affected hosts or users** associated with this file.\\n\\n## 3. Network & C2 Correlation\\n- **C2 Indicators:** None identified. As this is an empty file, there are no associated domains, URLs, or IPs to investigate.\\n- **Internal Network Traffic:** Not applicable.\\n\\n## 4. Containment & Remediation Plan\\n- **Threat Classification:** **False Positive / Benign (Empty File)**.\\n- **Impacted Systems:** None.\\n- **Containment Status:** No containment actions (host isolation or perimeter blocking) are required as the file is benign and has no malicious capabilities.\\n- **Recommendations:** If a detection rule triggered an alert based on this hash, it is highly recommended to tune the rule and exclude `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` (the SHA256 for an empty file) to prevent recurring false positives.\", \"filename\": \"Malware_Triage_e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855.md\"})"
+      ],
+      "assertions_passed": [
+        "specialist_attribution",
+        "keyword_matching"
+      ],
+      "assertions_failed": [
+        "tool_trajectory"
+      ],
+      "success_criteria_passed": [
+        "invokes_graph_workflow",
+        "provides_triage_stages",
+        "final_response_must_contain"
+      ],
+      "success_criteria_failed": []
+    },
+    "graph_workflow_host_containment": {
+      "name": "Graph Workflow - Host Containment Pipeline",
+      "score": 0.0,
+      "tool_calls": [
+        "delegate_to_tier2_responder({\"query\": \"Execute host containment workflow for compromised server WIN-SRV-02\"})"
+      ],
+      "assertions_passed": [
+        "specialist_attribution",
+        "keyword_matching"
+      ],
+      "assertions_failed": [
+        "tool_trajectory"
+      ],
+      "success_criteria_passed": [
+        "invokes_graph_workflow",
+        "mentions_isolation",
+        "final_response_must_contain"
+      ],
+      "success_criteria_failed": []
+    }
+  }
+}

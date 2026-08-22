@@ -1,0 +1,76 @@
+{
+  "evalset_id": "adk_graph_workflows",
+  "name": "Executable ADK Graph Workflows",
+  "description": "Tests deterministic state machine execution and output generation of ported ADK Graph Workflows",
+  "eval_cases": [
+    {
+      "eval_id": "graph_workflow_ioc_enrichment",
+      "name": "Graph Workflow - IOC Enrichment Pipeline",
+      "conversation": [
+        {
+          "role": "user",
+          "content": "Execute the basic IOC enrichment workflow on IP address 198.51.100.23 with case ID CASE-101."
+        }
+      ],
+      "reference": {
+        "expected_specialist": "orchestrator_direct",
+        "tool_trajectory": ["run_basic_ioc_enrichment_workflow"],
+        "grading_rubric": "Verify that the agent invokes run_basic_ioc_enrichment_workflow with ioc='198.51.100.23' and case_id='CASE-101', returning a structured enrichment report with verdicts and telemetry sightings.",
+        "success_criteria": {
+          "invokes_graph_workflow": true,
+          "provides_structured_verdict": true,
+          "final_response_must_contain": [
+            "198.51.100.23",
+            "CASE-101"
+          ]
+        }
+      }
+    },
+    {
+      "eval_id": "graph_workflow_malware_triage",
+      "name": "Graph Workflow - Malware Triage Pipeline",
+      "conversation": [
+        {
+          "role": "user",
+          "content": "Run the malware triage workflow for suspicious payload SHA256 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855."
+        }
+      ],
+      "reference": {
+        "expected_specialist": "orchestrator_direct",
+        "tool_trajectory": ["run_malware_triage_workflow"],
+        "grading_rubric": "Verify that the agent executes run_malware_triage_workflow for the provided SHA256 hash and outputs the multi-stage triage verdict.",
+        "success_criteria": {
+          "invokes_graph_workflow": true,
+          "provides_triage_stages": true,
+          "final_response_must_contain": [
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "triage"
+          ]
+        }
+      }
+    },
+    {
+      "eval_id": "graph_workflow_host_containment",
+      "name": "Graph Workflow - Host Containment Pipeline",
+      "conversation": [
+        {
+          "role": "user",
+          "content": "Execute the host containment workflow for compromised server WIN-SRV-02."
+        }
+      ],
+      "reference": {
+        "expected_specialist": "orchestrator_direct",
+        "tool_trajectory": ["run_containment_workflow"],
+        "grading_rubric": "Verify that the agent executes run_containment_workflow for hostname 'WIN-SRV-02' and returns the containment steps and artifact report link.",
+        "success_criteria": {
+          "invokes_graph_workflow": true,
+          "mentions_isolation": true,
+          "final_response_must_contain": [
+            "WIN-SRV-02",
+            "containment"
+          ]
+        }
+      }
+    }
+  ]
+}
