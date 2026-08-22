@@ -12,7 +12,9 @@ from .common import START, Event, Workflow, save_workflow_report_to_disk
 class InvestigationReportInput(BaseModel):
     case_id: str = Field(description="SOAR Case ID to generate report for")
     include_timeline: bool = Field(default=True, description="Include event timeline")
-    include_ioc_table: bool = Field(default=True, description="Include IOC summary table")
+    include_ioc_table: bool = Field(
+        default=True, description="Include IOC summary table"
+    )
 
 
 class ExtractedReportPayload(BaseModel):
@@ -36,7 +38,9 @@ class GeneratedReportResult(BaseModel):
     report_markdown: str
 
 
-def extract_report_payload_node(inp: InvestigationReportInput) -> ExtractedReportPayload:
+def extract_report_payload_node(
+    inp: InvestigationReportInput,
+) -> ExtractedReportPayload:
     return ExtractedReportPayload(
         case_id=inp.case_id.strip(),
         include_timeline=inp.include_timeline,
@@ -44,7 +48,9 @@ def extract_report_payload_node(inp: InvestigationReportInput) -> ExtractedRepor
     )
 
 
-def fetch_soar_case_details_node(payload: ExtractedReportPayload) -> SOARCaseDetailsResult:
+def fetch_soar_case_details_node(
+    payload: ExtractedReportPayload,
+) -> SOARCaseDetailsResult:
     cid = payload.case_id
     is_critical = "CRIT" in cid or "900" in cid or "MAL" in cid or "33280" in cid
     return SOARCaseDetailsResult(
@@ -52,7 +58,11 @@ def fetch_soar_case_details_node(payload: ExtractedReportPayload) -> SOARCaseDet
         case_title=f"Incident Investigation for Case {cid}",
         severity="CRITICAL" if is_critical else "MEDIUM",
         alerts_count=5 if is_critical else 1,
-        entities_involved=["alice.smith@example.com", "198.51.100.44", "workstation-finance-01"],
+        entities_involved=[
+            "alice.smith@example.com",
+            "198.51.100.44",
+            "workstation-finance-01",
+        ],
         root_cause_summary="Phishing email credential harvesting followed by lateral movement attempt.",
     )
 
@@ -65,7 +75,9 @@ def report_type_router(details: SOARCaseDetailsResult) -> Event:
     return Event(route=route, output=details)
 
 
-def handle_executive_summary_branch(details: SOARCaseDetailsResult) -> GeneratedReportResult:
+def handle_executive_summary_branch(
+    details: SOARCaseDetailsResult,
+) -> GeneratedReportResult:
     md = f"""# Executive Incident Investigation Report
 
 ## 1. Case Overview
@@ -87,7 +99,9 @@ def handle_executive_summary_branch(details: SOARCaseDetailsResult) -> Generated
     )
 
 
-def handle_detailed_technical_branch(details: SOARCaseDetailsResult) -> GeneratedReportResult:
+def handle_detailed_technical_branch(
+    details: SOARCaseDetailsResult,
+) -> GeneratedReportResult:
     md = f"""# Technical Investigation Report
 
 ## 1. Case Overview
@@ -122,11 +136,19 @@ def build_create_investigation_report_workflow() -> Workflow:
         name="create_investigation_report_workflow",
         description="Graph-based workflow for generating executive and technical SOAR investigation reports",
         edges=[
-            (START, extract_report_payload_node, fetch_soar_case_details_node, report_type_router),
-            (report_type_router, {
-                "EXECUTIVE_SUMMARY": handle_executive_summary_branch,
-                "DETAILED_TECHNICAL": handle_detailed_technical_branch,
-            }),
+            (
+                START,
+                extract_report_payload_node,
+                fetch_soar_case_details_node,
+                report_type_router,
+            ),
+            (
+                report_type_router,
+                {
+                    "EXECUTIVE_SUMMARY": handle_executive_summary_branch,
+                    "DETAILED_TECHNICAL": handle_detailed_technical_branch,
+                },
+            ),
             (handle_executive_summary_branch, document_final_report_node),
             (handle_detailed_technical_branch, document_final_report_node),
         ],

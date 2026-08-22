@@ -12,6 +12,7 @@ All outputs are strictly plain text (no emojis or unicode symbols).
 import asyncio
 import hashlib
 import json
+import logging
 import os
 import subprocess
 from datetime import datetime
@@ -25,6 +26,9 @@ from dotenv import load_dotenv
 from google import genai
 from google.genai import types
 from vertexai import agent_engines
+
+
+logger = logging.getLogger(__name__)
 
 
 app = typer.Typer(
@@ -132,12 +136,16 @@ class EvaluationRunner:
         )
         if sa_path and Path(sa_path).exists():
             try:
-                with open(sa_path, "r") as f:
+                with open(sa_path) as f:
                     sa_data = json.load(f)
                     if sa_data.get("project_id") == self.project_id:
                         os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = str(sa_path)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(
+                    "Failed to load service account credentials from %s: %s",
+                    sa_path,
+                    e,
+                )
 
         if self.project_id:
             vertexai.init(project=self.project_id, location=self.location)
@@ -295,7 +303,11 @@ class EvaluationRunner:
                         if "function_call" in part:
                             tool_name = part["function_call"]["name"]
                             tool_args = part["function_call"].get("args", {})
-                            args_str = json.dumps(tool_args) if isinstance(tool_args, dict) else str(tool_args)
+                            args_str = (
+                                json.dumps(tool_args)
+                                if isinstance(tool_args, dict)
+                                else str(tool_args)
+                            )
                             tool_call_desc = f"{tool_name}({args_str})"
                             tool_calls.append(tool_call_desc)
                             if not quiet:
@@ -843,8 +855,8 @@ provenance:
         verbose: bool = False,
     ) -> None:
         """Run evaluation using Vertex AI GenAI EvalTask and publish experiment metrics directly to Cloud Console."""
-        from vertexai.preview.evaluation import EvalTask
         import pandas as pd
+        from vertexai.preview.evaluation import EvalTask
 
         if not evalset_file.exists():
             typer.secho(
@@ -852,7 +864,7 @@ provenance:
             )
             raise typer.Exit(1)
 
-        with open(evalset_file, "r") as f:
+        with open(evalset_file) as f:
             evalset = json.load(f)
 
         evalset_id = evalset.get(
@@ -899,9 +911,7 @@ provenance:
                 if turn.get("role") == "user":
                     query = turn.get("content", "")
                     break
-            reference_rubric = case.get("reference", {}).get(
-                "grading_rubric", ""
-            )
+            reference_rubric = case.get("reference", {}).get("grading_rubric", "")
             records.append(
                 {
                     "prompt": query,
@@ -912,10 +922,10 @@ provenance:
         df = pd.DataFrame(records)
 
         exp_name = (
-            experiment_name
-            or f"soc-agent-{evalset_id}"
-        ).replace("_", "-").lower()
+            (experiment_name or f"soc-agent-{evalset_id}").replace("_", "-").lower()
+        )
         import uuid
+
         git_meta = self._get_git_metadata()
         commit_hash = git_meta.get("commit", "unknown")[:7].lower()
         clean_eval_id = evalset_id.replace("_", "-").lower()

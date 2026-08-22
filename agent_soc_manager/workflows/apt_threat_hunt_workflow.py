@@ -4,7 +4,6 @@ APT Threat Hunt Graph Workflow for Google ADK.
 Implements 'APT Threat Hunt Runbook'.
 """
 
-
 from pydantic import BaseModel, Field
 
 from .common import (
@@ -17,7 +16,9 @@ from .common import (
 
 
 class APTHuntInput(BaseWorkflowInput):
-    threat_actor_name: str = Field(description="APT Threat Actor Name (e.g. 'APT29', 'APT41', 'Lazarus Group')")
+    threat_actor_name: str = Field(
+        description="APT Threat Actor Name (e.g. 'APT29', 'APT41', 'Lazarus Group')"
+    )
     timeframe_days: int = Field(default=30, description="Lookback window in days")
 
 
@@ -115,11 +116,20 @@ def build_apt_threat_hunt_workflow() -> Workflow:
         name="apt_threat_hunt_workflow",
         description="Graph-based workflow for proactive APT threat actor campaign hunting and SIEM correlation",
         edges=[
-            (START, extract_apt_payload_node, fetch_apt_threat_intel_node, search_apt_siem_events_node, apt_hunt_router),
-            (apt_hunt_router, {
-                "CONFIRMED_APT_CAMPAIGN": handle_confirmed_apt_campaign_branch,
-                "NO_APT_ACTIVITY": handle_no_apt_activity_branch,
-            }),
+            (
+                START,
+                extract_apt_payload_node,
+                fetch_apt_threat_intel_node,
+                search_apt_siem_events_node,
+                apt_hunt_router,
+            ),
+            (
+                apt_hunt_router,
+                {
+                    "CONFIRMED_APT_CAMPAIGN": handle_confirmed_apt_campaign_branch,
+                    "NO_APT_ACTIVITY": handle_no_apt_activity_branch,
+                },
+            ),
             (handle_confirmed_apt_campaign_branch, document_apt_report_node),
             (handle_no_apt_activity_branch, document_apt_report_node),
         ],

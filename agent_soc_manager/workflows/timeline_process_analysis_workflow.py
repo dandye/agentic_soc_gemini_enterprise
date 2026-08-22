@@ -11,7 +11,9 @@ from .common import START, BaseWorkflowInput, Event, Workflow, sanitize_entity_v
 
 class TimelineAnalysisInput(BaseWorkflowInput):
     case_id: str = Field(description="SOAR Case ID")
-    target_hostname: str | None = Field(default=None, description="Target Hostname for process tree reconstruction")
+    target_hostname: str | None = Field(
+        default=None, description="Target Hostname for process tree reconstruction"
+    )
     timeframe_hours: int = Field(default=48, description="Lookback window in hours")
 
 
@@ -35,15 +37,21 @@ class TimelineAnalysisVerdict(BaseModel):
     reconstruction_summary: str
 
 
-def extract_timeline_payload_node(inp: TimelineAnalysisInput) -> ExtractedTimelinePayload:
+def extract_timeline_payload_node(
+    inp: TimelineAnalysisInput,
+) -> ExtractedTimelinePayload:
     return ExtractedTimelinePayload(
         case_id=sanitize_entity_value(inp.case_id),
-        target_hostname=sanitize_entity_value(inp.target_hostname) if inp.target_hostname else None,
+        target_hostname=sanitize_entity_value(inp.target_hostname)
+        if inp.target_hostname
+        else None,
         timeframe_hours=inp.timeframe_hours,
     )
 
 
-def reconstruct_process_tree_node(payload: ExtractedTimelinePayload) -> ProcessTreeResult:
+def reconstruct_process_tree_node(
+    payload: ExtractedTimelinePayload,
+) -> ProcessTreeResult:
     cid = payload.case_id
     is_mal = "MAL" in cid or "900" in cid or "CRIT" in cid
     return ProcessTreeResult(
@@ -51,7 +59,9 @@ def reconstruct_process_tree_node(payload: ExtractedTimelinePayload) -> ProcessT
         suspicious_process_tree_found=is_mal,
         parent_process="winword.exe" if is_mal else "explorer.exe",
         child_process="powershell.exe -enc AAAA..." if is_mal else "chrome.exe",
-        command_line="powershell.exe -ExecutionPolicy Bypass -NoProfile -enc AAAA..." if is_mal else "chrome.exe --new-window",
+        command_line="powershell.exe -ExecutionPolicy Bypass -NoProfile -enc AAAA..."
+        if is_mal
+        else "chrome.exe --new-window",
     )
 
 
@@ -88,11 +98,19 @@ def build_timeline_process_analysis_workflow() -> Workflow:
         name="timeline_process_analysis_workflow",
         description="Graph-based workflow for SOAR event timeline reconstruction and parent-child process tree analysis",
         edges=[
-            (START, extract_timeline_payload_node, reconstruct_process_tree_node, timeline_process_router),
-            (timeline_process_router, {
-                "MALICIOUS_PROCESS_TREE": handle_malicious_tree_branch,
-                "NORMAL_PROCESS_EXECUTION": handle_normal_execution_branch,
-            }),
+            (
+                START,
+                extract_timeline_payload_node,
+                reconstruct_process_tree_node,
+                timeline_process_router,
+            ),
+            (
+                timeline_process_router,
+                {
+                    "MALICIOUS_PROCESS_TREE": handle_malicious_tree_branch,
+                    "NORMAL_PROCESS_EXECUTION": handle_normal_execution_branch,
+                },
+            ),
             (handle_malicious_tree_branch, document_timeline_report_node),
             (handle_normal_execution_branch, document_timeline_report_node),
         ],

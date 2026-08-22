@@ -4,7 +4,6 @@ Advanced Threat Hunting Graph Workflow for Google ADK.
 Implements 'Advanced Threat Hunting Runbook'.
 """
 
-
 from pydantic import BaseModel, Field
 
 from .common import (
@@ -17,8 +16,12 @@ from .common import (
 
 
 class AdvancedHuntInput(BaseWorkflowInput):
-    hypothesis: str = Field(description="Threat hunting hypothesis or MITRE TTP identifier")
-    timeframe_hours: int = Field(default=168, description="SIEM lookback timeframe in hours")
+    hypothesis: str = Field(
+        description="Threat hunting hypothesis or MITRE TTP identifier"
+    )
+    timeframe_hours: int = Field(
+        default=168, description="SIEM lookback timeframe in hours"
+    )
 
 
 class ExtractedAdvancedHuntPayload(BaseModel):
@@ -48,7 +51,9 @@ def extract_advanced_hunt_node(inp: AdvancedHuntInput) -> ExtractedAdvancedHuntP
     )
 
 
-def execute_advanced_siem_hunt_node(payload: ExtractedAdvancedHuntPayload) -> AdvancedSIEMSearchResult:
+def execute_advanced_siem_hunt_node(
+    payload: ExtractedAdvancedHuntPayload,
+) -> AdvancedSIEMSearchResult:
     h = payload.hypothesis.lower()
     is_threat = "t1" in h or "apt" in h or "persistence" in h or "exfil" in h
     return AdvancedSIEMSearchResult(
@@ -67,7 +72,9 @@ def advanced_hunt_router(search: AdvancedSIEMSearchResult) -> Event:
     return Event(route=route, output=search)
 
 
-def handle_confirmed_pattern_branch(search: AdvancedSIEMSearchResult) -> AdvancedHuntVerdict:
+def handle_confirmed_pattern_branch(
+    search: AdvancedSIEMSearchResult,
+) -> AdvancedHuntVerdict:
     return AdvancedHuntVerdict(
         search=search,
         verdict="CONFIRMED_THREAT_PATTERN",
@@ -75,7 +82,9 @@ def handle_confirmed_pattern_branch(search: AdvancedSIEMSearchResult) -> Advance
     )
 
 
-def handle_clean_hypothesis_branch(search: AdvancedSIEMSearchResult) -> AdvancedHuntVerdict:
+def handle_clean_hypothesis_branch(
+    search: AdvancedSIEMSearchResult,
+) -> AdvancedHuntVerdict:
     return AdvancedHuntVerdict(
         search=search,
         verdict="CLEAN_HYPOTHESIS",
@@ -92,11 +101,19 @@ def build_advanced_threat_hunting_workflow() -> Workflow:
         name="advanced_threat_hunting_workflow",
         description="Graph-based workflow for advanced hypothesis-driven threat hunting across SIEM logs",
         edges=[
-            (START, extract_advanced_hunt_node, execute_advanced_siem_hunt_node, advanced_hunt_router),
-            (advanced_hunt_router, {
-                "CONFIRMED_THREAT_PATTERN": handle_confirmed_pattern_branch,
-                "CLEAN_HYPOTHESIS": handle_clean_hypothesis_branch,
-            }),
+            (
+                START,
+                extract_advanced_hunt_node,
+                execute_advanced_siem_hunt_node,
+                advanced_hunt_router,
+            ),
+            (
+                advanced_hunt_router,
+                {
+                    "CONFIRMED_THREAT_PATTERN": handle_confirmed_pattern_branch,
+                    "CLEAN_HYPOTHESIS": handle_clean_hypothesis_branch,
+                },
+            ),
             (handle_confirmed_pattern_branch, document_advanced_hunt_report_node),
             (handle_clean_hypothesis_branch, document_advanced_hunt_report_node),
         ],

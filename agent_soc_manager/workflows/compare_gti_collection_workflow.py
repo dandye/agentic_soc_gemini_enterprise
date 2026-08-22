@@ -4,7 +4,6 @@ Compare GTI Collection to IOCs Graph Workflow for Google ADK.
 Implements 'Compare GTI Collection to IOCs and Events Runbook'.
 """
 
-
 from pydantic import BaseModel, Field
 
 from .common import START, Event, Workflow
@@ -45,7 +44,9 @@ def extract_collection_node(inp: GTICollectionInput) -> ExtractedCollectionPaylo
     )
 
 
-def fetch_gti_collection_iocs_node(payload: ExtractedCollectionPayload) -> GTICollectionIOCsResult:
+def fetch_gti_collection_iocs_node(
+    payload: ExtractedCollectionPayload,
+) -> GTICollectionIOCsResult:
     cid = payload.collection_id
     if "apt" in cid or "campaign" in cid or "gti" in cid:
         iocs = ["198.51.100.22", "bad-c2-domain.org", "c1d2e3f4hash5678"]
@@ -106,11 +107,20 @@ def build_compare_gti_collection_workflow() -> Workflow:
         name="compare_gti_collection_workflow",
         description="Graph-based workflow for comparing GTI Threat Collections against SIEM events",
         edges=[
-            (START, extract_collection_node, fetch_gti_collection_iocs_node, match_siem_events_node, gti_overlap_router),
-            (gti_overlap_router, {
-                "CAMPAIGN_MATCHED": handle_campaign_matched_branch,
-                "NO_MATCH": handle_no_match_branch,
-            }),
+            (
+                START,
+                extract_collection_node,
+                fetch_gti_collection_iocs_node,
+                match_siem_events_node,
+                gti_overlap_router,
+            ),
+            (
+                gti_overlap_router,
+                {
+                    "CAMPAIGN_MATCHED": handle_campaign_matched_branch,
+                    "NO_MATCH": handle_no_match_branch,
+                },
+            ),
             (handle_campaign_matched_branch, document_gti_report_node),
             (handle_no_match_branch, document_gti_report_node),
         ],

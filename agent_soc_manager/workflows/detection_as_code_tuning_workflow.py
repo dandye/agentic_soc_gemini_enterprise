@@ -4,7 +4,6 @@ Detection as Code Rule Tuning Graph Workflow for Google ADK.
 Implements 'Detection as Code Rule Tuning Runbook'.
 """
 
-
 from pydantic import BaseModel, Field
 
 from .common import (
@@ -17,7 +16,9 @@ from .common import (
 
 
 class DACRuleTuningInput(BaseWorkflowInput):
-    rule_file_path: str = Field(description="Path to YARA-L rule file in Git repository")
+    rule_file_path: str = Field(
+        description="Path to YARA-L rule file in Git repository"
+    )
     commit_sha: str | None = Field(default=None, description="Git commit SHA")
 
 
@@ -46,7 +47,9 @@ def run_dac_ci_pipeline_node(payload: ExtractedDACPayload) -> DACValidationResul
     return DACValidationResult(
         payload=payload,
         passed_ci_tests=not is_fail,
-        linter_warnings=["Variable $net unused"] if not is_fail else ["Syntax error: missing match section"],
+        linter_warnings=["Variable $net unused"]
+        if not is_fail
+        else ["Syntax error: missing match section"],
         pull_request_action="MERGE_PRODUCTION" if not is_fail else "BLOCK_CI_FAILURE",
     )
 
@@ -77,10 +80,13 @@ def build_detection_as_code_tuning_workflow() -> Workflow:
         description="Graph-based workflow for Detection-as-Code CI/CD rule validation, linting, and automated PR merging",
         edges=[
             (START, extract_dac_payload_node, run_dac_ci_pipeline_node, dac_ci_router),
-            (dac_ci_router, {
-                "MERGE_PRODUCTION": handle_merge_production_branch,
-                "BLOCK_CI_FAILURE": handle_block_ci_failure_branch,
-            }),
+            (
+                dac_ci_router,
+                {
+                    "MERGE_PRODUCTION": handle_merge_production_branch,
+                    "BLOCK_CI_FAILURE": handle_block_ci_failure_branch,
+                },
+            ),
             (handle_merge_production_branch, document_dac_report_node),
             (handle_block_ci_failure_branch, document_dac_report_node),
         ],

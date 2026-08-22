@@ -6,7 +6,6 @@ deterministic, graph-based agent workflow using Google ADK 2.x Workflow graphs.
 It routes IOC enrichment based on IOC type (IP, Domain, File Hash, URL).
 """
 
-
 from pydantic import BaseModel, Field
 
 from .common import START, Event, Workflow
@@ -16,9 +15,12 @@ from .common import START, Event, Workflow
 # 1. Pydantic Schemas
 # -----------------------------------------------------------------------------
 
+
 class IOCEnrichmentInput(BaseModel):
     ioc_value: str = Field(description="IOC Value (IP, Domain, Hash, or URL)")
-    ioc_type: str = Field(description="Type of IOC: 'IP Address', 'Domain', 'File Hash', or 'URL'")
+    ioc_type: str = Field(
+        description="Type of IOC: 'IP Address', 'Domain', 'File Hash', or 'URL'"
+    )
     case_id: str | None = Field(default=None, description="Optional SOAR Case ID")
     siem_search_hours: int = Field(default=24, description="SIEM search timeframe")
 
@@ -62,6 +64,7 @@ class IOCEnrichmentReportSummary(BaseModel):
 # -----------------------------------------------------------------------------
 # 2. Graph Node Functions & Routers
 # -----------------------------------------------------------------------------
+
 
 def extract_ioc_node(input_data: IOCEnrichmentInput) -> ExtractedIOCPayload:
     """Extracts and normalizes IOC value and type."""
@@ -164,7 +167,9 @@ def ioc_risk_router(siem_res: SIEMEventSearchResult) -> Event:
     return Event(route=route, output=siem_res)
 
 
-def handle_high_risk_ioc_branch(siem_res: SIEMEventSearchResult) -> IOCRiskAssessmentOutcome:
+def handle_high_risk_ioc_branch(
+    siem_res: SIEMEventSearchResult,
+) -> IOCRiskAssessmentOutcome:
     """Handles high-risk IOC enrichment outcome."""
     ioc = siem_res.enrichment.payload.ioc_value
     return IOCRiskAssessmentOutcome(
@@ -174,7 +179,9 @@ def handle_high_risk_ioc_branch(siem_res: SIEMEventSearchResult) -> IOCRiskAsses
     )
 
 
-def handle_low_risk_ioc_branch(siem_res: SIEMEventSearchResult) -> IOCRiskAssessmentOutcome:
+def handle_low_risk_ioc_branch(
+    siem_res: SIEMEventSearchResult,
+) -> IOCRiskAssessmentOutcome:
     """Handles low-risk/benign IOC enrichment outcome."""
     ioc = siem_res.enrichment.payload.ioc_value
     return IOCRiskAssessmentOutcome(
@@ -185,12 +192,13 @@ def handle_low_risk_ioc_branch(siem_res: SIEMEventSearchResult) -> IOCRiskAssess
 
 
 # Final Synthesize & SOAR Document Node
-def document_ioc_enrichment_node(outcome: IOCRiskAssessmentOutcome) -> IOCEnrichmentReportSummary:
+def document_ioc_enrichment_node(
+    outcome: IOCRiskAssessmentOutcome,
+) -> IOCEnrichmentReportSummary:
     """Synthesizes all findings into a SOAR comment and report summary."""
     res = outcome.siem_result
     enrich = res.enrichment
     p = enrich.payload
-
 
     report_md = f"""# Basic IOC Enrichment Report
 
@@ -218,7 +226,9 @@ def document_ioc_enrichment_node(outcome: IOCRiskAssessmentOutcome) -> IOCEnrich
         ioc_type=p.ioc_type,
         assessment=outcome.risk_level,
         recommendation=outcome.recommendation,
-        soar_comment_status="Documented in SOAR" if p.case_id else "Skipped (No Case ID)",
+        soar_comment_status="Documented in SOAR"
+        if p.case_id
+        else "Skipped (No Case ID)",
         report_markdown=report_md,
     )
 
@@ -227,34 +237,37 @@ def document_ioc_enrichment_node(outcome: IOCRiskAssessmentOutcome) -> IOCEnrich
 # 3. Workflow Graph Construction
 # -----------------------------------------------------------------------------
 
+
 def build_basic_ioc_enrichment_workflow() -> Workflow:
     """Constructs the ADK Graph Workflow for Basic IOC Enrichment."""
 
     workflow_edges = [
         # 1. Pipeline Start -> Extract -> Type Router
         (START, extract_ioc_node, ioc_type_router),
-
         # 2. Type Branching
-        (ioc_type_router, {
-            "IP_BRANCH": enrich_ip_branch,
-            "DOMAIN_BRANCH": enrich_domain_branch,
-            "HASH_BRANCH": enrich_hash_branch,
-            "URL_BRANCH": enrich_url_branch,
-        }),
-
+        (
+            ioc_type_router,
+            {
+                "IP_BRANCH": enrich_ip_branch,
+                "DOMAIN_BRANCH": enrich_domain_branch,
+                "HASH_BRANCH": enrich_hash_branch,
+                "URL_BRANCH": enrich_url_branch,
+            },
+        ),
         # 3. Fan-in into SIEM Search Node
         (enrich_ip_branch, siem_search_node),
         (enrich_domain_branch, siem_search_node),
         (enrich_hash_branch, siem_search_node),
         (enrich_url_branch, siem_search_node),
-
         # 4. Risk Router & Outcome Branches
         (siem_search_node, ioc_risk_router),
-        (ioc_risk_router, {
-            "HIGH_RISK_THREAT": handle_high_risk_ioc_branch,
-            "LOW_RISK_BENIGN": handle_low_risk_ioc_branch,
-        }),
-
+        (
+            ioc_risk_router,
+            {
+                "HIGH_RISK_THREAT": handle_high_risk_ioc_branch,
+                "LOW_RISK_BENIGN": handle_low_risk_ioc_branch,
+            },
+        ),
         # 5. Final Merge into Document & Report Node
         (handle_high_risk_ioc_branch, document_ioc_enrichment_node),
         (handle_low_risk_ioc_branch, document_ioc_enrichment_node),

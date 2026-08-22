@@ -56,7 +56,9 @@ def test_global_skill_registry_instance():
 
 
 def test_load_skill(mock_registry):
-    with patch("agent_soc_manager.tools.skill_tools.global_skill_registry", mock_registry):
+    with patch(
+        "agent_soc_manager.tools.skill_tools.global_skill_registry", mock_registry
+    ):
         content = load_skill("malware-triage")
         assert "# Malware Triage Procedure" in content
         assert "Step 1: Check hash." in content
@@ -70,7 +72,9 @@ def test_load_skill(mock_registry):
 
 
 def test_list_available_skills(mock_registry):
-    with patch("agent_soc_manager.tools.skill_tools.global_skill_registry", mock_registry):
+    with patch(
+        "agent_soc_manager.tools.skill_tools.global_skill_registry", mock_registry
+    ):
         # List all skills
         all_skills = list_available_skills()
         assert "### Available Skills (Progressive Disclosure)" in all_skills
@@ -92,7 +96,9 @@ def test_load_persona_with_skills_catalog(mock_registry):
         persona_path = f.name
 
     try:
-        with patch("agent_soc_manager.tools.skill_tools.global_skill_registry", mock_registry):
+        with patch(
+            "agent_soc_manager.tools.skill_tools.global_skill_registry", mock_registry
+        ):
             combined = load_persona_with_skills_catalog(
                 persona_path,
                 skill_names=["malware-triage"],

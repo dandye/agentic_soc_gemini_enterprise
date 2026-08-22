@@ -39,7 +39,11 @@ def mock_registry():
                 "type": "object",
                 "properties": {
                     "case_id": {"type": "string", "description": "The unique case ID."},
-                    "root_cause": {"type": "string", "description": "Reason for closure.", "default": "Resolved"},
+                    "root_cause": {
+                        "type": "string",
+                        "description": "Reason for closure.",
+                        "default": "Resolved",
+                    },
                 },
                 "required": ["case_id"],
             },
@@ -56,7 +60,11 @@ def mock_registry():
                 "type": "object",
                 "properties": {
                     "query": {"type": "string", "description": "UDM filter string."},
-                    "limit": {"type": "integer", "description": "Max results.", "default": 10},
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max results.",
+                        "default": 10,
+                    },
                 },
                 "required": ["query"],
             },
@@ -89,7 +97,10 @@ def test_global_mcp_registry_instance():
 
 
 def test_search_mcp_tools(mock_registry):
-    with patch("agent_soc_manager.tools.progressive_mcp_tools.global_mcp_registry", mock_registry):
+    with patch(
+        "agent_soc_manager.tools.progressive_mcp_tools.global_mcp_registry",
+        mock_registry,
+    ):
         all_tools = search_mcp_tools()
         assert "soar_close_case" in all_tools
         assert "siem_search_events" in all_tools
@@ -109,7 +120,10 @@ def test_search_mcp_tools(mock_registry):
 
 
 def test_get_mcp_tool_schema(mock_registry):
-    with patch("agent_soc_manager.tools.progressive_mcp_tools.global_mcp_registry", mock_registry):
+    with patch(
+        "agent_soc_manager.tools.progressive_mcp_tools.global_mcp_registry",
+        mock_registry,
+    ):
         schema_str = get_mcp_tool_schema("soar_close_case")
         parsed = json.loads(schema_str)
         assert parsed["name"] == "soar_close_case"
@@ -126,8 +140,13 @@ def test_get_mcp_tool_schema(mock_registry):
 
 
 def test_execute_mcp_tool_sync(mock_registry):
-    with patch("agent_soc_manager.tools.progressive_mcp_tools.global_mcp_registry", mock_registry):
-        res_str = execute_mcp_tool("soar_close_case", {"case_id": "CASE-999", "root_cause": "False Positive"})
+    with patch(
+        "agent_soc_manager.tools.progressive_mcp_tools.global_mcp_registry",
+        mock_registry,
+    ):
+        res_str = execute_mcp_tool(
+            "soar_close_case", {"case_id": "CASE-999", "root_cause": "False Positive"}
+        )
         res = json.loads(res_str)
         assert res["status"] == "closed"
         assert res["case_id"] == "CASE-999"
@@ -152,8 +171,14 @@ def test_execute_mcp_tool_sync(mock_registry):
 
 
 def test_execute_mcp_tool_async(mock_registry):
-    with patch("agent_soc_manager.tools.progressive_mcp_tools.global_mcp_registry", mock_registry):
-        res_str = execute_mcp_tool("siem_search_events", {"query": "metadata.event_type = 'USER_LOGIN'", "limit": 5})
+    with patch(
+        "agent_soc_manager.tools.progressive_mcp_tools.global_mcp_registry",
+        mock_registry,
+    ):
+        res_str = execute_mcp_tool(
+            "siem_search_events",
+            {"query": "metadata.event_type = 'USER_LOGIN'", "limit": 5},
+        )
         res = json.loads(res_str)
         assert isinstance(res, list)
         assert len(res) == 1

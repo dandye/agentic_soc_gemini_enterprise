@@ -697,7 +697,9 @@ class AgentEngineManager:
             # Validate RAG_CORPUS_ID format if provided
             rag_corpus_id = os.environ.get("RAG_CORPUS_ID", "").strip()
             if rag_corpus_id:
-                rag_pattern = r"^projects/[^/]+/locations/[^/]+/ragCorpora/[a-zA-Z0-9_-]+$"
+                rag_pattern = (
+                    r"^projects/[^/]+/locations/[^/]+/ragCorpora/[a-zA-Z0-9_-]+$"
+                )
                 if not re.match(rag_pattern, rag_corpus_id):
                     typer.secho(
                         f" Invalid RAG_CORPUS_ID format: {rag_corpus_id}",
@@ -1018,7 +1020,9 @@ class AgentEngineManager:
                     f"Binding Reasoning Engine to service account identity: {sa_email}"
                 )
             else:
-                typer.echo("Deploying Reasoning Engine with default project service identity")
+                typer.echo(
+                    "Deploying Reasoning Engine with default project service identity"
+                )
 
             deploy_kwargs = {
                 "display_name": display_name,

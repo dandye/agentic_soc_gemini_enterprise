@@ -38,16 +38,26 @@ def test_registry_search():
     """Verify keyword and server search indexing."""
     registry = MCPToolRegistry()
     registry.register_tool(
-        MCPToolMetadata(name="soar_get_case", server="soar", description="Get SOAR case.")
+        MCPToolMetadata(
+            name="soar_get_case", server="soar", description="Get SOAR case."
+        )
     )
     registry.register_tool(
-        MCPToolMetadata(name="soar_close_case", server="soar", description="Close SOAR case.")
+        MCPToolMetadata(
+            name="soar_close_case", server="soar", description="Close SOAR case."
+        )
     )
     registry.register_tool(
-        MCPToolMetadata(name="gti_lookup_ioc", server="gti", description="Enrich IOC reputation.")
+        MCPToolMetadata(
+            name="gti_lookup_ioc", server="gti", description="Enrich IOC reputation."
+        )
     )
     registry.register_tool(
-        MCPToolMetadata(name="siem_search_events", server="siem", description="Search Chronicle events.")
+        MCPToolMetadata(
+            name="siem_search_events",
+            server="siem",
+            description="Search Chronicle events.",
+        )
     )
 
     # Search by keyword in name
@@ -81,8 +91,15 @@ def test_registry_get_tool_schema():
     schema = {
         "type": "object",
         "properties": {
-            "query": {"type": "string", "description": "Chronicle UDM filter expression"},
-            "limit": {"type": "integer", "description": "Max events to return", "default": 50},
+            "query": {
+                "type": "string",
+                "description": "Chronicle UDM filter expression",
+            },
+            "limit": {
+                "type": "integer",
+                "description": "Max events to return",
+                "default": 50,
+            },
         },
         "required": ["query"],
     }
@@ -132,7 +149,10 @@ def test_registry_get_compact_catalog():
     )
 
     full_catalog = registry.get_compact_catalog()
-    assert "- **siem_search_events** (siem): Query Chronicle UDM security events." in full_catalog
+    assert (
+        "- **siem_search_events** (siem): Query Chronicle UDM security events."
+        in full_catalog
+    )
     assert "- **soar_get_case** (soar): Retrieve case from SOAR." in full_catalog
 
     # Filtered catalog by server
@@ -171,12 +191,18 @@ def test_registry_execute_tool_sync():
     )
 
     # Valid execution
-    res = registry.execute_tool("soar_update_case", {"case_id": "CASE-101", "priority": "high"})
+    res = registry.execute_tool(
+        "soar_update_case", {"case_id": "CASE-101", "priority": "high"}
+    )
     assert res == {"status": "success", "case_id": "CASE-101", "priority": "high"}
 
     # Execution with default argument
     res_default = registry.execute_tool("soar-update-case", {"case_id": "CASE-102"})
-    assert res_default == {"status": "success", "case_id": "CASE-102", "priority": "medium"}
+    assert res_default == {
+        "status": "success",
+        "case_id": "CASE-102",
+        "priority": "medium",
+    }
 
     # Missing required argument raises ValueError
     with pytest.raises(ValueError, match="Missing required argument 'case_id'"):
@@ -200,13 +226,19 @@ def test_registry_execute_tool_async():
             name="siem_query",
             server="siem",
             description="Async SIEM query.",
-            input_schema={"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]},
+            input_schema={
+                "type": "object",
+                "properties": {"query": {"type": "string"}},
+                "required": ["query"],
+            },
             executor=async_executor,
         )
     )
 
     async def runner():
-        res = registry.execute_tool("siem_query", {"query": "principal.ip = '10.0.0.1'"})
+        res = registry.execute_tool(
+            "siem_query", {"query": "principal.ip = '10.0.0.1'"}
+        )
         if asyncio.iscoroutine(res):
             res = await res
         return res

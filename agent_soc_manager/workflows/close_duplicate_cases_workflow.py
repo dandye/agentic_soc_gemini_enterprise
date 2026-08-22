@@ -11,8 +11,12 @@ from .common import START, Event, Workflow
 
 class DuplicateCasesInput(BaseModel):
     primary_case_id: str = Field(description="Primary SOAR Case ID")
-    similarity_days_back: int = Field(default=7, description="Lookback days for duplicate check")
-    confirm_close: bool = Field(default=True, description="Confirmation to close identified duplicate cases")
+    similarity_days_back: int = Field(
+        default=7, description="Lookback days for duplicate check"
+    )
+    confirm_close: bool = Field(
+        default=True, description="Confirmation to close identified duplicate cases"
+    )
 
 
 class ExtractedPrimaryCasePayload(BaseModel):
@@ -42,7 +46,9 @@ def extract_primary_case_node(inp: DuplicateCasesInput) -> ExtractedPrimaryCaseP
     )
 
 
-def find_similar_cases_node(payload: ExtractedPrimaryCasePayload) -> SimilarCasesSearchResult:
+def find_similar_cases_node(
+    payload: ExtractedPrimaryCasePayload,
+) -> SimilarCasesSearchResult:
     cid = payload.primary_case_id
     dups = [f"{cid}-DUP-1", f"{cid}-DUP-2"] if "CASE" in cid else []
     score = 0.95 if dups else 0.0
@@ -61,7 +67,9 @@ def duplicate_case_router(res: SimilarCasesSearchResult) -> Event:
     return Event(route=route, output=res)
 
 
-def handle_close_duplicates_branch(res: SimilarCasesSearchResult) -> ClosureExecutionOutcome:
+def handle_close_duplicates_branch(
+    res: SimilarCasesSearchResult,
+) -> ClosureExecutionOutcome:
     dups = ", ".join(res.duplicate_case_ids)
     comment = f"Closed duplicate cases [{dups}] associated with primary case {res.payload.primary_case_id}."
     return ClosureExecutionOutcome(
@@ -72,8 +80,12 @@ def handle_close_duplicates_branch(res: SimilarCasesSearchResult) -> ClosureExec
     )
 
 
-def handle_skip_closure_branch(res: SimilarCasesSearchResult) -> ClosureExecutionOutcome:
-    comment = f"No duplicate cases closed for primary case {res.payload.primary_case_id}."
+def handle_skip_closure_branch(
+    res: SimilarCasesSearchResult,
+) -> ClosureExecutionOutcome:
+    comment = (
+        f"No duplicate cases closed for primary case {res.payload.primary_case_id}."
+    )
     return ClosureExecutionOutcome(
         search_result=res,
         closed_cases_count=0,
@@ -91,11 +103,19 @@ def build_close_duplicate_cases_workflow() -> Workflow:
         name="close_duplicate_cases_workflow",
         description="Graph-based workflow for identifying and closing duplicate SOAR cases",
         edges=[
-            (START, extract_primary_case_node, find_similar_cases_node, duplicate_case_router),
-            (duplicate_case_router, {
-                "CLOSE_DUPLICATES": handle_close_duplicates_branch,
-                "SKIP_CLOSURE": handle_skip_closure_branch,
-            }),
+            (
+                START,
+                extract_primary_case_node,
+                find_similar_cases_node,
+                duplicate_case_router,
+            ),
+            (
+                duplicate_case_router,
+                {
+                    "CLOSE_DUPLICATES": handle_close_duplicates_branch,
+                    "SKIP_CLOSURE": handle_skip_closure_branch,
+                },
+            ),
             (handle_close_duplicates_branch, document_closure_report_node),
             (handle_skip_closure_branch, document_closure_report_node),
         ],

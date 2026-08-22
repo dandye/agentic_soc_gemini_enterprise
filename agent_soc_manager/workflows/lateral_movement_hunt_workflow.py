@@ -4,15 +4,18 @@ Lateral Movement Hunt (PsExec / WMI) Graph Workflow for Google ADK.
 Implements 'Lateral Movement Hunt - PsExec & WMI Runbook'.
 """
 
-
 from pydantic import BaseModel, Field
 
 from .common import START, Event, Workflow
 
 
 class LateralMovementInput(BaseModel):
-    source_hostname: str | None = Field(default=None, description="Source host for lateral movement hunt")
-    lookback_hours: int = Field(default=48, description="SIEM lookback timeframe in hours")
+    source_hostname: str | None = Field(
+        default=None, description="Source host for lateral movement hunt"
+    )
+    lookback_hours: int = Field(
+        default=48, description="SIEM lookback timeframe in hours"
+    )
 
 
 class ExtractedLatMovePayload(BaseModel):
@@ -41,9 +44,13 @@ def extract_lat_move_payload_node(inp: LateralMovementInput) -> ExtractedLatMove
     )
 
 
-def search_psexec_wmi_events_node(payload: ExtractedLatMovePayload) -> LateralEventsResult:
+def search_psexec_wmi_events_node(
+    payload: ExtractedLatMovePayload,
+) -> LateralEventsResult:
     src = payload.source_hostname or ""
-    is_lat = "admin" in src.lower() or "jump" in src.lower() or payload.lookback_hours == 100
+    is_lat = (
+        "admin" in src.lower() or "jump" in src.lower() or payload.lookback_hours == 100
+    )
     return LateralEventsResult(
         payload=payload,
         psexec_service_installs=3 if is_lat else 0,
@@ -61,7 +68,9 @@ def lateral_movement_router(events: LateralEventsResult) -> Event:
     return Event(route=route, output=events)
 
 
-def handle_high_lateral_movement_branch(events: LateralEventsResult) -> LateralMovementVerdict:
+def handle_high_lateral_movement_branch(
+    events: LateralEventsResult,
+) -> LateralMovementVerdict:
     return LateralMovementVerdict(
         events=events,
         threat_level="HIGH_LATERAL_MOVEMENT",
@@ -69,7 +78,9 @@ def handle_high_lateral_movement_branch(events: LateralEventsResult) -> LateralM
     )
 
 
-def handle_clean_lateral_hunt_branch(events: LateralEventsResult) -> LateralMovementVerdict:
+def handle_clean_lateral_hunt_branch(
+    events: LateralEventsResult,
+) -> LateralMovementVerdict:
     return LateralMovementVerdict(
         events=events,
         threat_level="CLEAN_HUNT",
@@ -86,11 +97,19 @@ def build_lateral_movement_hunt_workflow() -> Workflow:
         name="lateral_movement_hunt_workflow",
         description="Graph-based workflow for lateral movement threat hunting (PsExec service installs & WMI remote execution)",
         edges=[
-            (START, extract_lat_move_payload_node, search_psexec_wmi_events_node, lateral_movement_router),
-            (lateral_movement_router, {
-                "HIGH_LATERAL_MOVEMENT": handle_high_lateral_movement_branch,
-                "CLEAN_HUNT": handle_clean_lateral_hunt_branch,
-            }),
+            (
+                START,
+                extract_lat_move_payload_node,
+                search_psexec_wmi_events_node,
+                lateral_movement_router,
+            ),
+            (
+                lateral_movement_router,
+                {
+                    "HIGH_LATERAL_MOVEMENT": handle_high_lateral_movement_branch,
+                    "CLEAN_HUNT": handle_clean_lateral_hunt_branch,
+                },
+            ),
             (handle_high_lateral_movement_branch, document_lateral_report_node),
             (handle_clean_lateral_hunt_branch, document_lateral_report_node),
         ],

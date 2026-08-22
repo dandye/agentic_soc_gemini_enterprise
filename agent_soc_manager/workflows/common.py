@@ -19,15 +19,19 @@ try:
     from google.adk.events import Event
     from google.adk.workflow import START, Edge, FunctionNode, Workflow
 except ImportError:
+
     class Agent:
+
         def __init__(self, *args, **kwargs):
             pass
 
     class Workflow:
+
         def __init__(self, *args, **kwargs):
             pass
 
     class Event:
+
         def __init__(self, route="", output=None, actions=None, **kwargs):
             self.route = route
             self.output = output
@@ -36,10 +40,12 @@ except ImportError:
     START = "START"
 
     class Edge:
+
         def __init__(self, *args, **kwargs):
             pass
 
     class FunctionNode:
+
         def __init__(self, *args, **kwargs):
             pass
 
@@ -48,29 +54,41 @@ except ImportError:
 # Shared Pydantic Input/Output Schemas
 # -----------------------------------------------------------------------------
 
+
 class BaseWorkflowInput(BaseModel):
     """Base input contract for SOAR workflows."""
-    case_id: str | None = Field(default=None, description="SOAR Case ID for correlation and documentation")
+
+    case_id: str | None = Field(
+        default=None, description="SOAR Case ID for correlation and documentation"
+    )
 
 
 class CommonSOAROutcome(BaseModel):
     """Base outcome model containing standardized SOAR documentation payload."""
+
     case_id: str | None = Field(default=None, description="SOAR Case ID")
     action_status: str = Field(description="Workflow status code or disposition string")
-    soar_comment_text: str = Field(description="Formatted comment string posted to SOAR case")
-    report_markdown: str | None = Field(default=None, description="Generated Markdown report content")
+    soar_comment_text: str = Field(
+        description="Formatted comment string posted to SOAR case"
+    )
+    report_markdown: str | None = Field(
+        default=None, description="Generated Markdown report content"
+    )
 
 
 # -----------------------------------------------------------------------------
 # Common Utility Functions
 # -----------------------------------------------------------------------------
 
+
 def sanitize_entity_value(val: str) -> str:
     """Strips leading/trailing whitespace and normalizes entity strings."""
     return val.strip() if val else ""
 
 
-def format_soar_comment(title: str, metrics: dict[str, Any], recommendation: str) -> str:
+def format_soar_comment(
+    title: str, metrics: dict[str, Any], recommendation: str
+) -> str:
     """Formats standardized SOAR case comment block."""
     lines = [f"### {title}"]
     for key, value in metrics.items():

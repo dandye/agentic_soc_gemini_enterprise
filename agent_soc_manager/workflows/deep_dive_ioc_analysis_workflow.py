@@ -4,7 +4,6 @@ Deep Dive IOC Analysis Graph Workflow for Google ADK.
 Implements 'Deep Dive IOC Analysis Runbook'.
 """
 
-
 from pydantic import BaseModel, Field
 
 from .common import START, Event, Workflow
@@ -45,7 +44,9 @@ def extract_deep_dive_payload_node(inp: DeepDiveIOCInput) -> ExtractedDeepDivePa
     )
 
 
-def query_gti_deep_dive_node(payload: ExtractedDeepDivePayload) -> GTIDeepAnalysisResult:
+def query_gti_deep_dive_node(
+    payload: ExtractedDeepDivePayload,
+) -> GTIDeepAnalysisResult:
     val = payload.ioc_value
     is_apt = "apt" in val or "cobalt" in val or "90" in val or "198.51" in val
     return GTIDeepAnalysisResult(
@@ -84,7 +85,9 @@ def handle_commodity_branch(gti_res: GTIDeepAnalysisResult) -> DeepDiveAssessmen
     )
 
 
-def handle_benign_deep_dive_branch(gti_res: GTIDeepAnalysisResult) -> DeepDiveAssessment:
+def handle_benign_deep_dive_branch(
+    gti_res: GTIDeepAnalysisResult,
+) -> DeepDiveAssessment:
     return DeepDiveAssessment(
         gti_data=gti_res,
         threat_level="BENIGN",
@@ -101,12 +104,20 @@ def build_deep_dive_ioc_analysis_workflow() -> Workflow:
         name="deep_dive_ioc_analysis_workflow",
         description="Graph-based workflow for GTI deep-dive IOC & threat actor attribution analysis",
         edges=[
-            (START, extract_deep_dive_payload_node, query_gti_deep_dive_node, deep_dive_threat_router),
-            (deep_dive_threat_router, {
-                "ADVANCED_PERSISTENT_THREAT": handle_apt_branch,
-                "COMMODITY_MALWARE": handle_commodity_branch,
-                "BENIGN": handle_benign_deep_dive_branch,
-            }),
+            (
+                START,
+                extract_deep_dive_payload_node,
+                query_gti_deep_dive_node,
+                deep_dive_threat_router,
+            ),
+            (
+                deep_dive_threat_router,
+                {
+                    "ADVANCED_PERSISTENT_THREAT": handle_apt_branch,
+                    "COMMODITY_MALWARE": handle_commodity_branch,
+                    "BENIGN": handle_benign_deep_dive_branch,
+                },
+            ),
             (handle_apt_branch, document_deep_dive_report_node),
             (handle_commodity_branch, document_deep_dive_report_node),
             (handle_benign_deep_dive_branch, document_deep_dive_report_node),

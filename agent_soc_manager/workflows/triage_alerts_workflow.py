@@ -4,7 +4,6 @@ Triage Alerts Graph Workflow for Google ADK.
 Implements 'Triage Alerts Runbook'.
 """
 
-
 from pydantic import BaseModel, Field
 
 from .common import START, Event, Workflow
@@ -40,8 +39,13 @@ def extract_alerts_payload_node(inp: TriageAlertsInput) -> ExtractedAlertsPayloa
     )
 
 
-def enrich_and_assess_alerts_node(payload: ExtractedAlertsPayload) -> AlertEnrichmentSummary:
-    has_crit = any("crit" in a.lower() or "high" in a.lower() or "900" in a for a in payload.alert_ids)
+def enrich_and_assess_alerts_node(
+    payload: ExtractedAlertsPayload,
+) -> AlertEnrichmentSummary:
+    has_crit = any(
+        "crit" in a.lower() or "high" in a.lower() or "900" in a
+        for a in payload.alert_ids
+    )
     return AlertEnrichmentSummary(
         payload=payload,
         high_severity_count=len(payload.alert_ids) if has_crit else 0,
@@ -58,7 +62,9 @@ def alerts_disposition_router(summary: AlertEnrichmentSummary) -> Event:
     return Event(route=route, output=summary)
 
 
-def handle_escalate_incident_branch(summary: AlertEnrichmentSummary) -> AlertTriageOutcome:
+def handle_escalate_incident_branch(
+    summary: AlertEnrichmentSummary,
+) -> AlertTriageOutcome:
     return AlertTriageOutcome(
         summary=summary,
         disposition="ESCALATE_INCIDENT",
@@ -66,7 +72,9 @@ def handle_escalate_incident_branch(summary: AlertEnrichmentSummary) -> AlertTri
     )
 
 
-def handle_close_fp_alerts_branch(summary: AlertEnrichmentSummary) -> AlertTriageOutcome:
+def handle_close_fp_alerts_branch(
+    summary: AlertEnrichmentSummary,
+) -> AlertTriageOutcome:
     return AlertTriageOutcome(
         summary=summary,
         disposition="CLOSE_FALSE_POSITIVE",
@@ -83,11 +91,19 @@ def build_triage_alerts_workflow() -> Workflow:
         name="triage_alerts_workflow",
         description="Graph-based workflow for alert triage, entity enrichment, and severity-based disposition routing",
         edges=[
-            (START, extract_alerts_payload_node, enrich_and_assess_alerts_node, alerts_disposition_router),
-            (alerts_disposition_router, {
-                "ESCALATE_INCIDENT": handle_escalate_incident_branch,
-                "CLOSE_FALSE_POSITIVE": handle_close_fp_alerts_branch,
-            }),
+            (
+                START,
+                extract_alerts_payload_node,
+                enrich_and_assess_alerts_node,
+                alerts_disposition_router,
+            ),
+            (
+                alerts_disposition_router,
+                {
+                    "ESCALATE_INCIDENT": handle_escalate_incident_branch,
+                    "CLOSE_FALSE_POSITIVE": handle_close_fp_alerts_branch,
+                },
+            ),
             (handle_escalate_incident_branch, document_alerts_triage_report_node),
             (handle_close_fp_alerts_branch, document_alerts_triage_report_node),
         ],

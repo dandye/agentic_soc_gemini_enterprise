@@ -10,8 +10,12 @@ from .common import START, BaseWorkflowInput, Event, Workflow, sanitize_entity_v
 
 
 class UEBAReportInput(BaseWorkflowInput):
-    user_id: str = Field(description="Target User ID / Email for UEBA behavioral analysis")
-    timeframe_days: int = Field(default=30, description="UEBA analysis timeframe in days")
+    user_id: str = Field(
+        description="Target User ID / Email for UEBA behavioral analysis"
+    )
+    timeframe_days: int = Field(
+        default=30, description="UEBA analysis timeframe in days"
+    )
 
 
 class ExtractedUEBAPayload(BaseModel):
@@ -49,7 +53,9 @@ def compute_ueba_anomalies_node(payload: ExtractedUEBAPayload) -> UEBABehaviorRe
         anomaly_score=88 if is_anom else 12,
         impossible_travel_events=3 if is_anom else 0,
         first_time_resource_access_count=14 if is_anom else 1,
-        behavior_verdict="HIGH_RISK_USER_ANOMALY" if is_anom else "STANDARD_USER_PROFILE",
+        behavior_verdict="HIGH_RISK_USER_ANOMALY"
+        if is_anom
+        else "STANDARD_USER_PROFILE",
     )
 
 
@@ -80,11 +86,19 @@ def build_ueba_report_workflow() -> Workflow:
         name="ueba_report_workflow",
         description="Graph-based workflow for User and Entity Behavior Analytics (UEBA) risk scoring and anomaly reporting",
         edges=[
-            (START, extract_ueba_payload_node, compute_ueba_anomalies_node, ueba_behavior_router),
-            (ueba_behavior_router, {
-                "HIGH_RISK_USER_ANOMALY": handle_high_risk_user_branch,
-                "STANDARD_USER_PROFILE": handle_standard_user_branch,
-            }),
+            (
+                START,
+                extract_ueba_payload_node,
+                compute_ueba_anomalies_node,
+                ueba_behavior_router,
+            ),
+            (
+                ueba_behavior_router,
+                {
+                    "HIGH_RISK_USER_ANOMALY": handle_high_risk_user_branch,
+                    "STANDARD_USER_PROFILE": handle_standard_user_branch,
+                },
+            ),
             (handle_high_risk_user_branch, document_ueba_report_node),
             (handle_standard_user_branch, document_ueba_report_node),
         ],

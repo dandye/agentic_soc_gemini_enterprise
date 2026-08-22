@@ -4,14 +4,15 @@ Credential Access TTP Hunt Graph Workflow for Google ADK.
 Implements 'Guided TTP Hunt - Credential Access Runbook'.
 """
 
-
 from pydantic import BaseModel, Field
 
 from .common import START, Event, Workflow
 
 
 class CredentialHuntInput(BaseModel):
-    target_hostname: str | None = Field(default=None, description="Hostname to scope hunt")
+    target_hostname: str | None = Field(
+        default=None, description="Hostname to scope hunt"
+    )
     lookback_hours: int = Field(default=72, description="SIEM hunt lookback hours")
 
 
@@ -40,13 +41,19 @@ def extract_hunt_payload_node(inp: CredentialHuntInput) -> ExtractedHuntPayload:
     )
 
 
-def search_lsass_events_node(payload: ExtractedHuntPayload) -> LSASSMemoryDumpEventsResult:
+def search_lsass_events_node(
+    payload: ExtractedHuntPayload,
+) -> LSASSMemoryDumpEventsResult:
     host = payload.target_hostname or ""
-    is_dump = "dc" in host.lower() or "srv" in host.lower() or payload.lookback_hours == 100
+    is_dump = (
+        "dc" in host.lower() or "srv" in host.lower() or payload.lookback_hours == 100
+    )
     return LSASSMemoryDumpEventsResult(
         payload=payload,
         lsass_dump_detected=is_dump,
-        suspicious_process_names=["mimikatz.exe", "procdump.exe", "lsass.dmp"] if is_dump else [],
+        suspicious_process_names=["mimikatz.exe", "procdump.exe", "lsass.dmp"]
+        if is_dump
+        else [],
         affected_users=["domain\\administrator"] if is_dump else [],
     )
 
@@ -84,11 +91,19 @@ def build_credential_access_hunt_workflow() -> Workflow:
         name="credential_access_hunt_workflow",
         description="Graph-based workflow for guided threat hunting against LSASS credential access TTPs",
         edges=[
-            (START, extract_hunt_payload_node, search_lsass_events_node, hunt_threat_router),
-            (hunt_threat_router, {
-                "CONFIRMED_CREDENTIAL_DUMPING": handle_confirmed_dumping_branch,
-                "CLEAN_HUNT": handle_clean_hunt_branch,
-            }),
+            (
+                START,
+                extract_hunt_payload_node,
+                search_lsass_events_node,
+                hunt_threat_router,
+            ),
+            (
+                hunt_threat_router,
+                {
+                    "CONFIRMED_CREDENTIAL_DUMPING": handle_confirmed_dumping_branch,
+                    "CLEAN_HUNT": handle_clean_hunt_branch,
+                },
+            ),
             (handle_confirmed_dumping_branch, document_hunt_report_node),
             (handle_clean_hunt_branch, document_hunt_report_node),
         ],

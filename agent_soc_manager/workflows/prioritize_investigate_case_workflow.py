@@ -30,13 +30,17 @@ class PrioritizedInvestigationOutcome(BaseModel):
     soar_comment_text: str
 
 
-def extract_prioritization_payload_node(inp: PrioritizeCaseInput) -> ExtractedPrioritizationPayload:
+def extract_prioritization_payload_node(
+    inp: PrioritizeCaseInput,
+) -> ExtractedPrioritizationPayload:
     return ExtractedPrioritizationPayload(
         case_id=sanitize_entity_value(inp.case_id),
     )
 
 
-def compute_case_risk_score_node(payload: ExtractedPrioritizationPayload) -> CaseRiskScoreResult:
+def compute_case_risk_score_node(
+    payload: ExtractedPrioritizationPayload,
+) -> CaseRiskScoreResult:
     cid = payload.case_id
     is_crit = "900" in cid or "CRIT" in cid or "MAL" in cid
     return CaseRiskScoreResult(
@@ -55,7 +59,9 @@ def case_risk_router(score: CaseRiskScoreResult) -> Event:
     return Event(route=route, output=score)
 
 
-def handle_immediate_escalation_branch(score: CaseRiskScoreResult) -> PrioritizedInvestigationOutcome:
+def handle_immediate_escalation_branch(
+    score: CaseRiskScoreResult,
+) -> PrioritizedInvestigationOutcome:
     comment = f"Priority elevated to {score.assigned_priority} (Risk Score: {score.risk_score}/100) for Case {score.payload.case_id}. Critical entities: {score.critical_entities}."
     return PrioritizedInvestigationOutcome(
         score=score,
@@ -64,7 +70,9 @@ def handle_immediate_escalation_branch(score: CaseRiskScoreResult) -> Prioritize
     )
 
 
-def handle_standard_triage_branch(score: CaseRiskScoreResult) -> PrioritizedInvestigationOutcome:
+def handle_standard_triage_branch(
+    score: CaseRiskScoreResult,
+) -> PrioritizedInvestigationOutcome:
     comment = f"Priority maintained at {score.assigned_priority} (Risk Score: {score.risk_score}/100) for Case {score.payload.case_id}."
     return PrioritizedInvestigationOutcome(
         score=score,
@@ -73,7 +81,9 @@ def handle_standard_triage_branch(score: CaseRiskScoreResult) -> PrioritizedInve
     )
 
 
-def document_prioritization_report_node(outcome: PrioritizedInvestigationOutcome) -> str:
+def document_prioritization_report_node(
+    outcome: PrioritizedInvestigationOutcome,
+) -> str:
     return outcome.soar_comment_text
 
 
@@ -82,11 +92,19 @@ def build_prioritize_investigate_case_workflow() -> Workflow:
         name="prioritize_investigate_case_workflow",
         description="Graph-based workflow for calculating case risk scores, updating SOAR priority, and routing investigation pathways",
         edges=[
-            (START, extract_prioritization_payload_node, compute_case_risk_score_node, case_risk_router),
-            (case_risk_router, {
-                "IMMEDIATE_ESCALATION": handle_immediate_escalation_branch,
-                "STANDARD_TRIAGE": handle_standard_triage_branch,
-            }),
+            (
+                START,
+                extract_prioritization_payload_node,
+                compute_case_risk_score_node,
+                case_risk_router,
+            ),
+            (
+                case_risk_router,
+                {
+                    "IMMEDIATE_ESCALATION": handle_immediate_escalation_branch,
+                    "STANDARD_TRIAGE": handle_standard_triage_branch,
+                },
+            ),
             (handle_immediate_escalation_branch, document_prioritization_report_node),
             (handle_standard_triage_branch, document_prioritization_report_node),
         ],

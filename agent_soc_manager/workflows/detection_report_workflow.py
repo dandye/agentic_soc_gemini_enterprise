@@ -11,7 +11,9 @@ from .common import START, BaseWorkflowInput, Event, Workflow, sanitize_entity_v
 
 class DetectionReportInput(BaseWorkflowInput):
     rule_id: str = Field(description="Detection Rule ID")
-    timeframe_days: int = Field(default=7, description="Timeframe in days for detection stats")
+    timeframe_days: int = Field(
+        default=7, description="Timeframe in days for detection stats"
+    )
 
 
 class ExtractedDetectionReportPayload(BaseModel):
@@ -34,7 +36,9 @@ class DetectionReportOutcome(BaseModel):
     report_markdown: str
 
 
-def extract_detection_report_payload_node(inp: DetectionReportInput) -> ExtractedDetectionReportPayload:
+def extract_detection_report_payload_node(
+    inp: DetectionReportInput,
+) -> ExtractedDetectionReportPayload:
     return ExtractedDetectionReportPayload(
         rule_id=sanitize_entity_value(inp.rule_id),
         timeframe_days=inp.timeframe_days,
@@ -42,7 +46,9 @@ def extract_detection_report_payload_node(inp: DetectionReportInput) -> Extracte
     )
 
 
-def fetch_detection_stats_node(payload: ExtractedDetectionReportPayload) -> DetectionStatsResult:
+def fetch_detection_stats_node(
+    payload: ExtractedDetectionReportPayload,
+) -> DetectionStatsResult:
     rid = payload.rule_id
     is_noisy = "noise" in rid.lower() or "broad" in rid.lower()
     return DetectionStatsResult(
@@ -68,7 +74,9 @@ def handle_high_noise_branch(stats: DetectionStatsResult) -> DetectionReportOutc
     return DetectionReportOutcome(stats=stats, report_markdown=md)
 
 
-def handle_optimal_performance_branch(stats: DetectionStatsResult) -> DetectionReportOutcome:
+def handle_optimal_performance_branch(
+    stats: DetectionStatsResult,
+) -> DetectionReportOutcome:
     md = f"# Detection Report: {stats.rule_name}\n\n- **Verdict:** `OPTIMAL_PERFORMANCE` (Accuracy: {stats.true_positives / stats.total_triggers:.0%})"
     return DetectionReportOutcome(stats=stats, report_markdown=md)
 
@@ -82,11 +90,19 @@ def build_detection_report_workflow() -> Workflow:
         name="detection_report_workflow",
         description="Graph-based workflow for generating detection rule effectiveness and noise metrics reports",
         edges=[
-            (START, extract_detection_report_payload_node, fetch_detection_stats_node, detection_report_router),
-            (detection_report_router, {
-                "HIGH_NOISE_LEVEL": handle_high_noise_branch,
-                "OPTIMAL_PERFORMANCE": handle_optimal_performance_branch,
-            }),
+            (
+                START,
+                extract_detection_report_payload_node,
+                fetch_detection_stats_node,
+                detection_report_router,
+            ),
+            (
+                detection_report_router,
+                {
+                    "HIGH_NOISE_LEVEL": handle_high_noise_branch,
+                    "OPTIMAL_PERFORMANCE": handle_optimal_performance_branch,
+                },
+            ),
             (handle_high_noise_branch, document_detection_report_node),
             (handle_optimal_performance_branch, document_detection_report_node),
         ],

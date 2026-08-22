@@ -4,7 +4,7 @@ line-length = 88
 target-version = ["py312"]
 extend-exclude = '''
 /(
-  # Exclude common directories
+  # Exclude common directories and submodules
   \.git
   | \.venv
   | venv
@@ -13,6 +13,9 @@ extend-exclude = '''
   | build
   | dist
   | __pycache__
+  | external
+  | investigations
+  | harvested_investigations
 )/
 '''
 
@@ -38,7 +41,10 @@ exclude = [
   "^dist/",
   "^\\.venv/",
   "^\\.eggs/",
-  "^\\.tox/"
+  "^\\.tox/",
+  "^external/",
+  "^investigations/",
+  "^harvested_investigations/"
 ]
 
 [tool.pytest.ini_options]
@@ -71,8 +77,12 @@ exclude = [
   ".tox",
   "build",
   "dist",
-  "__pycache__"
+  "__pycache__",
+  "external",
+  "investigations",
+  "harvested_investigations"
 ]
+
 
 [tool.ruff.lint]
 select = [

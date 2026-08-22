@@ -107,6 +107,7 @@ def execute_mcp_tool(tool_name: str, arguments: Any = None) -> str:
                 if loop.is_running():
                     # If in running loop, run in separate thread runner
                     import concurrent.futures
+
                     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
                         res = pool.submit(asyncio.run, res).result()
                 else:

@@ -10,8 +10,12 @@ from .common import START, BaseWorkflowInput, Event, Workflow, sanitize_entity_v
 
 
 class GroupCasesInput(BaseWorkflowInput):
-    target_case_ids: list[str] = Field(description="List of Case IDs to analyze for grouping")
-    grouping_criteria: str = Field(default="Shared_IOCs_and_Users", description="Criteria for case grouping")
+    target_case_ids: list[str] = Field(
+        description="List of Case IDs to analyze for grouping"
+    )
+    grouping_criteria: str = Field(
+        default="Shared_IOCs_and_Users", description="Criteria for case grouping"
+    )
 
 
 class ExtractedGroupPayload(BaseModel):
@@ -75,11 +79,19 @@ def build_group_cases_workflow() -> Workflow:
         name="group_cases_workflow",
         description="Graph-based workflow for correlating and grouping related SOAR cases into consolidated incidents",
         edges=[
-            (START, extract_group_payload_node, cluster_similar_cases_node, case_grouping_router),
-            (case_grouping_router, {
-                "GROUP_CASES_MERGED": handle_group_cases_merged_branch,
-                "NO_GROUPING_NEEDED": handle_no_grouping_needed_branch,
-            }),
+            (
+                START,
+                extract_group_payload_node,
+                cluster_similar_cases_node,
+                case_grouping_router,
+            ),
+            (
+                case_grouping_router,
+                {
+                    "GROUP_CASES_MERGED": handle_group_cases_merged_branch,
+                    "NO_GROUPING_NEEDED": handle_no_grouping_needed_branch,
+                },
+            ),
             (handle_group_cases_merged_branch, document_grouping_report_node),
             (handle_no_grouping_needed_branch, document_grouping_report_node),
         ],

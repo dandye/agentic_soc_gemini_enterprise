@@ -14,12 +14,17 @@ from .common import START, Event, Workflow
 # 1. Pydantic Schemas
 # -----------------------------------------------------------------------------
 
+
 class EndpointTriageInput(BaseModel):
     endpoint_id: str = Field(description="Hostname or IP of the endpoint")
-    endpoint_type: str = Field(description="Identifier type: 'Hostname' or 'IP Address'")
+    endpoint_type: str = Field(
+        description="Identifier type: 'Hostname' or 'IP Address'"
+    )
     case_id: str = Field(description="SOAR Case ID for documentation")
     reason_for_triage: str | None = Field(default=None, description="Triage context")
-    confirm_isolation: bool = Field(default=False, description="Analyst pre-confirmation for isolation")
+    confirm_isolation: bool = Field(
+        default=False, description="Analyst pre-confirmation for isolation"
+    )
 
 
 class ExtractedEndpointPayload(BaseModel):
@@ -47,7 +52,9 @@ class CompromiseAssessmentResult(BaseModel):
 
 class EndpointIsolationOutcome(BaseModel):
     assessment: CompromiseAssessmentResult
-    isolation_status: str  # "EXECUTED_ISOLATED", "ISOLATION_REJECTED", "MANUAL_ISOLATION_REQUIRED"
+    isolation_status: (
+        str  # "EXECUTED_ISOLATED", "ISOLATION_REJECTED", "MANUAL_ISOLATION_REQUIRED"
+    )
     soar_comment_text: str
 
 
@@ -64,6 +71,7 @@ class EndpointTriageReportSummary(BaseModel):
 # 2. Graph Node Functions & Routers
 # -----------------------------------------------------------------------------
 
+
 def extract_endpoint_node(input_data: EndpointTriageInput) -> ExtractedEndpointPayload:
     """Extracts and normalizes endpoint metadata."""
     return ExtractedEndpointPayload(
@@ -75,7 +83,9 @@ def extract_endpoint_node(input_data: EndpointTriageInput) -> ExtractedEndpointP
     )
 
 
-def gather_siem_and_posture_node(payload: ExtractedEndpointPayload) -> SIEMEndpointContext:
+def gather_siem_and_posture_node(
+    payload: ExtractedEndpointPayload,
+) -> SIEMEndpointContext:
     """Queries SIEM security events, process launches, and vulnerability posture for endpoint."""
     ep = payload.endpoint_id
     if "compromised" in ep or "srv" in ep or "finance" in ep:
@@ -98,7 +108,9 @@ def gather_siem_and_posture_node(payload: ExtractedEndpointPayload) -> SIEMEndpo
     )
 
 
-def assess_compromise_likelihood_node(ctx: SIEMEndpointContext) -> CompromiseAssessmentResult:
+def assess_compromise_likelihood_node(
+    ctx: SIEMEndpointContext,
+) -> CompromiseAssessmentResult:
     """Evaluates compromise likelihood and isolation urgency."""
     is_high = ctx.suspicious_processes_count > 0 or ctx.anomalous_connections_count > 0
     likelihood = "HIGH" if is_high else "LOW"
@@ -128,7 +140,9 @@ def isolation_router(assessment: CompromiseAssessmentResult) -> Event:
     return Event(route=route, output=assessment)
 
 
-def handle_execute_isolation_branch(assessment: CompromiseAssessmentResult) -> EndpointIsolationOutcome:
+def handle_execute_isolation_branch(
+    assessment: CompromiseAssessmentResult,
+) -> EndpointIsolationOutcome:
     """Executes network isolation via EDR integration for the endpoint."""
     ep = assessment.context.payload.endpoint_id
     comment = (
@@ -145,7 +159,9 @@ def handle_execute_isolation_branch(assessment: CompromiseAssessmentResult) -> E
     )
 
 
-def handle_skip_isolation_branch(assessment: CompromiseAssessmentResult) -> EndpointIsolationOutcome:
+def handle_skip_isolation_branch(
+    assessment: CompromiseAssessmentResult,
+) -> EndpointIsolationOutcome:
     """Handles low-risk or unconfirmed endpoint triage outcomes without isolation."""
     ep = assessment.context.payload.endpoint_id
     comment = (
@@ -162,7 +178,9 @@ def handle_skip_isolation_branch(assessment: CompromiseAssessmentResult) -> Endp
     )
 
 
-def document_endpoint_report_node(outcome: EndpointIsolationOutcome) -> EndpointTriageReportSummary:
+def document_endpoint_report_node(
+    outcome: EndpointIsolationOutcome,
+) -> EndpointTriageReportSummary:
     """Posts comment to SOAR case and outputs markdown summary."""
     ass = outcome.assessment
     p = ass.context.payload
@@ -199,19 +217,27 @@ def document_endpoint_report_node(outcome: EndpointIsolationOutcome) -> Endpoint
 # 3. Workflow Graph Construction
 # -----------------------------------------------------------------------------
 
+
 def build_endpoint_triage_workflow() -> Workflow:
     """Constructs the ADK Graph Workflow for Endpoint Triage & Isolation."""
 
     workflow_edges = [
         # Sequential pipeline: START -> Extract -> SIEM/Posture Check -> Assessment -> Router
-        (START, extract_endpoint_node, gather_siem_and_posture_node, assess_compromise_likelihood_node, isolation_router),
-
+        (
+            START,
+            extract_endpoint_node,
+            gather_siem_and_posture_node,
+            assess_compromise_likelihood_node,
+            isolation_router,
+        ),
         # Conditional Routing
-        (isolation_router, {
-            "EXECUTE_ISOLATION": handle_execute_isolation_branch,
-            "SKIP_ISOLATION": handle_skip_isolation_branch,
-        }),
-
+        (
+            isolation_router,
+            {
+                "EXECUTE_ISOLATION": handle_execute_isolation_branch,
+                "SKIP_ISOLATION": handle_skip_isolation_branch,
+            },
+        ),
         # Fan-in into Document & Report Node
         (handle_execute_isolation_branch, document_endpoint_report_node),
         (handle_skip_isolation_branch, document_endpoint_report_node),

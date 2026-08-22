@@ -4,7 +4,6 @@ Proactive Threat Hunting based on GTI Campaign or Actor Graph Workflow for Googl
 Implements 'Proactive Threat Hunting based on GTI Campaign or Actor Runbook'.
 """
 
-
 from pydantic import BaseModel, Field
 
 from .common import (
@@ -40,7 +39,9 @@ class ProactiveHuntVerdict(BaseModel):
     action_plan: str
 
 
-def extract_proactive_payload_node(inp: ProactiveGTIHuntInput) -> ExtractedProactivePayload:
+def extract_proactive_payload_node(
+    inp: ProactiveGTIHuntInput,
+) -> ExtractedProactivePayload:
     return ExtractedProactivePayload(
         campaign_or_actor_name=sanitize_entity_value(inp.campaign_or_actor_name),
         timeframe_days=inp.timeframe_days,
@@ -48,12 +49,16 @@ def extract_proactive_payload_node(inp: ProactiveGTIHuntInput) -> ExtractedProac
     )
 
 
-def correlate_gti_campaign_siem_node(payload: ExtractedProactivePayload) -> GTIThreatCampaignResult:
+def correlate_gti_campaign_siem_node(
+    payload: ExtractedProactivePayload,
+) -> GTIThreatCampaignResult:
     name = payload.campaign_or_actor_name.lower()
     is_match = "apt" in name or "campaign" in name or "gti" in name or "unc" in name
     return GTIThreatCampaignResult(
         payload=payload,
-        associated_iocs=["198.51.100.33", "malicious-c2-domain.com"] if is_match else [],
+        associated_iocs=["198.51.100.33", "malicious-c2-domain.com"]
+        if is_match
+        else [],
         ttp_signatures=["T1566.001", "T1059.001"] if is_match else [],
         matched_siem_events_count=19 if is_match else 0,
     )
@@ -67,7 +72,9 @@ def proactive_gti_hunt_router(result: GTIThreatCampaignResult) -> Event:
     return Event(route=route, output=result)
 
 
-def handle_campaign_match_found_branch(result: GTIThreatCampaignResult) -> ProactiveHuntVerdict:
+def handle_campaign_match_found_branch(
+    result: GTIThreatCampaignResult,
+) -> ProactiveHuntVerdict:
     return ProactiveHuntVerdict(
         result=result,
         verdict="CAMPAIGN_SIEM_MATCH_FOUND",
@@ -75,7 +82,9 @@ def handle_campaign_match_found_branch(result: GTIThreatCampaignResult) -> Proac
     )
 
 
-def handle_no_campaign_activity_branch(result: GTIThreatCampaignResult) -> ProactiveHuntVerdict:
+def handle_no_campaign_activity_branch(
+    result: GTIThreatCampaignResult,
+) -> ProactiveHuntVerdict:
     return ProactiveHuntVerdict(
         result=result,
         verdict="NO_CAMPAIGN_ACTIVITY",
@@ -92,11 +101,19 @@ def build_proactive_gti_threat_hunt_workflow() -> Workflow:
         name="proactive_gti_threat_hunt_workflow",
         description="Graph-based workflow for proactive threat hunting driven by GTI Campaign and Actor intelligence",
         edges=[
-            (START, extract_proactive_payload_node, correlate_gti_campaign_siem_node, proactive_gti_hunt_router),
-            (proactive_gti_hunt_router, {
-                "CAMPAIGN_SIEM_MATCH_FOUND": handle_campaign_match_found_branch,
-                "NO_CAMPAIGN_ACTIVITY": handle_no_campaign_activity_branch,
-            }),
+            (
+                START,
+                extract_proactive_payload_node,
+                correlate_gti_campaign_siem_node,
+                proactive_gti_hunt_router,
+            ),
+            (
+                proactive_gti_hunt_router,
+                {
+                    "CAMPAIGN_SIEM_MATCH_FOUND": handle_campaign_match_found_branch,
+                    "NO_CAMPAIGN_ACTIVITY": handle_no_campaign_activity_branch,
+                },
+            ),
             (handle_campaign_match_found_branch, document_proactive_hunt_report_node),
             (handle_no_campaign_activity_branch, document_proactive_hunt_report_node),
         ],

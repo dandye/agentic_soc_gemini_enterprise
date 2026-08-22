@@ -77,9 +77,7 @@ class MCPToolRegistry:
             description = getattr(tool, "description", "") or ""
             input_schema: dict[str, Any] = {}
 
-            if hasattr(tool, "_get_declaration") and callable(
-                tool._get_declaration
-            ):
+            if hasattr(tool, "_get_declaration") and callable(tool._get_declaration):
                 try:
                     decl = tool._get_declaration()
                     if not name and hasattr(decl, "name"):
@@ -227,9 +225,7 @@ class MCPToolRegistry:
                 return executor(**arguments)
             except TypeError:
                 return executor(arguments)
-        elif hasattr(executor, "run_async") and callable(
-            executor.run_async
-        ):
+        elif hasattr(executor, "run_async") and callable(executor.run_async):
             return executor.run_async(arguments)
         else:
             raise RuntimeError(f"Executor for tool '{meta.name}' is not callable.")

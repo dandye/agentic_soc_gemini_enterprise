@@ -27,13 +27,21 @@ def test_run_basic_ioc_enrichment_workflow():
         siem_search_hours=24,
     )
     assert result is not None
-    assert "198.51.100.1" in str(result) or "CASE-101" in str(result) or "GTI" in str(result)
+    assert (
+        "198.51.100.1" in str(result)
+        or "CASE-101" in str(result)
+        or "GTI" in str(result)
+    )
 
 
 def test_run_alert_report_workflow():
     result = run_alert_report_workflow(alert_id="ALERT-999", case_id="CASE-102")
     assert result is not None
-    assert "ALERT-999" in str(result) or "CASE-102" in str(result) or "Alert" in str(result)
+    assert (
+        "ALERT-999" in str(result)
+        or "CASE-102" in str(result)
+        or "Alert" in str(result)
+    )
 
 
 def test_run_malware_triage_workflow():
@@ -42,7 +50,11 @@ def test_run_malware_triage_workflow():
         case_id="CASE-103",
     )
     assert result is not None
-    assert "d41d8cd98f00b204e9800998ecf8427e" in str(result) or "CASE-103" in str(result) or "Malware" in str(result)
+    assert (
+        "d41d8cd98f00b204e9800998ecf8427e" in str(result)
+        or "CASE-103" in str(result)
+        or "Malware" in str(result)
+    )
 
 
 def test_run_case_report_workflow():
@@ -52,6 +64,12 @@ def test_run_case_report_workflow():
 
 
 def test_run_endpoint_triage_workflow():
-    result = run_endpoint_triage_workflow(endpoint_id="WRK-101", endpoint_type="HOST", case_id="CASE-104")
+    result = run_endpoint_triage_workflow(
+        endpoint_id="WRK-101", endpoint_type="HOST", case_id="CASE-104"
+    )
     assert result is not None
-    assert "WRK-101" in str(result) or "Endpoint" in str(result) or "CASE-104" in str(result)
+    assert (
+        "WRK-101" in str(result)
+        or "Endpoint" in str(result)
+        or "CASE-104" in str(result)
+    )

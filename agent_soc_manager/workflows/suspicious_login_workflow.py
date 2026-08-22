@@ -14,12 +14,17 @@ from .common import START, Agent, Event, Workflow
 # 1. Pydantic Schemas for Graph Nodes
 # -----------------------------------------------------------------------------
 
+
 class SuspiciousLoginInput(BaseModel):
-    case_id: str = Field(description="SOAR Case ID containing the suspicious login alert")
+    case_id: str = Field(
+        description="SOAR Case ID containing the suspicious login alert"
+    )
     alert_id: str | None = Field(default=None, description="Specific Alert ID")
     user_id: str = Field(description="Target User ID associated with the login event")
     source_ip: str = Field(description="Source IP address of the login attempt")
-    hostname: str | None = Field(default=None, description="Target Hostname if available")
+    hostname: str | None = Field(
+        default=None, description="Target Hostname if available"
+    )
 
 
 class ExtractedEntities(BaseModel):
@@ -73,6 +78,7 @@ class WorkflowReportSummary(BaseModel):
 # 2. Graph Node Definitions & Agents
 # -----------------------------------------------------------------------------
 
+
 # Step 1: Entity Extraction Node (Function Node)
 def extract_entities_node(input_data: SuspiciousLoginInput) -> ExtractedEntities:
     """Extracts and validates primary entities from the input payload."""
@@ -88,7 +94,9 @@ def extract_entities_node(input_data: SuspiciousLoginInput) -> ExtractedEntities
 def enrich_user_node(entities: ExtractedEntities) -> UserEnrichmentResult:
     """Simulates/queries SIEM context for the user history and recent alerts."""
     # In live execution, calls secops-mcp_lookup_entity(entity_value=entities.user_id)
-    summary = f"User {entities.user_id}: Active account, 2 security alerts in past 30 days."
+    summary = (
+        f"User {entities.user_id}: Active account, 2 security alerts in past 30 days."
+    )
     return UserEnrichmentResult(
         entities=entities,
         user_siem_summary=summary,
@@ -136,7 +144,9 @@ analyze_logins_agent = Agent(
 )
 
 
-def analyze_logins_fallback_node(ip_res: IPEnrichmentResult) -> LoginPatternAnalysisResult:
+def analyze_logins_fallback_node(
+    ip_res: IPEnrichmentResult,
+) -> LoginPatternAnalysisResult:
     """Deterministic fallback node for analyzing login patterns when running without live LLM calls."""
     is_high_risk = ip_res.gti_threat_score > 50 or ip_res.siem_ioc_matched
     risk_level = "HIGH_RISK_SUSPICIOUS" if is_high_risk else "LOW_RISK_BENIGN"
@@ -238,21 +248,32 @@ def document_and_report_node(outcome: RiskBranchOutcome) -> WorkflowReportSummar
 # 3. Workflow Graph Construction
 # -----------------------------------------------------------------------------
 
+
 def build_suspicious_login_workflow(use_llm_analyzer: bool = False) -> Workflow:
     """Constructs the complete ADK Graph Workflow for Suspicious Login Triage."""
 
-    analyzer_node = analyze_logins_agent if use_llm_analyzer else analyze_logins_fallback_node
+    analyzer_node = (
+        analyze_logins_agent if use_llm_analyzer else analyze_logins_fallback_node
+    )
 
     workflow_edges = [
         # Sequential pipeline from START -> Entity Extraction -> User Enrich -> IP Enrich -> Login Analysis -> Risk Router
-        (START, extract_entities_node, enrich_user_node, enrich_ip_node, analyzer_node, triage_risk_router),
-
+        (
+            START,
+            extract_entities_node,
+            enrich_user_node,
+            enrich_ip_node,
+            analyzer_node,
+            triage_risk_router,
+        ),
         # Conditional Routing based on risk level
-        (triage_risk_router, {
-            "LOW_RISK_BENIGN": handle_low_risk_branch,
-            "HIGH_RISK_SUSPICIOUS": handle_high_risk_branch,
-        }),
-
+        (
+            triage_risk_router,
+            {
+                "LOW_RISK_BENIGN": handle_low_risk_branch,
+                "HIGH_RISK_SUSPICIOUS": handle_high_risk_branch,
+            },
+        ),
         # Fan-in / Merge both branches into SOAR Document & Report Node
         (handle_low_risk_branch, document_and_report_node),
         (handle_high_risk_branch, document_and_report_node),

@@ -4,7 +4,6 @@ Detection Rule Validation & Tuning Graph Workflow for Google ADK.
 Implements 'Detection Rule Validation and Tuning Runbook'.
 """
 
-
 from pydantic import BaseModel, Field
 
 from .common import (
@@ -18,7 +17,9 @@ from .common import (
 class RuleValidationInput(BaseModel):
     rule_id: str = Field(description="YARA-L Detection Rule ID")
     rule_name: str | None = Field(default="", description="Detection Rule Name")
-    validation_days: int = Field(default=14, description="Historical validation timeframe in days")
+    validation_days: int = Field(
+        default=14, description="Historical validation timeframe in days"
+    )
 
 
 class ExtractedRulePayload(BaseModel):
@@ -37,7 +38,9 @@ class YARAValidationResult(BaseModel):
 
 class RuleTuningAction(BaseModel):
     validation: YARAValidationResult
-    tuning_recommendation: str  # "DEPLOY_PRODUCTION", "TUNE_FILTER_FP", "REJECT_COMPILATION_ERROR"
+    tuning_recommendation: (
+        str  # "DEPLOY_PRODUCTION", "TUNE_FILTER_FP", "REJECT_COMPILATION_ERROR"
+    )
     suggested_yara_l_filter: str | None = None
     report_markdown: str
 
@@ -181,12 +184,20 @@ def build_detection_rule_validation_workflow() -> Workflow:
         name="detection_rule_validation_workflow",
         description="Graph-based workflow for YARA-L rule validation, FP filtering, and production deployment",
         edges=[
-            (START, extract_rule_payload_node, validate_yara_l_rule_node, rule_tuning_router),
-            (rule_tuning_router, {
-                "REJECT_COMPILATION_ERROR": handle_reject_syntax_branch,
-                "TUNE_FILTER_FP": handle_tune_fp_branch,
-                "DEPLOY_PRODUCTION": handle_deploy_prod_branch,
-            }),
+            (
+                START,
+                extract_rule_payload_node,
+                validate_yara_l_rule_node,
+                rule_tuning_router,
+            ),
+            (
+                rule_tuning_router,
+                {
+                    "REJECT_COMPILATION_ERROR": handle_reject_syntax_branch,
+                    "TUNE_FILTER_FP": handle_tune_fp_branch,
+                    "DEPLOY_PRODUCTION": handle_deploy_prod_branch,
+                },
+            ),
             (handle_reject_syntax_branch, document_rule_report_node),
             (handle_tune_fp_branch, document_rule_report_node),
             (handle_deploy_prod_branch, document_rule_report_node),

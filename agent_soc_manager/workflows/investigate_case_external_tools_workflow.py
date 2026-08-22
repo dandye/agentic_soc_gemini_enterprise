@@ -11,7 +11,9 @@ from .common import START, Event, Workflow
 
 class ExternalInvestigationInput(BaseModel):
     case_id: str = Field(description="SOAR Case ID")
-    external_tool: str = Field(description="External Tool identifier (e.g. 'VirusTotal', 'Shodan', 'CrowdStrike')")
+    external_tool: str = Field(
+        description="External Tool identifier (e.g. 'VirusTotal', 'Shodan', 'CrowdStrike')"
+    )
 
 
 class ExtractedExtPayload(BaseModel):
@@ -48,7 +50,9 @@ def query_external_tool_node(payload: ExtractedExtPayload) -> ExternalEnrichment
         query_target="198.51.100.77",
         malicious_verdict=is_mal,
         reputation_score=88 if is_mal else 5,
-        raw_response_summary=f"External Tool '{payload.external_tool}' returned score 88/100 (Malicious C2)" if is_mal else "Clean",
+        raw_response_summary=f"External Tool '{payload.external_tool}' returned score 88/100 (Malicious C2)"
+        if is_mal
+        else "Clean",
     )
 
 
@@ -60,7 +64,9 @@ def external_tool_router(res: ExternalEnrichmentResult) -> Event:
     return Event(route=route, output=res)
 
 
-def handle_escalate_external_branch(res: ExternalEnrichmentResult) -> InvestigationOutcome:
+def handle_escalate_external_branch(
+    res: ExternalEnrichmentResult,
+) -> InvestigationOutcome:
     return InvestigationOutcome(
         enrichment=res,
         soar_action="ESCALATE_TIER2",
@@ -85,11 +91,19 @@ def build_investigate_case_external_tools_workflow() -> Workflow:
         name="investigate_case_external_tools_workflow",
         description="Graph-based workflow for SOAR case investigation enriched by external security tools",
         edges=[
-            (START, extract_ext_payload_node, query_external_tool_node, external_tool_router),
-            (external_tool_router, {
-                "ESCALATE_TIER2": handle_escalate_external_branch,
-                "CLOSE_BENIGN": handle_close_external_branch,
-            }),
+            (
+                START,
+                extract_ext_payload_node,
+                query_external_tool_node,
+                external_tool_router,
+            ),
+            (
+                external_tool_router,
+                {
+                    "ESCALATE_TIER2": handle_escalate_external_branch,
+                    "CLOSE_BENIGN": handle_close_external_branch,
+                },
+            ),
             (handle_escalate_external_branch, document_external_report_node),
             (handle_close_external_branch, document_external_report_node),
         ],

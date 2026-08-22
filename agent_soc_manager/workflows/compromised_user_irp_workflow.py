@@ -11,7 +11,9 @@ from .common import START, BaseWorkflowInput, Event, Workflow, sanitize_entity_v
 
 class CompromisedUserIRPInput(BaseWorkflowInput):
     user_id: str = Field(description="Compromised User ID / Principal Email")
-    confirm_account_disable: bool = Field(default=True, description="Confirmation to disable account & revoke sessions")
+    confirm_account_disable: bool = Field(
+        default=True, description="Confirmation to disable account & revoke sessions"
+    )
 
 
 class ExtractedUserIRPPayload(BaseModel):
@@ -33,7 +35,9 @@ class UserContainmentOutcome(BaseModel):
     remediation_action_plan: str
 
 
-def extract_user_irp_payload_node(inp: CompromisedUserIRPInput) -> ExtractedUserIRPPayload:
+def extract_user_irp_payload_node(
+    inp: CompromisedUserIRPInput,
+) -> ExtractedUserIRPPayload:
     return ExtractedUserIRPPayload(
         user_id=sanitize_entity_value(inp.user_id),
         confirm_account_disable=inp.confirm_account_disable,
@@ -41,7 +45,9 @@ def extract_user_irp_payload_node(inp: CompromisedUserIRPInput) -> ExtractedUser
     )
 
 
-def assess_user_compromise_impact_node(payload: ExtractedUserIRPPayload) -> UserImpactAssessmentResult:
+def assess_user_compromise_impact_node(
+    payload: ExtractedUserIRPPayload,
+) -> UserImpactAssessmentResult:
     uid = payload.user_id.lower()
     is_admin = "admin" in uid or "vip" in uid or "root" in uid
     return UserImpactAssessmentResult(
@@ -53,14 +59,19 @@ def assess_user_compromise_impact_node(payload: ExtractedUserIRPPayload) -> User
 
 
 def user_containment_router(assessment: UserImpactAssessmentResult) -> Event:
-    if assessment.payload.confirm_account_disable or assessment.user_privilege_level == "DOMAIN_ADMIN":
+    if (
+        assessment.payload.confirm_account_disable
+        or assessment.user_privilege_level == "DOMAIN_ADMIN"
+    ):
         route = "DISABLE_ACCOUNT_REVOKE_SESSIONS"
     else:
         route = "MONITORING_ONLY"
     return Event(route=route, output=assessment)
 
 
-def handle_disable_account_branch(assessment: UserImpactAssessmentResult) -> UserContainmentOutcome:
+def handle_disable_account_branch(
+    assessment: UserImpactAssessmentResult,
+) -> UserContainmentOutcome:
     plan = f"EMERGENCY CONTAINMENT EXECUTED for user {assessment.payload.user_id} ({assessment.user_privilege_level}): Account disabled in IdP/Okta, all {assessment.active_sessions_count} active OAuth/SAML tokens revoked, and password reset forced."
     return UserContainmentOutcome(
         assessment=assessment,
@@ -69,7 +80,9 @@ def handle_disable_account_branch(assessment: UserImpactAssessmentResult) -> Use
     )
 
 
-def handle_monitoring_only_branch(assessment: UserImpactAssessmentResult) -> UserContainmentOutcome:
+def handle_monitoring_only_branch(
+    assessment: UserImpactAssessmentResult,
+) -> UserContainmentOutcome:
     plan = f"User {assessment.payload.user_id} placed under heightened SIEM monitoring without immediate account disablement."
     return UserContainmentOutcome(
         assessment=assessment,
@@ -87,11 +100,19 @@ def build_compromised_user_irp_workflow() -> Workflow:
         name="compromised_user_irp_workflow",
         description="Graph-based workflow for compromised user account incident response containment and credential revocation",
         edges=[
-            (START, extract_user_irp_payload_node, assess_user_compromise_impact_node, user_containment_router),
-            (user_containment_router, {
-                "DISABLE_ACCOUNT_REVOKE_SESSIONS": handle_disable_account_branch,
-                "MONITORING_ONLY": handle_monitoring_only_branch,
-            }),
+            (
+                START,
+                extract_user_irp_payload_node,
+                assess_user_compromise_impact_node,
+                user_containment_router,
+            ),
+            (
+                user_containment_router,
+                {
+                    "DISABLE_ACCOUNT_REVOKE_SESSIONS": handle_disable_account_branch,
+                    "MONITORING_ONLY": handle_monitoring_only_branch,
+                },
+            ),
             (handle_disable_account_branch, document_user_irp_report_node),
             (handle_monitoring_only_branch, document_user_irp_report_node),
         ],

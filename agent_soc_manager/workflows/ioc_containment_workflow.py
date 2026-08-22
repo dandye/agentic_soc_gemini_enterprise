@@ -15,11 +15,16 @@ from .common import START, Event, Workflow
 # 1. Pydantic Schemas
 # -----------------------------------------------------------------------------
 
+
 class ContainmentInput(BaseModel):
     ioc_value: str = Field(description="IOC Value to contain")
-    ioc_type: str = Field(description="Type of IOC: 'IP Address', 'Domain', or 'File Hash'")
+    ioc_type: str = Field(
+        description="Type of IOC: 'IP Address', 'Domain', or 'File Hash'"
+    )
     case_id: str = Field(description="SOAR Case ID for documentation")
-    confirm_action: bool = Field(default=True, description="Confirmation to proceed with containment")
+    confirm_action: bool = Field(
+        default=True, description="Confirmation to proceed with containment"
+    )
 
 
 class ExtractedContainmentPayload(BaseModel):
@@ -38,7 +43,9 @@ class GTIReputationCheckResult(BaseModel):
 
 class ContainmentExecutionOutcome(BaseModel):
     reputation: GTIReputationCheckResult
-    action_status: str  # "BLOCKED_REFERENCE_LIST", "QUARANTINED_ENDPOINTS", "ABORTED_UNCONFIRMED"
+    action_status: (
+        str  # "BLOCKED_REFERENCE_LIST", "QUARANTINED_ENDPOINTS", "ABORTED_UNCONFIRMED"
+    )
     details: str
     soar_comment_text: str
 
@@ -56,7 +63,10 @@ class ContainmentReportSummary(BaseModel):
 # 2. Graph Node Functions & Routers
 # -----------------------------------------------------------------------------
 
-def extract_containment_payload_node(input_data: ContainmentInput) -> ExtractedContainmentPayload:
+
+def extract_containment_payload_node(
+    input_data: ContainmentInput,
+) -> ExtractedContainmentPayload:
     """Extracts and normalizes containment payload."""
     return ExtractedContainmentPayload(
         ioc_value=input_data.ioc_value.strip(),
@@ -66,7 +76,9 @@ def extract_containment_payload_node(input_data: ContainmentInput) -> ExtractedC
     )
 
 
-def verify_gti_reputation_node(payload: ExtractedContainmentPayload) -> GTIReputationCheckResult:
+def verify_gti_reputation_node(
+    payload: ExtractedContainmentPayload,
+) -> GTIReputationCheckResult:
     """Verifies malicious reputation in GTI before executing containment."""
     val = payload.ioc_value
     t = payload.ioc_type.upper()
@@ -100,7 +112,9 @@ def containment_type_router(rep: GTIReputationCheckResult) -> Event:
     return Event(route=route, output=rep)
 
 
-def handle_network_block_branch(rep: GTIReputationCheckResult) -> ContainmentExecutionOutcome:
+def handle_network_block_branch(
+    rep: GTIReputationCheckResult,
+) -> ContainmentExecutionOutcome:
     """Adds IP or Domain to Chronicle SIEM blocklist reference list."""
     val = rep.payload.ioc_value
     ref = rep.target_reference_list
@@ -118,7 +132,9 @@ def handle_network_block_branch(rep: GTIReputationCheckResult) -> ContainmentExe
     )
 
 
-def handle_hash_quarantine_branch(rep: GTIReputationCheckResult) -> ContainmentExecutionOutcome:
+def handle_hash_quarantine_branch(
+    rep: GTIReputationCheckResult,
+) -> ContainmentExecutionOutcome:
     """Searches SIEM endpoints and triggers EDR file quarantine for hash."""
     val = rep.payload.ioc_value
     comment = (
@@ -135,7 +151,9 @@ def handle_hash_quarantine_branch(rep: GTIReputationCheckResult) -> ContainmentE
     )
 
 
-def handle_abort_containment_branch(rep: GTIReputationCheckResult) -> ContainmentExecutionOutcome:
+def handle_abort_containment_branch(
+    rep: GTIReputationCheckResult,
+) -> ContainmentExecutionOutcome:
     """Handles aborted or unconfirmed containment actions."""
     val = rep.payload.ioc_value
     comment = (
@@ -151,7 +169,9 @@ def handle_abort_containment_branch(rep: GTIReputationCheckResult) -> Containmen
     )
 
 
-def document_containment_report_node(outcome: ContainmentExecutionOutcome) -> ContainmentReportSummary:
+def document_containment_report_node(
+    outcome: ContainmentExecutionOutcome,
+) -> ContainmentReportSummary:
     """Posts comment to SOAR case and outputs markdown summary."""
     rep = outcome.reputation
     p = rep.payload
@@ -188,20 +208,27 @@ def document_containment_report_node(outcome: ContainmentExecutionOutcome) -> Co
 # 3. Workflow Graph Construction
 # -----------------------------------------------------------------------------
 
+
 def build_ioc_containment_workflow() -> Workflow:
     """Constructs the ADK Graph Workflow for IOC Containment."""
 
     workflow_edges = [
         # 1. Pipeline Start -> Extract -> GTI Rep Check -> Containment Router
-        (START, extract_containment_payload_node, verify_gti_reputation_node, containment_type_router),
-
+        (
+            START,
+            extract_containment_payload_node,
+            verify_gti_reputation_node,
+            containment_type_router,
+        ),
         # 2. Conditional Routing
-        (containment_type_router, {
-            "NETWORK_BLOCK_BRANCH": handle_network_block_branch,
-            "HASH_QUARANTINE_BRANCH": handle_hash_quarantine_branch,
-            "ABORT_CONTAINMENT": handle_abort_containment_branch,
-        }),
-
+        (
+            containment_type_router,
+            {
+                "NETWORK_BLOCK_BRANCH": handle_network_block_branch,
+                "HASH_QUARANTINE_BRANCH": handle_hash_quarantine_branch,
+                "ABORT_CONTAINMENT": handle_abort_containment_branch,
+            },
+        ),
         # 3. Fan-in into Document Node
         (handle_network_block_branch, document_containment_report_node),
         (handle_hash_quarantine_branch, document_containment_report_node),

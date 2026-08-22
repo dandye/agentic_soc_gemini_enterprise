@@ -4,7 +4,6 @@ IOC Threat Hunt Graph Workflow for Google ADK.
 Implements 'IOC Threat Hunt Runbook'.
 """
 
-
 from pydantic import BaseModel, Field
 
 from .common import (
@@ -17,8 +16,12 @@ from .common import (
 
 
 class IOCThreatHuntInput(BaseWorkflowInput):
-    ioc_list: list[str] = Field(description="List of IOCs to hunt for across SIEM events")
-    lookback_days: int = Field(default=30, description="SIEM lookback timeframe in days")
+    ioc_list: list[str] = Field(
+        description="List of IOCs to hunt for across SIEM events"
+    )
+    lookback_days: int = Field(
+        default=30, description="SIEM lookback timeframe in days"
+    )
 
 
 class ExtractedIOCHuntPayload(BaseModel):
@@ -48,8 +51,14 @@ def extract_ioc_hunt_payload_node(inp: IOCThreatHuntInput) -> ExtractedIOCHuntPa
     )
 
 
-def execute_ioc_siem_search_node(payload: ExtractedIOCHuntPayload) -> IOCHuntSearchResult:
-    matches = [i for i in payload.ioc_list if "bad" in i or "mal" in i or "evil" in i or "198.51" in i]
+def execute_ioc_siem_search_node(
+    payload: ExtractedIOCHuntPayload,
+) -> IOCHuntSearchResult:
+    matches = [
+        i
+        for i in payload.ioc_list
+        if "bad" in i or "mal" in i or "evil" in i or "198.51" in i
+    ]
     has_match = len(matches) > 0
     return IOCHuntSearchResult(
         payload=payload,
@@ -92,11 +101,19 @@ def build_ioc_threat_hunt_workflow() -> Workflow:
         name="ioc_threat_hunt_workflow",
         description="Graph-based workflow for multi-IOC SIEM threat hunting, entity correlation, and blocklist recommendations",
         edges=[
-            (START, extract_ioc_hunt_payload_node, execute_ioc_siem_search_node, ioc_hunt_router),
-            (ioc_hunt_router, {
-                "IOC_MATCHES_FOUND": handle_ioc_matches_found_branch,
-                "NO_IOC_MATCHES": handle_no_ioc_matches_branch,
-            }),
+            (
+                START,
+                extract_ioc_hunt_payload_node,
+                execute_ioc_siem_search_node,
+                ioc_hunt_router,
+            ),
+            (
+                ioc_hunt_router,
+                {
+                    "IOC_MATCHES_FOUND": handle_ioc_matches_found_branch,
+                    "NO_IOC_MATCHES": handle_no_ioc_matches_branch,
+                },
+            ),
             (handle_ioc_matches_found_branch, document_ioc_hunt_report_node),
             (handle_no_ioc_matches_branch, document_ioc_hunt_report_node),
         ],

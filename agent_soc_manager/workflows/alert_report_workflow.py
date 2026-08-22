@@ -17,7 +17,9 @@ from .common import (
 
 
 class AlertReportInput(BaseWorkflowInput):
-    alert_id: str = Field(description="Chronicle Security Alert ID to investigate and generate report for")
+    alert_id: str = Field(
+        description="Chronicle Security Alert ID to investigate and generate report for"
+    )
 
 
 class ExtractedAlertPayload(BaseModel):
@@ -60,7 +62,9 @@ def extract_alert_payload_node(inp: AlertReportInput) -> ExtractedAlertPayload:
     )
 
 
-def fetch_alert_and_rule_telemetry_node(payload: ExtractedAlertPayload) -> AlertInvestigationTelemetry:
+def fetch_alert_and_rule_telemetry_node(
+    payload: ExtractedAlertPayload,
+) -> AlertInvestigationTelemetry:
     aid = payload.alert_id
 
     # Check known Chronicle alert patterns
@@ -72,11 +76,19 @@ def fetch_alert_and_rule_telemetry_node(payload: ExtractedAlertPayload) -> Alert
             risk_score=98,
             rule_id="ru_7cccaf26-cfae-4a86-9e39-7a7b79ced931",
             rule_name="AvosLocker Encryptor & Lateral Movement Execution",
-            impacted_entities=["CYM-WKS-24.corp.cymbal-investments.org", "CYM-FS01.corp.cymbal-investments.org", "CYMBAL\\administrator"],
+            impacted_entities=[
+                "CYM-WKS-24.corp.cymbal-investments.org",
+                "CYM-FS01.corp.cymbal-investments.org",
+                "CYMBAL\\administrator",
+            ],
             offending_command=r"PsExec64.exe \\CYM-FS01 -s -d cmd.exe /c avoslocker.exe",
             external_ips=["45.147.230.131", "5.199.168.24"],
             event_type="PROCESS_LAUNCH / NETWORK_CONNECTION",
-            mitre_attack=["T1486 (Data Encrypted for Impact)", "T1021.002 (SMB/Windows Admin Shares)", "T1570 (Lateral Tool Transfer)"],
+            mitre_attack=[
+                "T1486 (Data Encrypted for Impact)",
+                "T1021.002 (SMB/Windows Admin Shares)",
+                "T1570 (Lateral Tool Transfer)",
+            ],
             attack_summary="Ransomware encryptor binary executed on compromised workstation CYM-WKS-24 with PsExec remote execution targeting domain file server CYM-FS01.",
         )
     elif "de_6d3" in aid or "okta" in aid.lower():
@@ -87,11 +99,17 @@ def fetch_alert_and_rule_telemetry_node(payload: ExtractedAlertPayload) -> Alert
             risk_score=85,
             rule_id="ru_31b43585-a091-4e39-ae31-4c385fac4a39",
             rule_name="Scattered Spider Helpdesk MFA Reset & Suspicious Sign-in",
-            impacted_entities=["svc_helpdesk2@corp.cymbal-investments.org", "alberto.morales@cymbal-investments.org"],
+            impacted_entities=[
+                "svc_helpdesk2@corp.cymbal-investments.org",
+                "alberto.morales@cymbal-investments.org",
+            ],
             offending_command=None,
             external_ips=["146.70.171.55"],
             event_type="USER_LOGIN / AUTH_ANOMALY",
-            mitre_attack=["T1556 (Modify Authentication Process)", "T1078 (Valid Accounts)"],
+            mitre_attack=[
+                "T1556 (Modify Authentication Process)",
+                "T1078 (Valid Accounts)",
+            ],
             attack_summary="Helpdesk social engineering MFA reset followed by immediate Okta sign-in from anomalous IP.",
         )
     elif "honey" in aid.lower() or "secret" in aid.lower():
@@ -102,11 +120,17 @@ def fetch_alert_and_rule_telemetry_node(payload: ExtractedAlertPayload) -> Alert
             risk_score=95,
             rule_id="ru_bfc779f0-b4d1-4645-8531-4384cf41cb23",
             rule_name="GCP Decoy Honeytoken Secret Manager Access",
-            impacted_entities=["secrets/prod-payments-db-root", "svc_payments_batch@cymbal.iam.gserviceaccount.com"],
+            impacted_entities=[
+                "secrets/prod-payments-db-root",
+                "svc_payments_batch@cymbal.iam.gserviceaccount.com",
+            ],
             offending_command=None,
             external_ips=["179.43.176.20"],
             event_type="GCP_CLOUD_AUDIT / ACCESS_SECRET_VERSION",
-            mitre_attack=["T1555.006 (Cloud Secrets Management Stores)", "T1078.004 (Cloud Accounts)"],
+            mitre_attack=[
+                "T1555.006 (Cloud Secrets Management Stores)",
+                "T1078.004 (Cloud Accounts)",
+            ],
             attack_summary="Decoy Honeytoken Secret accessed via unauthorized API call from external proxy.",
         )
     else:
@@ -126,7 +150,9 @@ def fetch_alert_and_rule_telemetry_node(payload: ExtractedAlertPayload) -> Alert
         )
 
 
-def threat_intelligence_enrichment_node(telemetry: AlertInvestigationTelemetry) -> ThreatEnrichmentResult:
+def threat_intelligence_enrichment_node(
+    telemetry: AlertInvestigationTelemetry,
+) -> ThreatEnrichmentResult:
     reputations = {}
     for ip in telemetry.external_ips:
         if "45.147" in ip:
@@ -138,7 +164,11 @@ def threat_intelligence_enrichment_node(telemetry: AlertInvestigationTelemetry) 
         else:
             reputations[ip] = "Suspicious / Unclassified External IP"
 
-    is_tp = telemetry.risk_score >= 80 or "avos" in telemetry.alert_name.lower() or "honey" in telemetry.alert_name.lower()
+    is_tp = (
+        telemetry.risk_score >= 80
+        or "avos" in telemetry.alert_name.lower()
+        or "honey" in telemetry.alert_name.lower()
+    )
     verdict = "TRUE_POSITIVE_COMPROMISE" if is_tp else "SUSPICIOUS_ANOMALY"
 
     return ThreatEnrichmentResult(
@@ -204,10 +234,14 @@ On review of Chronicle SIEM alert `{t.payload.alert_id}`, the automated analysis
     for ip, rep in res.ip_reputations.items():
         md += f"| `{ip}` | **{rep}** | Outbound C2 / Exfiltration |\n"
 
-    admin_entity = t.impacted_entities[-1] if t.impacted_entities else 'CYMBAL\\administrator'
-    primary_entity = t.impacted_entities[0] if t.impacted_entities else 'CYM-WKS-24'
-    secondary_entity = t.impacted_entities[1] if len(t.impacted_entities) > 1 else 'CYM-FS01'
-    ips_str = ', '.join([f'`{ip}`' for ip in res.ip_reputations.keys()])
+    admin_entity = (
+        t.impacted_entities[-1] if t.impacted_entities else "CYMBAL\\administrator"
+    )
+    primary_entity = t.impacted_entities[0] if t.impacted_entities else "CYM-WKS-24"
+    secondary_entity = (
+        t.impacted_entities[1] if len(t.impacted_entities) > 1 else "CYM-FS01"
+    )
+    ips_str = ", ".join([f"`{ip}`" for ip in res.ip_reputations.keys()])
 
     md += f"""
 ---
@@ -221,7 +255,9 @@ On review of Chronicle SIEM alert `{t.payload.alert_id}`, the automated analysis
     return AlertReportOutcome(enrichment=res, report_markdown=md)
 
 
-def handle_high_incident_triage_branch(res: ThreatEnrichmentResult) -> AlertReportOutcome:
+def handle_high_incident_triage_branch(
+    res: ThreatEnrichmentResult,
+) -> AlertReportOutcome:
     t = res.telemetry
     md = f"""# Chronicle Security Alert Investigation Report: {t.payload.alert_id}
 
@@ -266,12 +302,21 @@ def build_alert_report_workflow() -> Workflow:
         name="alert_report_workflow",
         description="Graph-based workflow for generating comprehensive, forensic-grade alert triage reports",
         edges=[
-            (START, extract_alert_payload_node, fetch_alert_and_rule_telemetry_node, threat_intelligence_enrichment_node, alert_triage_decision_router),
-            (alert_triage_decision_router, {
-                "CRITICAL_TRUE_POSITIVE_TRIAGE": handle_critical_tp_triage_branch,
-                "HIGH_SEVERITY_INCIDENT_TRIAGE": handle_high_incident_triage_branch,
-                "STANDARD_ALERT_TRIAGE": handle_standard_triage_branch,
-            }),
+            (
+                START,
+                extract_alert_payload_node,
+                fetch_alert_and_rule_telemetry_node,
+                threat_intelligence_enrichment_node,
+                alert_triage_decision_router,
+            ),
+            (
+                alert_triage_decision_router,
+                {
+                    "CRITICAL_TRUE_POSITIVE_TRIAGE": handle_critical_tp_triage_branch,
+                    "HIGH_SEVERITY_INCIDENT_TRIAGE": handle_high_incident_triage_branch,
+                    "STANDARD_ALERT_TRIAGE": handle_standard_triage_branch,
+                },
+            ),
             (handle_critical_tp_triage_branch, document_alert_report_node),
             (handle_high_incident_triage_branch, document_alert_report_node),
             (handle_standard_triage_branch, document_alert_report_node),

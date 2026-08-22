@@ -12,7 +12,10 @@ from .common import START, BaseWorkflowInput, Event, Workflow, sanitize_entity_v
 class PhishingIRPInput(BaseWorkflowInput):
     phishing_subject: str = Field(description="Phishing Email Subject Line")
     sender_email: str = Field(description="Sender Email Address")
-    confirm_purge_inbox: bool = Field(default=True, description="Confirmation to purge phishing email across all user inboxes")
+    confirm_purge_inbox: bool = Field(
+        default=True,
+        description="Confirmation to purge phishing email across all user inboxes",
+    )
 
 
 class ExtractedPhishingIRPPayload(BaseModel):
@@ -35,7 +38,9 @@ class PhishingContainmentOutcome(BaseModel):
     remediation_plan: str
 
 
-def extract_phishing_irp_payload_node(inp: PhishingIRPInput) -> ExtractedPhishingIRPPayload:
+def extract_phishing_irp_payload_node(
+    inp: PhishingIRPInput,
+) -> ExtractedPhishingIRPPayload:
     return ExtractedPhishingIRPPayload(
         phishing_subject=sanitize_entity_value(inp.phishing_subject),
         sender_email=sanitize_entity_value(inp.sender_email),
@@ -44,9 +49,13 @@ def extract_phishing_irp_payload_node(inp: PhishingIRPInput) -> ExtractedPhishin
     )
 
 
-def assess_phishing_incident_scope_node(payload: ExtractedPhishingIRPPayload) -> PhishingScopeAssessmentResult:
+def assess_phishing_incident_scope_node(
+    payload: ExtractedPhishingIRPPayload,
+) -> PhishingScopeAssessmentResult:
     subj = payload.phishing_subject.lower()
-    is_widespread = "urgent" in subj or "invoice" in subj or "payroll" in subj or "verify" in subj
+    is_widespread = (
+        "urgent" in subj or "invoice" in subj or "payroll" in subj or "verify" in subj
+    )
     return PhishingScopeAssessmentResult(
         payload=payload,
         recipient_count=145 if is_widespread else 3,
@@ -56,14 +65,19 @@ def assess_phishing_incident_scope_node(payload: ExtractedPhishingIRPPayload) ->
 
 
 def phishing_irp_containment_router(assessment: PhishingScopeAssessmentResult) -> Event:
-    if assessment.payload.confirm_purge_inbox or assessment.credential_harvesting_detected:
+    if (
+        assessment.payload.confirm_purge_inbox
+        or assessment.credential_harvesting_detected
+    ):
         route = "PURGE_INBOXES_AND_BLOCK_DOMAINS"
     else:
         route = "ANALYSIS_ONLY"
     return Event(route=route, output=assessment)
 
 
-def handle_purge_inboxes_branch(assessment: PhishingScopeAssessmentResult) -> PhishingContainmentOutcome:
+def handle_purge_inboxes_branch(
+    assessment: PhishingScopeAssessmentResult,
+) -> PhishingContainmentOutcome:
     plan = f"EMERGENCY PHISHING CONTAINMENT EXECUTED: Email '{assessment.payload.phishing_subject}' purged across {assessment.recipient_count} Google Workspace / Exchange inboxes, sender '{assessment.payload.sender_email}' blocked, and password resets issued for {assessment.clicked_url_users_count} users who clicked malicious URL."
     return PhishingContainmentOutcome(
         assessment=assessment,
@@ -72,7 +86,9 @@ def handle_purge_inboxes_branch(assessment: PhishingScopeAssessmentResult) -> Ph
     )
 
 
-def handle_analysis_only_branch(assessment: PhishingScopeAssessmentResult) -> PhishingContainmentOutcome:
+def handle_analysis_only_branch(
+    assessment: PhishingScopeAssessmentResult,
+) -> PhishingContainmentOutcome:
     plan = f"Phishing analysis completed for email '{assessment.payload.phishing_subject}'. No mass inbox purge triggered."
     return PhishingContainmentOutcome(
         assessment=assessment,
@@ -90,11 +106,19 @@ def build_phishing_irp_workflow() -> Workflow:
         name="phishing_irp_workflow",
         description="Graph-based workflow for phishing incident response, email inbox purging, and credential harvest remediation",
         edges=[
-            (START, extract_phishing_irp_payload_node, assess_phishing_incident_scope_node, phishing_irp_containment_router),
-            (phishing_irp_containment_router, {
-                "PURGE_INBOXES_AND_BLOCK_DOMAINS": handle_purge_inboxes_branch,
-                "ANALYSIS_ONLY": handle_analysis_only_branch,
-            }),
+            (
+                START,
+                extract_phishing_irp_payload_node,
+                assess_phishing_incident_scope_node,
+                phishing_irp_containment_router,
+            ),
+            (
+                phishing_irp_containment_router,
+                {
+                    "PURGE_INBOXES_AND_BLOCK_DOMAINS": handle_purge_inboxes_branch,
+                    "ANALYSIS_ONLY": handle_analysis_only_branch,
+                },
+            ),
             (handle_purge_inboxes_branch, document_phishing_irp_report_node),
             (handle_analysis_only_branch, document_phishing_irp_report_node),
         ],

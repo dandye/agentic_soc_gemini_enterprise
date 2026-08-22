@@ -35,7 +35,9 @@ class SkillRegistry:
             # Default search: check agent_soc_manager/skills and external/adk_runbooks/skills
             current_dir = Path(__file__).resolve().parent
             local_skills = current_dir.parent / "skills"
-            submodule_skills = current_dir.parent.parent / "external" / "adk_runbooks" / "skills"
+            submodule_skills = (
+                current_dir.parent.parent / "external" / "adk_runbooks" / "skills"
+            )
             self.skills_dirs: list[Path] = []
             if local_skills.exists():
                 self.skills_dirs.append(local_skills)
@@ -86,7 +88,9 @@ class SkillRegistry:
         match = re.match(r"^---\s*\n(.*?)\n---\s*\n(.*)$", content, re.DOTALL)
         if not match:
             folder_name = path.parent.name
-            category = path.parent.parent.name if path.parent.parent != path.parent else ""
+            category = (
+                path.parent.parent.name if path.parent.parent != path.parent else ""
+            )
             return SkillMetadata(
                 name=folder_name,
                 description=f"Skill for {folder_name}",
@@ -107,7 +111,10 @@ class SkillRegistry:
 
         name = fm_data.get("name", path.parent.name)
         description = str(fm_data.get("description", "")).strip()
-        category = fm_data.get("category", path.parent.parent.name if path.parent.parent != path.parent else "")
+        category = fm_data.get(
+            "category",
+            path.parent.parent.name if path.parent.parent != path.parent else "",
+        )
         version = str(fm_data.get("version", "1.0.0"))
 
         return SkillMetadata(

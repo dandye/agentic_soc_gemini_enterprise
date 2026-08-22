@@ -10,7 +10,9 @@ from .common import START, BaseWorkflowInput, Event, Workflow, sanitize_entity_v
 
 
 class PIRInput(BaseWorkflowInput):
-    incident_case_id: str = Field(description="Incident SOAR Case ID for Post-Incident Review")
+    incident_case_id: str = Field(
+        description="Incident SOAR Case ID for Post-Incident Review"
+    )
 
 
 class ExtractedPIRPayload(BaseModel):
@@ -37,7 +39,9 @@ def extract_pir_payload_node(inp: PIRInput) -> ExtractedPIRPayload:
     )
 
 
-def compute_incident_metrics_node(payload: ExtractedPIRPayload) -> IncidentMetricsResult:
+def compute_incident_metrics_node(
+    payload: ExtractedPIRPayload,
+) -> IncidentMetricsResult:
     cid = payload.incident_case_id
     is_crit = "CRIT" in cid or "900" in cid
     return IncidentMetricsResult(
@@ -57,14 +61,20 @@ def pir_outcome_router(metrics: IncidentMetricsResult) -> Event:
     return Event(route=route, output=metrics)
 
 
-def handle_action_items_created_branch(metrics: IncidentMetricsResult) -> PIRWorkflowOutcome:
+def handle_action_items_created_branch(
+    metrics: IncidentMetricsResult,
+) -> PIRWorkflowOutcome:
     md = f"# Post-Incident Review (PIR): Case {metrics.payload.incident_case_id}\n\n- **MTTD:** {metrics.mttd_minutes} min | **MTTR:** {metrics.mttr_minutes} min\n- **Action Items Created:** {metrics.lessons_learned_count} Jira/SOAR remediation tasks."
-    return PIRWorkflowOutcome(metrics=metrics, review_status="PIR_ACTION_ITEMS_CREATED", report_markdown=md)
+    return PIRWorkflowOutcome(
+        metrics=metrics, review_status="PIR_ACTION_ITEMS_CREATED", report_markdown=md
+    )
 
 
 def handle_pir_archived_branch(metrics: IncidentMetricsResult) -> PIRWorkflowOutcome:
     md = f"# Post-Incident Review (PIR): Case {metrics.payload.incident_case_id}\n\n- **Status:** Archived without follow-up tasks."
-    return PIRWorkflowOutcome(metrics=metrics, review_status="PIR_ARCHIVED", report_markdown=md)
+    return PIRWorkflowOutcome(
+        metrics=metrics, review_status="PIR_ARCHIVED", report_markdown=md
+    )
 
 
 def document_pir_report_node(outcome: PIRWorkflowOutcome) -> str:
@@ -76,11 +86,19 @@ def build_post_incident_review_workflow() -> Workflow:
         name="post_incident_review_workflow",
         description="Graph-based workflow for post-incident review (PIR) metrics analysis and action item tracking",
         edges=[
-            (START, extract_pir_payload_node, compute_incident_metrics_node, pir_outcome_router),
-            (pir_outcome_router, {
-                "PIR_ACTION_ITEMS_CREATED": handle_action_items_created_branch,
-                "PIR_ARCHIVED": handle_pir_archived_branch,
-            }),
+            (
+                START,
+                extract_pir_payload_node,
+                compute_incident_metrics_node,
+                pir_outcome_router,
+            ),
+            (
+                pir_outcome_router,
+                {
+                    "PIR_ACTION_ITEMS_CREATED": handle_action_items_created_branch,
+                    "PIR_ARCHIVED": handle_pir_archived_branch,
+                },
+            ),
             (handle_action_items_created_branch, document_pir_report_node),
             (handle_pir_archived_branch, document_pir_report_node),
         ],
