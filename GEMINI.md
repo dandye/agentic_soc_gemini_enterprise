@@ -208,28 +208,28 @@ The system is designed as a **Coordinated Agent-to-Agent (A2A) Network** consist
 
 1. **Orchestrator (`agent_soc_manager`)**
    - **Role:** Main entry point for the user. Coordinates investigations, triages incoming alerts, and delegates complex tasks to remote specialists via gRPC.
-   - **Model:** `gemini-3.1-pro-preview`
+   - **Model:** `gemini-3.7-flash` (or `gemini-3.1-pro-preview`)
    - **Tools:** Integration with SOAR, Security Command Center, Neo4j Graph Database, and Elasticsearch/RAG runbook grounding.
-   - **Sub-agents:** Hosts a local, in-process **Tier 1 SOC Analyst** sub-agent for initial telemetry triaging.
+   - **Sub-agents:** Hosts a local, in-process **Tier 1 SOC Analyst** sub-agent (`gemini-2.5-flash-lite`) for rapid initial telemetry triaging.
 
 2. **CTI Researcher (`agent_a2a_cti_researcher`)**
    - **Role:** Threat intelligence specialist. Researches threat actors, malware families, and profiles campaigns.
-   - **Model:** `gemini-2.5-flash`
+   - **Model:** `gemini-3.7-flash`
    - **Tools:** Direct integration with Google Threat Intelligence (VirusTotal) MCP server and Vertex AI RAG.
 
 3. **Detection Engineer (`agent_a2a_detection_engineer`)**
    - **Role:** Detection lifecycle specialist. Translates threat behaviors into SIEM detection rules and validates coverage.
-   - **Model:** `gemini-2.5-pro`
+   - **Model:** `gemini-3.7-flash`
    - **Tools:** Chronicle SIEM rule management and validation.
 
 4. **Threat Hunter (`agent_a2a_threat_hunter`)**
    - **Role:** Proactive hunting specialist. Hunts for active IOCs and TTPs across security telemetry.
-   - **Model:** `gemini-2.5-pro`
+   - **Model:** `gemini-3.7-flash`
    - **Tools:** Chronicle SIEM UDM search, threat intelligence caching, and Neo4j graph queries.
 
 5. **Tier 2 Responder (`agent_a2a_tier2`)**
    - **Role:** Incident responder specialist. Performs containment actions, host isolation, and active mitigation.
-   - **Model:** `gemini-2.5-pro`
+   - **Model:** `gemini-3.7-flash`
    - **Tools:** SOAR integrations, manual actions, and playbook executions.
 
 ### MCP Integration Pattern

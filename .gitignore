@@ -30,6 +30,9 @@ investigations/*
 
 .adk/
 worktrees/
+.coverage
+coverage.xml
+reports/
 
 # Built documentation output — regenerated from docs/, never edited by hand.
 docs/docs-dist/

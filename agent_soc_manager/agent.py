@@ -969,6 +969,14 @@ from agent_soc_manager.tools.chatops_tools import (  # noqa: E402
     trigger_vulnerability_patch_approval_card,
     verify_user_travel,
 )
+from agent_soc_manager.tools.progressive_mcp_tools import (  # noqa: E402
+    get_progressive_mcp_meta_tools,
+    global_mcp_registry,
+)
+from agent_soc_manager.tools.skill_tools import (  # noqa: E402
+    get_progressive_skill_tools,
+    load_persona_with_skills_catalog,
+)
 
 
 # ChatOps kill switch: the feature is DISABLED unless CHATOPS_ENABLED is
@@ -2705,9 +2713,9 @@ def create_agent():
     os.environ["GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY"] = "False"
 
     # Model Configuration
-    ORCHESTRATOR_MODEL = os.environ.get("ORCHESTRATOR_MODEL", "gemini-3.1-pro-preview")
-    CTI_RESEARCHER_MODEL = os.environ.get("CTI_RESEARCHER_MODEL", "gemini-2.5-flash")
-    TIER1_ANALYST_MODEL = os.environ.get("TIER1_ANALYST_MODEL", "gemini-2.5-flash")
+    ORCHESTRATOR_MODEL = os.environ.get("ORCHESTRATOR_MODEL", "gemini-3.7-flash")
+    CTI_RESEARCHER_MODEL = os.environ.get("CTI_RESEARCHER_MODEL", "gemini-3.7-flash")
+    TIER1_ANALYST_MODEL = os.environ.get("TIER1_ANALYST_MODEL", "gemini-2.5-flash-lite")
     logger.warning("Model configuration loaded:")
     logger.warning(f"  ORCHESTRATOR_MODEL: {ORCHESTRATOR_MODEL}")
     logger.warning(f"  CTI_RESEARCHER_MODEL: {CTI_RESEARCHER_MODEL}")
@@ -2971,57 +2979,81 @@ def create_agent():
         tier1_tools.append(retrieve_agentic_soc_runbooks)
 
     # Chronicle for basic entity lookups
-    tier1_tools.append(
-        create_remote_secops_toolset(
-            CHRONICLE_REGION,
-            tool_filter=[
-                "list_rules",
-                "get_rule",
-                "list_rule_detections",
-                "list_rule_errors",
-                "search_entity",
-                "summarize_entity",
-                "get_involved_entity",
-                "list_involved_entities",
-                "udm_search",
-                "translate_udm_query",
-                "list_cases",
-                "get_case",
-                "update_case",
-                "create_case_comment",
-                "list_case_comments",
-                "list_case_alerts",
-                "get_case_alert",
-                "get_investigation_by_id",
-                "get_security_alert",
-                "list_security_alerts",
-                "update_security_alert",
-                "get_alert_latest_investigation",
-                "trigger_investigation",
-                "get_ioc_match",
-            ],
-        )
+    secops_toolset = create_remote_secops_toolset(
+        CHRONICLE_REGION,
+        tool_filter=[
+            "list_rules",
+            "get_rule",
+            "list_rule_detections",
+            "list_rule_errors",
+            "search_entity",
+            "summarize_entity",
+            "get_involved_entity",
+            "list_involved_entities",
+            "udm_search",
+            "translate_udm_query",
+            "list_cases",
+            "get_case",
+            "update_case",
+            "create_case_comment",
+            "list_case_comments",
+            "list_case_alerts",
+            "get_case_alert",
+            "get_investigation_by_id",
+            "get_security_alert",
+            "list_security_alerts",
+            "update_security_alert",
+            "get_alert_latest_investigation",
+            "trigger_investigation",
+            "get_ioc_match",
+        ],
     )
+    tier1_tools.append(secops_toolset)
 
     # GTI for basic reputation checks
-    tier1_tools.append(
-        McpToolset(
-            connection_params=StdioConnectionParams(
-                server_params=StdioServerParameters(
-                    command=PYTHON_EXECUTABLE,
-                    args=["-m", "gti_mcp.server"],
-                    env=mcp_env,
-                ),
-                timeout=90000,  # 90 seconds (balanced timeout)
+    gti_toolset = McpToolset(
+        connection_params=StdioConnectionParams(
+            server_params=StdioServerParameters(
+                command=PYTHON_EXECUTABLE,
+                args=["-m", "gti_mcp.server"],
+                env=mcp_env,
             ),
-            tool_filter=[
-                "get_ip_address_report",
-                "get_domain_report",
-                "get_file_report",
-                "get_url_report",
-            ],
-            errlog=None,  # Suppress errlog to permit serialization
-        )
+            timeout=90000,  # 90 seconds (balanced timeout)
+        ),
+        tool_filter=[
+            "get_ip_address_report",
+            "get_domain_report",
+            "get_file_report",
+            "get_url_report",
+        ],
+        errlog=None,  # Suppress errlog to permit serialization
+    )
+    tier1_tools.append(gti_toolset)
+
+    # Register into global_mcp_registry for progressive discovery
+    global_mcp_registry.register_mcp_toolset(secops_toolset, server_name="secops")
+    global_mcp_registry.register_mcp_toolset(secops_toolset, server_name="siem")
+    global_mcp_registry.register_mcp_toolset(gti_toolset, server_name="gti")
+
+    # Add progressive discovery meta-tools (MCP and Skills)
+    tier1_tools.extend(get_progressive_mcp_meta_tools())
+    tier1_tools.extend(get_progressive_skill_tools())
+
+    # Load dynamic persona with skills catalog
+    tier1_persona = load_persona_with_skills_catalog(
+        persona_file_path="",
+        skill_names=[
+            "triage-alerts",
+            "close-duplicate-cases",
+            "investigate-case-external-tools",
+            "group-cases",
+            "group-cases-v2",
+            "basic-ioc-enrichment",
+            "suspicious-login-triage",
+            "report-writing-guidelines",
+            "malware-triage",
+        ],
+        default_persona_description=TIER1_PERSONA,
     )
 
     # Load Tier 1 Analyst instructions from prompt file
@@ -3049,7 +3081,7 @@ You MUST use the following exact values for any Chronicle or SecOps tool calls (
     tier1_subagent = PatchedAgent(
         name="tier1_analyst",
         model=TIER1_ANALYST_MODEL,
-        description=TIER1_PERSONA,
+        description=tier1_persona,
         instruction=tier1_instruction,
         tools=tier1_tools,
         before_model_callback=prevent_runaway_loop_callback,
@@ -3171,6 +3203,24 @@ You MUST use the following exact values for any Chronicle or SecOps tool calls (
     orchestrator_tools.append(LoadMemoryTool())  # On-demand memory queries
     orchestrator_tools.append(query_knowledge_graph)  # On-demand Neo4j queries
 
+    # Add Progressive Discovery meta-tools (MCP and Skills)
+    orchestrator_tools.extend(get_progressive_mcp_meta_tools())
+    orchestrator_tools.extend(get_progressive_skill_tools())
+
+    # Build orchestrator dynamic persona with skills catalog
+    orchestrator_persona = load_persona_with_skills_catalog(
+        persona_file_path="",
+        skill_names=[
+            "compromised-user-account-response",
+            "phishing-response",
+            "ransomware-response",
+            "malware-incident-response",
+            "report-writing-guidelines",
+            "create-investigation-report",
+        ],
+        default_persona_description="SecOps Security Agent - An intelligent SOC orchestrator for Google SecOps that delegates security operations to specialized persona-based agents.",
+    )
+
     # Build orchestrator instruction
     # Load Orchestrator instructions from prompt file
     current_dir = Path(__file__).parent
@@ -3185,7 +3235,7 @@ You MUST use the following exact values for any Chronicle or SecOps tool calls (
     orchestrator = PatchedAgent(
         name="secops_assistant",
         model=ORCHESTRATOR_MODEL,
-        description="SecOps Security Agent - An intelligent SOC orchestrator for Google SecOps that delegates security operations to specialized persona-based agents.",
+        description=orchestrator_persona,
         instruction=orchestrator_instruction,
         tools=orchestrator_tools,
         sub_agents=[tier1_subagent],  # LLM delegation to specialists

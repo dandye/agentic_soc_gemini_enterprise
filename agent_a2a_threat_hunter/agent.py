@@ -32,6 +32,11 @@ from google.adk.tools.mcp_tool.mcp_toolset import McpToolset
 from google.genai.types import Part
 from vertexai.preview import rag
 
+from agent_soc_manager.tools.skill_tools import (
+    get_progressive_skill_tools,
+    load_persona_with_skills_catalog,
+)
+
 
 # Add text/markdown mimetype for .md files
 mimetypes.add_type("text/markdown", ".md")
@@ -916,7 +921,7 @@ def create_agent():
     load_dotenv(Path(".env"), override=True)
 
     # Model Configuration
-    THREAT_HUNTER_MODEL = os.environ.get("THREAT_HUNTER_MODEL", "gemini-2.5-flash")
+    THREAT_HUNTER_MODEL = os.environ.get("THREAT_HUNTER_MODEL", "gemini-3.7-flash")
 
     # Get all required environment variables
     GCP_PROJECT_ID = os.environ.get("GCP_PROJECT_ID")
@@ -1111,6 +1116,25 @@ def create_agent():
     tools.append(save_report_artifact)
 
     # ========================================================================
+    # Add progressive skill tools
+    # ========================================================================
+    tools.extend(get_progressive_skill_tools())
+
+    hunter_persona = load_persona_with_skills_catalog(
+        persona_file_path="",
+        skill_names=[
+            "advanced-threat-hunting",
+            "apt-threat-hunt",
+            "guided-ttp-hunt-credential-access",
+            "ioc-threat-hunt",
+            "lateral-movement-hunt-psexec-wmi",
+            "proactive-hunt-gti-campaign",
+            "report-writing-guidelines",
+        ],
+        default_persona_description=THREAT_HUNTER_PERSONA,
+    )
+
+    # ========================================================================
     # Create the Agent with all configured tools
     # ========================================================================
     logger.info(f"Creating Threat Hunter Agent with {len(tools)} tools...")
@@ -1118,8 +1142,8 @@ def create_agent():
     agent = Agent(
         model=THREAT_HUNTER_MODEL,
         name="soc_analyst_threat_hunter",
-        description=THREAT_HUNTER_PERSONA,
-        instruction="""You are a Threat Hunter - a proactive security operations engineer responsible for hypothesis-driven threat hunting, anomaly detection, and tactical security investigation.
+        description=hunter_persona,
+        instruction="""You are a Threat Hunter - a proactive security operations engineer responsible for hypothesis-driven threat hunting, anomaly detection, and tactical security investigation. When executing a task, check your Available Skills. Call `load_skill(skill_name)` to retrieve detailed procedural guidance and rubrics when relevant.
 
 ROLE & FOCUS:
 - You formulate and validate hunting hypotheses based on threat intelligence and attacker TTPs.

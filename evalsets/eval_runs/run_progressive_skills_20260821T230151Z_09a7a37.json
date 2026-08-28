@@ -1,0 +1,89 @@
+{
+  "metadata": {
+    "evalset_id": "progressive_skills",
+    "timestamp": "2026-08-21T23:01:51.895641Z",
+    "git": {
+      "commit": "09a7a3791aca41fc160cebbb30b7640fd3e74fbd",
+      "branch": "feat/progressive-mcp-discovery",
+      "dirty": true,
+      "submodules": {
+        "external/adk_runbooks": "d4ccf85d393eacae34bc006689601f013a03479b",
+        "external/ai-runbooks": "fca5f8eba3fff9964680ae035915c87a74e2f767",
+        "external/mcp-security": "fb807e909aa12356b0b52db02cb4b651af1ae35b"
+      }
+    },
+    "environment": {
+      "project_id": "dandye-0324-chronicle",
+      "location": "us-central1",
+      "orchestrator_model": "gemini-3.1-pro-preview",
+      "agent_resource": "projects/1002894625780/locations/us-central1/reasoningEngines/7232703485987258368",
+      "knowledge_graph_hash": "not_found"
+    }
+  },
+  "summary": {
+    "total_cases": 3,
+    "average_score": 53.333333333333336,
+    "status": "FAIL"
+  },
+  "cases": {
+    "skill_catalog_discovery": {
+      "name": "Skill Catalog Discovery",
+      "score": 1.0,
+      "tool_calls": [
+        "list_available_skills"
+      ],
+      "assertions_passed": [
+        "specialist_attribution",
+        "tool_trajectory",
+        "keyword_matching"
+      ],
+      "assertions_failed": [],
+      "success_criteria_passed": [
+        "invokes_list_available_skills",
+        "final_response_must_contain"
+      ],
+      "success_criteria_failed": []
+    },
+    "on_demand_malware_skill_loading": {
+      "name": "On-Demand Skill Loading - Malware Triage",
+      "score": 0.5,
+      "tool_calls": [
+        "list_available_skills",
+        "load_skill"
+      ],
+      "assertions_passed": [
+        "specialist_attribution",
+        "tool_trajectory",
+        "keyword_matching"
+      ],
+      "assertions_failed": [],
+      "success_criteria_passed": [
+        "invokes_load_skill",
+        "follows_procedure",
+        "final_response_must_contain"
+      ],
+      "success_criteria_failed": []
+    },
+    "on_demand_chatops_skill_loading": {
+      "name": "On-Demand Skill Loading - ChatOps Notification",
+      "score": 0.1,
+      "tool_calls": [
+        "search_knowledge_base",
+        "delegate_to_tier2_responder"
+      ],
+      "assertions_passed": [
+        "specialist_attribution",
+        "keyword_matching"
+      ],
+      "assertions_failed": [
+        "tool_trajectory"
+      ],
+      "success_criteria_passed": [
+        "invokes_load_skill",
+        "mentions_human_in_the_loop",
+        "final_response_must_contain"
+      ],
+      "success_criteria_failed": []
+    }
+  }
+}
