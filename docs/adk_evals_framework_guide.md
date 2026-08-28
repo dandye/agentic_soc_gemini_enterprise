@@ -158,7 +158,19 @@ The `EvalSet` defines test cases with user prompts, expected golden function cal
 
 ## 4. Execution Commands
 
-### A. Via ADK CLI
+### A. Via Justfile (Recommended)
+```bash
+# Run native ADK CLI with default test agent, dataset, and rubrics
+just adk-eval
+
+# Override parameters for custom agents, evalsets, or configs
+just adk-eval agent="test_agents/soc_triage_agent" evalset="test_agents/soc_triage_agent/soc_triage_evalset.json" config="test_agents/soc_triage_agent/eval_config.json"
+
+# Run programmatic Python evaluation runner
+just adk-eval-py
+```
+
+### B. Via ADK CLI Directly
 ```bash
 GOOGLE_API_USE_MTLS_ENDPOINT=never \
 GOOGLE_API_USE_CLIENT_CERTIFICATE=false \
@@ -171,7 +183,7 @@ GOOGLE_CLOUD_LOCATION=us-central1 \
   --print_detailed_results
 ```
 
-### B. Programmatically in Python (`test_adk_evals.py`)
+### C. Programmatically in Python (`test_adk_evals.py`)
 ```python
 import asyncio
 from google.adk.evaluation.agent_evaluator import AgentEvaluator
@@ -193,6 +205,7 @@ async def run():
 
 asyncio.run(run())
 ```
+
 
 ---
 
