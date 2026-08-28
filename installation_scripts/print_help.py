@@ -1,25 +1,87 @@
 #!/usr/bin/env python3
+import os
 import re
 import sys
 
 
-# Colors for terminal styling
-BLUE = "\033[1;34m"
-GREEN = "\033[1;32m"
-CYAN = "\033[36m"
-YELLOW = "\033[33m"
+# ANSI Reset and Format Codes
 RESET = "\033[0m"
 BOLD = "\033[1m"
+DIM = "\033[2m"
+
+# Curated Color Themes for CLI Help
+THEMES = {
+    "nord": {
+        "name": "Nordic Frost (Ice Cyan & Arctic Blue)",
+        "banner": "\033[38;5;38m",       # Frost Teal
+        "group": "\033[1;38;5;81m",      # Crisp Ice Cyan
+        "recipe": "\033[38;5;123m",      # Arctic Sky Blue
+        "desc": "\033[38;5;249m",        # Cool Slate
+        "example": "\033[38;5;222m",     # Polar Gold
+        "highlight": "\033[38;5;111m",   # Glacier Blue
+    },
+    "ocean": {
+        "name": "Google Ocean & Amber (Azure & Gold)",
+        "banner": "\033[38;5;33m",       # Google Blue
+        "group": "\033[1;38;5;75m",      # Azure / Cornflower Blue
+        "recipe": "\033[38;5;214m",      # Warm Amber / Gold
+        "desc": "\033[38;5;252m",        # Crisp Silver
+        "example": "\033[38;5;114m",     # Emerald Green
+        "highlight": "\033[38;5;81m",    # Sky Cyan
+    },
+    "tokyo": {
+        "name": "Tokyo Night (Indigo & Mint)",
+        "banner": "\033[38;5;69m",       # Soft Indigo / Azure
+        "group": "\033[1;38;5;141m",     # Bold Lavender / Purple
+        "recipe": "\033[38;5;116m",      # Crisp Mint Cyan
+        "desc": "\033[38;5;250m",        # Neutral Slate / Off-White
+        "example": "\033[38;5;215m",     # Warm Amber / Gold
+        "highlight": "\033[38;5;117m",   # Sky Blue
+    },
+    "emerald": {
+        "name": "Emerald & Spring Green",
+        "banner": "\033[38;5;36m",       # Jade / Dark Emerald
+        "group": "\033[1;38;5;79m",      # Spring Green
+        "recipe": "\033[38;5;117m",      # Bright Cyan
+        "desc": "\033[38;5;248m",        # Silver
+        "example": "\033[38;5;220m",     # Sun Gold
+        "highlight": "\033[38;5;158m",   # Pale Mint
+    },
+    "monokai": {
+        "name": "Monokai Pro (Warm Gold & Cyan)",
+        "banner": "\033[38;5;197m",      # Bright Pink / Rose
+        "group": "\033[1;38;5;221m",     # Warm Yellow
+        "recipe": "\033[38;5;81m",       # Bright Cyan
+        "desc": "\033[38;5;250m",        # Off-white
+        "example": "\033[38;5;149m",     # Lime Green
+        "highlight": "\033[38;5;208m",   # Orange
+    },
+}
 
 GROUPS = {
-    "Setup & Development": ["setup", "install", "clean", "lint", "format"],
-    "Agent Engine Management": [
+    "Setup & Environment": [
+        "setup",
+        "install",
+        "clean",
+        "lint",
+        "format",
+        "check-env",
+        "check-prereqs",
+        "check-deploy",
+        "check-integration",
+    ],
+    "Agent Engine Management (Vertex AI)": [
         "agent-engine-deploy",
         "agent-engine-update",
         "agent-engine-deploy-pro",
         "agent-engine-deploy-tier2",
+        "agent-engine-deploy-threat-hunter",
+        "agent-engine-deploy-cti-researcher",
+        "agent-engine-deploy-detection-engineer",
+        "agent-engine-deploy-alloydb",
         "agent-engine-deploy-and-delete",
         "agent-engine-test",
+        "agent-engine-session-dump",
         "agent-engine-warmup",
         "agent-engine-list",
         "agent-engine-delete-by-index",
@@ -27,29 +89,63 @@ GROUPS = {
         "agent-engine-create",
         "agent-engine-create-debug",
         "agent-engine-create-no-test",
+        "agent-engine-logs",
+        "agent-engine-redeploy",
     ],
-    "Gemini Enterprise Agent Platform Management": [
-        "agentspace-register",
-        "agentspace-update",
-        "agentspace-verify",
-        "agentspace-delete",
-        "agentspace-url",
-        "agentspace-test",
-        "agentspace-datastore",
-        "agentspace-link-agent",
-        "agentspace-unlink-agent",
-        "agentspace-update-agent",
-        "agentspace-list-agents",
-        "agentspace-list-apps",
-        "agentspace-create-app",
+    "Gemini Enterprise Agent Platform (GEAP)": [
+        "gem-ent-register",
+        "gem-ent-register-alloydb",
+        "gem-ent-update",
+        "gem-ent-verify",
+        "gem-ent-delete",
+        "gem-ent-url",
+        "gem-ent-test",
+        "gem-ent-datastore",
+        "gem-ent-link-agent",
+        "gem-ent-unlink-agent",
+        "gem-ent-update-agent",
+        "gem-ent-list-agents",
+        "gem-ent-list-apps",
+        "gem-ent-create-app",
+        "gem-ent-redeploy",
     ],
-    "Data Store Management": [
-        "datastore-create",
-        "datastore-list",
-        "datastore-info",
-        "datastore-delete",
+    "AlloyDB Detection Reports Grounding": [
+        "alloydb-test",
+        "alloydb-init",
+        "alloydb-ingest",
+        "alloydb-embed",
+        "alloydb-search",
+        "alloydb-search-semantic",
+        "alloydb-find-similar",
+        "alloydb-report",
+        "alloydb-profiles",
+        "alloydb-info",
+        "alloydb-clear",
+        "alloydb-start",
+        "alloydb-stop",
     ],
-    "RAG Corpus Management": [
+    "Neo4j Threat Graph Database": [
+        "neo4j-test",
+        "neo4j-ingest",
+        "neo4j-recalc",
+        "neo4j-sync",
+        "neo4j-clear",
+        "neo4j-start",
+        "neo4j-stop",
+        "neo4j-gce-deploy",
+    ],
+    "Elasticsearch Runbook Grounding": [
+        "elastic-info",
+        "elastic-create",
+        "elastic-sync",
+        "elastic-search",
+    ],
+    "Chronicle SIEM Telemetry & Harvesting": [
+        "harvest",
+        "harvest-investigations",
+        "harvest-detections",
+    ],
+    "RAG Corpus & Runbook Sync": [
         "rag-list",
         "rag-info",
         "rag-create",
@@ -60,7 +156,11 @@ GROUPS = {
         "sync-runbooks-gcs",
         "sync-runbooks-prune",
     ],
-    "GCS Management": [
+    "Data Store & GCS Management": [
+        "datastore-create",
+        "datastore-list",
+        "datastore-info",
+        "datastore-delete",
         "gcs-upload",
         "gcs-list",
         "gcs-delete",
@@ -69,17 +169,62 @@ GROUPS = {
         "gcs-bucket-create",
         "gcs-bucket-info",
     ],
+    "Evaluation, Benchmarks & Latency": [
+        "eval",
+        "eval-basic",
+        "eval-cti",
+        "eval-tier1",
+        "eval-tier2",
+        "test-eval-all",
+        "test-eval-cti",
+        "test-eval-detection",
+        "test-eval-hunt",
+        "test-eval-response",
+        "test-eval",
+        "test-compare",
+        "profile-latency",
+        "profile-latency-runs",
+        "profile-latency-rag",
+        "profile-latency-cti",
+        "profile-latency-tier1",
+        "parity-audit",
+    ],
+    "Agents CLI Submodule Wrappers": [
+        "agents-cli",
+        "agents-cli-eval",
+        "agents-cli-dataset",
+        "agents-cli-analyze",
+        "agents-cli-optimize",
+    ],
+    "ChatOps Native Google Chat App": [
+        "chatops-list",
+        "chatops-test",
+        "chatops-deploy-app",
+        "chatops-create-queue",
+        "chatops-registration-guide",
+        "chatops-verify",
+    ],
+    "Security, IAM & OAuth": [
+        "iam-setup",
+        "iam-verify",
+        "iam-list-roles",
+        "secret-upload",
+        "secret-upload-force",
+        "secret-verify",
+        "secret-sync",
+        "secret-sync-force",
+        "oauth-setup",
+        "oauth-create-auth",
+        "oauth-verify",
+        "oauth-delete",
+        "oauth-workflow",
+    ],
     "Vertex AI & Models": [
         "vertex-ai-verify",
         "vertex-ai-enable-apis",
         "vertex-ai-quota",
         "models-list",
-    ],
-    "OAuth Management": [
-        "oauth-setup",
-        "oauth-create-auth",
-        "oauth-verify",
-        "oauth-delete",
+        "models-validate",
     ],
     "Gemini Enterprise User Licenses": [
         "licenses-list",
@@ -87,34 +232,11 @@ GROUPS = {
         "licenses-assign",
         "licenses-remove",
     ],
-    "Secret Manager": ["secret-upload", "secret-upload-force", "secret-verify"],
-    "Validation & Verification": [
-        "check-env",
-        "check-prereqs",
-        "check-deploy",
-        "check-integration",
-    ],
-    "Workflows & Utilities": [
-        "agent-engine-logs",
-        "agent-engine-redeploy",
-        "agentspace-redeploy",
-        "redeploy-all",
-        "oauth-workflow",
+    "Composite Workflows": [
         "full-deploy-with-oauth",
+        "redeploy-all",
         "status",
         "cleanup",
-    ],
-    "Evaluation & Latency": [
-        "eval",
-        "eval-basic",
-        "eval-cti",
-        "eval-tier1",
-        "eval-multi",
-        "profile-latency",
-        "profile-latency-runs",
-        "profile-latency-rag",
-        "profile-latency-cti",
-        "profile-latency-tier1",
     ],
 }
 
@@ -163,17 +285,26 @@ def parse_justfile(justfile_path):
     return recipes
 
 
-def print_help(justfile_path):
+def print_help(justfile_path, theme_key="tokyo"):
+    theme = THEMES.get(theme_key.lower(), THEMES["tokyo"])
+
+    banner_color = theme["banner"]
+    group_color = theme["group"]
+    recipe_color = theme["recipe"]
+    desc_color = theme["desc"]
+    example_color = theme["example"]
+    highlight_color = theme["highlight"]
+
     recipes = parse_justfile(justfile_path)
 
     print(
-        f"\n{BLUE}╔══════════════════════════════════════════════════════════════════════════════╗{RESET}"
+        f"\n{banner_color}╔══════════════════════════════════════════════════════════════════════════════╗{RESET}"
     )
     print(
-        f"{BLUE}║           Agentic SOC Gemini Enterprise Agent Platform Management            ║{RESET}"
+        f"{banner_color}║           Agentic SOC Gemini Enterprise Agent Platform Management            ║{RESET}"
     )
     print(
-        f"{BLUE}╚══════════════════════════════════════════════════════════════════════════════╝{RESET}\n"
+        f"{banner_color}╚══════════════════════════════════════════════════════════════════════════════╝{RESET}\n"
     )
 
     # Track which recipes were displayed so we can print any leftover ones
@@ -185,51 +316,51 @@ def print_help(justfile_path):
         if not group_recipes:
             continue
 
-        print(f"{BOLD}{GREEN}{group_name}{RESET}")
+        print(f"{group_color}◆ {group_name}{RESET}")
         for recipe in group_recipes:
             desc = recipes[recipe]
             # Print recipe name left-aligned with a fixed width, and description next to it
-            print(f"  {CYAN}{recipe:<32}{RESET} {desc}")
+            print(f"  {recipe_color}{recipe:<32}{RESET} {desc_color}{desc}{RESET}")
             displayed.add(recipe)
         print()
 
     # Print any leftover recipes that weren't categorized (e.g. if they are added in the future)
     leftover = [r for r in recipes if r not in displayed and r != "default"]
     if leftover:
-        print(f"{BOLD}{YELLOW}Other Recipes{RESET}")
+        print(f"{example_color}◆ Other Recipes{RESET}")
         for recipe in leftover:
             desc = recipes[recipe]
-            print(f"  {CYAN}{recipe:<32}{RESET} {desc}")
+            print(f"  {recipe_color}{recipe:<32}{RESET} {desc_color}{desc}{RESET}")
         print()
 
-    print(f"{BOLD}Usage Examples:{RESET}")
+    print(f"{BOLD}{highlight_color}Usage Examples:{RESET}")
     print(
-        f"  {YELLOW}just setup{RESET}                              - Initialize project and install dependencies"
+        f"  {example_color}just setup{RESET}                              - Initialize project and install dependencies"
     )
     print(
-        f"  {YELLOW}just agent-engine-deploy{RESET}                - Deploy the agent engine"
+        f"  {example_color}just agent-engine-deploy{RESET}                - Deploy the agent engine"
     )
     print(
-        f"  {YELLOW}just agent-engine-test{RESET}                  - Test the deployed agent"
+        f"  {example_color}just agent-engine-test{RESET}                  - Test the deployed agent"
     )
     print(
-        f"  {YELLOW}just agentspace-register{RESET}                - Register agent with Gemini Enterprise Agent Platform"
+        f"  {example_color}just gem-ent-register{RESET}                   - Register agent with Gemini Enterprise Agent Platform"
     )
     print(
-        f"  {YELLOW}just force=true agentspace-register{RESET}     - Force re-register agent with Gemini Enterprise Agent Platform"
+        f"  {example_color}just force=true gem-ent-register{RESET}        - Force re-register agent with Gemini Enterprise Agent Platform"
     )
     print(
-        f"  {YELLOW}just agentspace-verify{RESET}                  - Check status and get URLs"
+        f"  {example_color}just gem-ent-verify{RESET}                     - Check status and get URLs"
     )
     print()
-    print(f"{BOLD}Notes:{RESET}")
+    print(f"{BOLD}{highlight_color}Notes:{RESET}")
     print(
-        f"  • Environment variables are loaded from {YELLOW}.env{RESET} file by default"
+        f"  • Environment variables are loaded from {example_color}.env{RESET} file by default"
     )
-    print(f"  • Use {YELLOW}env_file=path{RESET} to specify different environment file")
-    print(f"  • Use {YELLOW}v=1{RESET} for verbose output (shows script details)")
+    print(f"  • Use {example_color}env_file=path{RESET} to specify different environment file")
+    print(f"  • Use {example_color}v=1{RESET} for verbose output (shows script details)")
     print(
-        f"  • Use {YELLOW}force=true{RESET} with delete/register commands to skip confirmations"
+        f"  • Use {example_color}force=true{RESET} with delete/register commands to skip confirmations"
     )
     print("  • See docs/DEPLOYMENT_WORKFLOW.md for detailed instructions")
     print()
@@ -237,6 +368,12 @@ def print_help(justfile_path):
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: print_help.py <justfile_path>")
+        print("Usage: print_help.py <justfile_path> [theme]")
         sys.exit(1)
-    print_help(sys.argv[1])
+
+    theme_name = os.environ.get("JUST_THEME", "tokyo")
+    if len(sys.argv) >= 3:
+        theme_name = sys.argv[2]
+
+    print_help(sys.argv[1], theme_key=theme_name)
+

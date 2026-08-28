@@ -162,6 +162,28 @@ python manage.py alloydb profiles
 python manage.py alloydb info
 ```
 
+### Agents CLI Submodule Wrappers
+
+Manage and evaluate agents using the `external/agents-cli` submodule:
+```bash
+just agents-cli --help                      # Show all agents-cli commands
+just agents-cli-eval --help                 # Evaluation subcommand help
+just agents-cli-eval run                    # Run agent inference and grade traces
+just agents-cli-dataset synthesize          # Synthesize multi-turn eval scenarios
+just agents-cli-analyze                     # Cluster failure modes from grade results
+just agents-cli-optimize                    # Auto-tune agent prompts using GEPA framework
+```
+
+Using the Python CLI:
+```bash
+python manage.py agents-cli --help
+python manage.py agents-cli eval run
+python manage.py agents-cli eval metric list
+python manage.py agents-cli eval dataset synthesize
+python manage.py agents-cli eval analyze
+python manage.py agents-cli eval optimize
+```
+
 ### Environment Management
 
 ```bash

@@ -768,6 +768,7 @@ eval-tier1:
 # Run multi-specialist evalset
 alias eval-multi := eval-tier2
 
+# Run multi-specialist (Tier 2) evalset
 eval-tier2:
     {{ python }} -m google.adk.cli eval {{ agent_module }} evalsets/multi_specialist.evalset.json
 
@@ -778,6 +779,31 @@ test-eval-all:
 # Compare evaluation runs and view deltas (use evalset=id)
 test-compare evalset:
     {{ python }} {{ manage_eval }} compare {{ evalset }}
+
+# ============================================================================
+# agents-cli Submodule Wrappers
+# ============================================================================
+
+# Run any command via the agents-cli submodule (e.g. just agents-cli eval run)
+agents-cli *args:
+    PYTHONPATH=".:external/agents-cli/src" {{ python }} -m google.agents.cli.main {{ args }}
+
+# Run agents-cli evaluations
+agents-cli-eval *args:
+    PYTHONPATH=".:external/agents-cli/src" {{ python }} -m google.agents.cli.main eval {{ args }}
+
+# Synthesize multi-turn evaluation datasets with agents-cli
+agents-cli-dataset *args:
+    PYTHONPATH=".:external/agents-cli/src" {{ python }} -m google.agents.cli.main eval dataset {{ args }}
+
+# Analyze evaluation failure clusters with agents-cli
+agents-cli-analyze *args:
+    PYTHONPATH=".:external/agents-cli/src" {{ python }} -m google.agents.cli.main eval analyze {{ args }}
+
+# Optimize agent prompts using agents-cli GEPA framework
+agents-cli-optimize *args:
+    PYTHONPATH=".:external/agents-cli/src" {{ python }} -m google.agents.cli.main eval optimize {{ args }}
+
 
 # Profile agent latency (single run per query)
 profile-latency:

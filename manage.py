@@ -100,6 +100,26 @@ app.add_typer(
 )
 
 
+@app.command(
+    name="agents-cli",
+    context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
+    help="Unified runner for the external/agents-cli submodule",
+)
+def agents_cli_passthrough(ctx: typer.Context) -> None:
+    """Execute commands from the external/agents-cli submodule."""
+    submodule_src = Path(__file__).parent / "external" / "agents-cli" / "src"
+    if str(submodule_src) not in sys.path:
+        sys.path.insert(0, str(submodule_src))
+
+    from google.agents.cli.main import main as agents_cli_main
+
+    try:
+        agents_cli_main(args=ctx.args, prog_name="python manage.py agents-cli")
+    except SystemExit as exc:
+        raise typer.Exit(code=exc.code if exc.code is not None else 0)
+
+
+
 # Workflow subcommand group
 workflow_app = typer.Typer(
     help="Composite workflows and multi-step operations",
@@ -362,6 +382,18 @@ def version() -> None:
 
 def main():
     """Main entry point."""
+    if len(sys.argv) > 1 and sys.argv[1] == "agents-cli":
+        submodule_src = Path(__file__).parent / "external" / "agents-cli" / "src"
+        if str(submodule_src) not in sys.path:
+            sys.path.insert(0, str(submodule_src))
+        from google.agents.cli.main import main as agents_cli_main
+
+        try:
+            agents_cli_main(args=sys.argv[2:], prog_name="python manage.py agents-cli")
+        except SystemExit as exc:
+            sys.exit(exc.code if exc.code is not None else 0)
+        return
+
     try:
         app()
     except KeyboardInterrupt:
@@ -370,6 +402,7 @@ def main():
     except Exception as e:
         console.print(f"\n[red]Unexpected error: {e}[/red]")
         raise typer.Exit(code=1)
+
 
 
 if __name__ == "__main__":
