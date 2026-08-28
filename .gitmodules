@@ -8,3 +8,9 @@
 [submodule "adk_runbooks"]
 	path = external/adk_runbooks
 	url = https://github.com/dandye/adk_runbooks.git
+[submodule "external/agents-cli"]
+	path = external/agents-cli
+	url = https://github.com/google/agents-cli.git
+[submodule "external/adk-python"]
+	path = external/adk-python
+	url = https://github.com/google/adk-python.git
