@@ -486,7 +486,9 @@ class LicenseManager:
                     typer.echo(f"  - {user_principal}: {state_style}")
 
                 if all_assigned and updated_licenses:
-                    typer.secho("Licenses assigned successfully!", fg=typer.colors.GREEN)
+                    typer.secho(
+                        "Licenses assigned successfully!", fg=typer.colors.GREEN
+                    )
                 elif not updated_licenses:
                     typer.secho(
                         "Warning: No user licenses returned in response.",

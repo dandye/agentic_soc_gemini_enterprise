@@ -13,48 +13,48 @@ DIM = "\033[2m"
 THEMES = {
     "nord": {
         "name": "Nordic Frost (Ice Cyan & Arctic Blue)",
-        "banner": "\033[38;5;38m",       # Frost Teal
-        "group": "\033[1;38;5;81m",      # Crisp Ice Cyan
-        "recipe": "\033[38;5;123m",      # Arctic Sky Blue
-        "desc": "\033[38;5;249m",        # Cool Slate
-        "example": "\033[38;5;222m",     # Polar Gold
-        "highlight": "\033[38;5;111m",   # Glacier Blue
+        "banner": "\033[38;5;38m",  # Frost Teal
+        "group": "\033[1;38;5;81m",  # Crisp Ice Cyan
+        "recipe": "\033[38;5;123m",  # Arctic Sky Blue
+        "desc": "\033[38;5;249m",  # Cool Slate
+        "example": "\033[38;5;222m",  # Polar Gold
+        "highlight": "\033[38;5;111m",  # Glacier Blue
     },
     "ocean": {
         "name": "Google Ocean & Amber (Azure & Gold)",
-        "banner": "\033[38;5;33m",       # Google Blue
-        "group": "\033[1;38;5;75m",      # Azure / Cornflower Blue
-        "recipe": "\033[38;5;214m",      # Warm Amber / Gold
-        "desc": "\033[38;5;252m",        # Crisp Silver
-        "example": "\033[38;5;114m",     # Emerald Green
-        "highlight": "\033[38;5;81m",    # Sky Cyan
+        "banner": "\033[38;5;33m",  # Google Blue
+        "group": "\033[1;38;5;75m",  # Azure / Cornflower Blue
+        "recipe": "\033[38;5;214m",  # Warm Amber / Gold
+        "desc": "\033[38;5;252m",  # Crisp Silver
+        "example": "\033[38;5;114m",  # Emerald Green
+        "highlight": "\033[38;5;81m",  # Sky Cyan
     },
     "tokyo": {
         "name": "Tokyo Night (Indigo & Mint)",
-        "banner": "\033[38;5;69m",       # Soft Indigo / Azure
-        "group": "\033[1;38;5;141m",     # Bold Lavender / Purple
-        "recipe": "\033[38;5;116m",      # Crisp Mint Cyan
-        "desc": "\033[38;5;250m",        # Neutral Slate / Off-White
-        "example": "\033[38;5;215m",     # Warm Amber / Gold
-        "highlight": "\033[38;5;117m",   # Sky Blue
+        "banner": "\033[38;5;69m",  # Soft Indigo / Azure
+        "group": "\033[1;38;5;141m",  # Bold Lavender / Purple
+        "recipe": "\033[38;5;116m",  # Crisp Mint Cyan
+        "desc": "\033[38;5;250m",  # Neutral Slate / Off-White
+        "example": "\033[38;5;215m",  # Warm Amber / Gold
+        "highlight": "\033[38;5;117m",  # Sky Blue
     },
     "emerald": {
         "name": "Emerald & Spring Green",
-        "banner": "\033[38;5;36m",       # Jade / Dark Emerald
-        "group": "\033[1;38;5;79m",      # Spring Green
-        "recipe": "\033[38;5;117m",      # Bright Cyan
-        "desc": "\033[38;5;248m",        # Silver
-        "example": "\033[38;5;220m",     # Sun Gold
-        "highlight": "\033[38;5;158m",   # Pale Mint
+        "banner": "\033[38;5;36m",  # Jade / Dark Emerald
+        "group": "\033[1;38;5;79m",  # Spring Green
+        "recipe": "\033[38;5;117m",  # Bright Cyan
+        "desc": "\033[38;5;248m",  # Silver
+        "example": "\033[38;5;220m",  # Sun Gold
+        "highlight": "\033[38;5;158m",  # Pale Mint
     },
     "monokai": {
         "name": "Monokai Pro (Warm Gold & Cyan)",
-        "banner": "\033[38;5;197m",      # Bright Pink / Rose
-        "group": "\033[1;38;5;221m",     # Warm Yellow
-        "recipe": "\033[38;5;81m",       # Bright Cyan
-        "desc": "\033[38;5;250m",        # Off-white
-        "example": "\033[38;5;149m",     # Lime Green
-        "highlight": "\033[38;5;208m",   # Orange
+        "banner": "\033[38;5;197m",  # Bright Pink / Rose
+        "group": "\033[1;38;5;221m",  # Warm Yellow
+        "recipe": "\033[38;5;81m",  # Bright Cyan
+        "desc": "\033[38;5;250m",  # Off-white
+        "example": "\033[38;5;149m",  # Lime Green
+        "highlight": "\033[38;5;208m",  # Orange
     },
 }
 
@@ -357,8 +357,12 @@ def print_help(justfile_path, theme_key="tokyo"):
     print(
         f"  • Environment variables are loaded from {example_color}.env{RESET} file by default"
     )
-    print(f"  • Use {example_color}env_file=path{RESET} to specify different environment file")
-    print(f"  • Use {example_color}v=1{RESET} for verbose output (shows script details)")
+    print(
+        f"  • Use {example_color}env_file=path{RESET} to specify different environment file"
+    )
+    print(
+        f"  • Use {example_color}v=1{RESET} for verbose output (shows script details)"
+    )
     print(
         f"  • Use {example_color}force=true{RESET} with delete/register commands to skip confirmations"
     )
@@ -376,4 +380,3 @@ if __name__ == "__main__":
         theme_name = sys.argv[2]
 
     print_help(sys.argv[1], theme_key=theme_name)
-

@@ -119,7 +119,6 @@ def agents_cli_passthrough(ctx: typer.Context) -> None:
         raise typer.Exit(code=exc.code if exc.code is not None else 0)
 
 
-
 # Workflow subcommand group
 workflow_app = typer.Typer(
     help="Composite workflows and multi-step operations",
@@ -402,7 +401,6 @@ def main():
     except Exception as e:
         console.print(f"\n[red]Unexpected error: {e}[/red]")
         raise typer.Exit(code=1)
-
 
 
 if __name__ == "__main__":
