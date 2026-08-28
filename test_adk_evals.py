@@ -20,6 +20,7 @@ import os
 import sys
 from pathlib import Path
 
+
 # Ensure required environment variables for Vertex AI and mTLS settings
 os.environ["GOOGLE_API_USE_MTLS_ENDPOINT"] = "never"
 os.environ["GOOGLE_API_USE_CLIENT_CERTIFICATE"] = "false"

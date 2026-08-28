@@ -181,7 +181,7 @@ from google.adk.evaluation.eval_set import EvalSet
 async def run():
     eval_set = EvalSet.model_validate_json(open("soc_triage_evalset.json").read())
     eval_config = EvalConfig.model_validate_json(open("eval_config.json").read())
-    
+
     results = await AgentEvaluator.evaluate_eval_set(
         agent_module="test_agents.soc_triage_agent",
         eval_set=eval_set,
