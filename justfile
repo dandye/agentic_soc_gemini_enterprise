@@ -728,6 +728,29 @@ status: gem-ent-verify
 cleanup: agent-engine-list
     @echo "Use the agent index numbers shown above with 'just index=<number> agent-engine-delete-by-index' to clean up"
 
+# Run native Google ADK evaluation CLI with criteria and rubrics
+adk-eval agent="test_agents/soc_triage_agent" evalset="test_agents/soc_triage_agent/soc_triage_evalset.json" config="test_agents/soc_triage_agent/eval_config.json":
+    #!/usr/bin/env bash
+    set -a; [ -f "{{env_file}}" ] && source "{{env_file}}"; set +a
+    export GOOGLE_API_USE_MTLS_ENDPOINT="never"
+    export GOOGLE_API_USE_CLIENT_CERTIFICATE="false"
+    export GOOGLE_GENAI_USE_VERTEXAI="TRUE"
+    export GOOGLE_CLOUD_PROJECT="${GOOGLE_CLOUD_PROJECT:-$GCP_PROJECT_ID}"
+    export GOOGLE_CLOUD_LOCATION="${GOOGLE_CLOUD_LOCATION:-${GCP_LOCATION:-us-central1}}"
+    ADK_BIN="{{ if path_exists('.venv/bin/adk') == 'true' { '.venv/bin/adk' } else if path_exists('venv/bin/adk') == 'true' { 'venv/bin/adk' } else { 'adk' } }}"
+    $ADK_BIN eval "{{agent}}" "{{evalset}}" --config_file_path "{{config}}" --print_detailed_results
+
+# Run programmatic ADK evaluation runner via Python API
+adk-eval-py agent="test_agents.soc_triage_agent" evalset="test_agents/soc_triage_agent/soc_triage_evalset.json" config="test_agents/soc_triage_agent/eval_config.json":
+    #!/usr/bin/env bash
+    set -a; [ -f "{{env_file}}" ] && source "{{env_file}}"; set +a
+    export GOOGLE_API_USE_MTLS_ENDPOINT="never"
+    export GOOGLE_API_USE_CLIENT_CERTIFICATE="false"
+    export GOOGLE_GENAI_USE_VERTEXAI="TRUE"
+    export GOOGLE_CLOUD_PROJECT="${GOOGLE_CLOUD_PROJECT:-$GCP_PROJECT_ID}"
+    export GOOGLE_CLOUD_LOCATION="${GOOGLE_CLOUD_LOCATION:-${GCP_LOCATION:-us-central1}}"
+    {{ python }} test_adk_evals.py --agent-module "{{agent}}" --evalset "{{evalset}}" --config "{{config}}"
+
 # Run all agent evaluations
 eval:
     @echo "Running all evalsets..."
