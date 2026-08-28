@@ -1,0 +1,173 @@
+{
+  "eval_set_id": "soc_triage_evalset",
+  "name": "SOC Triage Evaluation Set",
+  "description": "Evaluation set for SOC Tier 1 Alert Triage using native ADK evals framework.",
+  "eval_cases": [
+    {
+      "evalId": "case_01_malicious_c2",
+      "conversation": [
+        {
+          "invocationId": "turn_1",
+          "userContent": {
+            "parts": [
+              {
+                "mediaResolution": null,
+                "codeExecutionResult": null,
+                "executableCode": null,
+                "fileData": null,
+                "functionCall": null,
+                "functionResponse": null,
+                "inlineData": null,
+                "text": "We received an alert for outbound connection to IP 198.51.100.14 from host workstation-finance-01. Please triage this immediately.",
+                "thought": null,
+                "thoughtSignature": null,
+                "videoMetadata": null,
+                "toolCall": null,
+                "toolResponse": null,
+                "partMetadata": null
+              }
+            ],
+            "role": "user"
+          },
+          "finalResponse": {
+            "parts": [
+              {
+                "mediaResolution": null,
+                "codeExecutionResult": null,
+                "executableCode": null,
+                "fileData": null,
+                "functionCall": null,
+                "functionResponse": null,
+                "inlineData": null,
+                "text": "Executive Summary: An outbound connection was detected to 198.51.100.14 from workstation-finance-01. Threat intelligence confirms this is a malicious Command and Control (C2) node associated with APT29. Host workstation-finance-01 is currently online and not isolated. An approval request for containment has been submitted.",
+                "thought": null,
+                "thoughtSignature": null,
+                "videoMetadata": null,
+                "toolCall": null,
+                "toolResponse": null,
+                "partMetadata": null
+              }
+            ],
+            "role": "model"
+          },
+          "intermediateData": {
+            "toolUses": [
+              {
+                "id": null,
+                "args": {
+                  "ip_address": "198.51.100.14"
+                },
+                "name": "lookup_ip_reputation",
+                "partialArgs": null,
+                "willContinue": null
+              },
+              {
+                "id": null,
+                "args": {
+                  "hostname": "workstation-finance-01"
+                },
+                "name": "check_host_isolation_status",
+                "partialArgs": null,
+                "willContinue": null
+              },
+              {
+                "id": null,
+                "args": {
+                  "hostname": "workstation-finance-01",
+                  "reason": "Host connected to confirmed APT29 C2 IP 198.51.100.14"
+                },
+                "name": "request_containment_approval",
+                "partialArgs": null,
+                "willContinue": null
+              }
+            ],
+            "toolResponses": [],
+            "intermediateResponses": []
+          },
+          "creationTimestamp": 0.0,
+          "rubrics": null,
+          "appDetails": null
+        }
+      ],
+      "conversationScenario": null,
+      "sessionInput": null,
+      "creationTimestamp": 0.0,
+      "rubrics": null,
+      "finalSessionState": {}
+    },
+    {
+      "evalId": "case_02_benign_rfc5737",
+      "conversation": [
+        {
+          "invocationId": "turn_1",
+          "userContent": {
+            "parts": [
+              {
+                "mediaResolution": null,
+                "codeExecutionResult": null,
+                "executableCode": null,
+                "fileData": null,
+                "functionCall": null,
+                "functionResponse": null,
+                "inlineData": null,
+                "text": "Alert: Suspicious connection detected to 192.0.2.45 from server-web-02. What is the severity?",
+                "thought": null,
+                "thoughtSignature": null,
+                "videoMetadata": null,
+                "toolCall": null,
+                "toolResponse": null,
+                "partMetadata": null
+              }
+            ],
+            "role": "user"
+          },
+          "finalResponse": {
+            "parts": [
+              {
+                "mediaResolution": null,
+                "codeExecutionResult": null,
+                "executableCode": null,
+                "fileData": null,
+                "functionCall": null,
+                "functionResponse": null,
+                "inlineData": null,
+                "text": "Executive Summary: The IP 192.0.2.45 belongs to the RFC 5737 TEST-NET-1 documentation range. This is a benign test range and does not represent malicious activity. No containment action is required.",
+                "thought": null,
+                "thoughtSignature": null,
+                "videoMetadata": null,
+                "toolCall": null,
+                "toolResponse": null,
+                "partMetadata": null
+              }
+            ],
+            "role": "model"
+          },
+          "intermediateData": {
+            "toolUses": [
+              {
+                "id": null,
+                "args": {
+                  "ip_address": "192.0.2.45"
+                },
+                "name": "lookup_ip_reputation",
+                "partialArgs": null,
+                "willContinue": null
+              }
+            ],
+            "toolResponses": [],
+            "intermediateResponses": []
+          },
+          "creationTimestamp": 0.0,
+          "rubrics": null,
+          "appDetails": null
+        }
+      ],
+      "conversationScenario": null,
+      "sessionInput": null,
+      "creationTimestamp": 0.0,
+      "rubrics": null,
+      "finalSessionState": {}
+    }
+  ],
+  "creation_timestamp": 0.0
+}

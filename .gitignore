@@ -22,12 +22,15 @@ investigations/*
 # inside an ignored directory, so that rule silently overrode the whitelist below
 # and meant new .md runs were dropped without warning.
 !evalsets/**/*.json
+!test_agents/**/*.json
 # Same fix for similarity reports: the *.json blanket above re-ignores JSON
 # inside the whitelisted investigations/similarity_reports/ directory, and
 # gitignore is last-match-wins, so the re-include must come AFTER *.json.
 !investigations/similarity_reports/**/*.json
 
+.adk/
 worktrees/
 
 # Built documentation output — regenerated from docs/, never edited by hand.
 docs/docs-dist/
+
