@@ -11,7 +11,14 @@ implementation_plan.md
 .env.secops.adc
 investigations/*
 !investigations/similarity_reports/
+!investigations/run_cti_document_ingest.py
 *.json
+
+# Test & coverage artifacts
+.coverage
+coverage.xml
+htmlcov/
+.pytest_cache/
 
 # Evaluation ledgers are tracked deliberately — they are the evidence trail for
 # agent performance over time, not build output. The `*.json` rule above is a

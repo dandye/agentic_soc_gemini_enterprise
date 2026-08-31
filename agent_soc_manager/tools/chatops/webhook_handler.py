@@ -36,12 +36,16 @@ async def handle_action(t: str = Query(..., description="Signed action token")):
             "No action was executed.</p></body></html>",
             status_code=503,
         )
+    agent_engine_id = None
+    session_id = None
+    user_id = None
     try:
         # 1. Verify and decode payload
         payload = verify_signed_payload(t)
         action = payload.get("action")
         session_id = payload.get("session_id")
         agent_engine_id = payload.get("agent_engine_id")
+        user_id = payload.get("user_id")
 
         if not action or not session_id or not agent_engine_id:
             raise ValueError("Incomplete payload inside token")
@@ -128,6 +132,9 @@ async def handle_action(t: str = Query(..., description="Signed action token")):
             </ul>
         </div>
         """
+        status_code = (
+            400 if isinstance(e, ValueError) or "token" in str(e).lower() else 500
+        )
         return HTMLResponse(
             content=f"""
             <html>
@@ -139,7 +146,7 @@ async def handle_action(t: str = Query(..., description="Signed action token")):
                 </body>
             </html>
         """,
-            status_code=500,
+            status_code=status_code,
         )
 
 

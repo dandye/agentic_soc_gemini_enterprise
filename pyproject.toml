@@ -44,6 +44,7 @@ exclude = [
 [tool.pytest.ini_options]
 # Pytest configuration
 minversion = "6.0"
+pythonpath = ["."]
 python_files = "test_*.py"
 python_classes = "Test*"
 python_functions = "test_*"
