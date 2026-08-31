@@ -33,3 +33,9 @@ worktrees/
 
 # Built documentation output — regenerated from docs/, never edited by hand.
 docs/docs-dist/
+
+# Test coverage artifacts
+coverage.xml
+.coverage
+htmlcov/
+
