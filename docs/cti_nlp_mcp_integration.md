@@ -35,14 +35,19 @@ This module provides a first-party, private Cyber Threat Intelligence (CTI) docu
      - Email addresses and domain names.
    - Automatically handles defanged indicator syntax (`1.2.3[.]4`, `hxxp://`, `user[@]domain[.]com`).
 
-3. **Multi-Format Document Parsing (`parse_security_document`)**:
+3. **In-Process Neural Entity Extraction (`extract_entities_with_securebert`)**:
+   - Ingests text directly into memory (CPU) via `pzryathzsdhc/cti-ner-securebert` without external network overhead.
+   - Extracts semantic CTI entities without strict deterministic grammars (threat actors, malware families, offensive hacking tools, affected products).
+   - Uses sliding-window paragraph chunking and confidence score filtering.
+
+4. **Multi-Format Document Parsing (`parse_security_document`)**:
    - Ingests local PDF files (via `pypdf`), HTML advisories (via `BeautifulSoup`), Markdown files, and plaintext documents.
    - Normalizes text and extracts categorized IOC collections in a single operation.
 
-4. **Direct CISA Advisory Ingestion (`fetch_and_parse_cisa_advisory`)**:
+5. **Direct CISA Advisory Ingestion (`fetch_and_parse_cisa_advisory`)**:
    - Directly fetches CISA cybersecurity advisories by slug (e.g., `aa24-038a`) or URL, parses the HTML body, normalizes the text, and extracts structured IOCs.
 
-5. **FastMCP Server & ADK Agent**:
+6. **FastMCP Server & ADK Agent**:
    - Can be run as a standalone FastMCP server over STDIO or SSE.
    - Provides `create_cti_nlp_agent()` for immediate integration as an in-process Google ADK Specialist Agent.
 
@@ -55,26 +60,26 @@ This module provides a first-party, private Cyber Threat Intelligence (CTI) docu
 |  +-----------------------------------------------------------------------------+  |
 |  |             CTI Document & NER Specialist Agent (Google ADK)                |  |
 |  +-----------------------------------------------------------------------------+  |
-|         |                                 |                             |         |
-|         | 1. parse_security_document      | 2. normalize_cti_document   | 3. fetch|
-|         v                                 v                             v         |
+|         |                     |                             |             |       |
+|         | 1. parse_doc        | 2. normalize_doc            | 3. fetch    | 4. bert
+|         v                     v                             v             v       |
 |  +-----------------------------------------------------------------------------+  |
 |  |                1P CTI NLP FastMCP Server / In-Process Tools                 |  |
 |  |                   (agent_soc_manager/tools/cti_nlp_tools.py)                |  |
 |  +-----------------------------------------------------------------------------+  |
-|         |                                      |                        |         |
-|         | PDF / HTML / MD Text Extraction      | Text Normalizer        | IOCs    |
-|         v                                      v                        v         |
-|  +-----------------------+           +--------------------+  +------------------+ |
-|  | pypdf / BeautifulSoup |           | nlp_capstone.ner   |  | nlp_capstone.ner | |
-|  | Document Readers      |           | .text_normalize    |  | .span_validators | |
-|  +-----------------------+           +--------------------+  +------------------+ |
-|                                                                         |         |
-|                                                                         v         |
-|                                                              +------------------+ |
-|                                                              | Clean Validated  | |
-|                                                              | IOCs & Entities  | |
-|                                                              +------------------+ |
+|         |                        |                     |                 |        |
+|         | PDF / HTML / MD        | Text Normalizer     | Grammar IOCs    | In-Proc|
+|         v                        v                     v                 v        |
+|  +-----------------------+ +--------------------+ +------------------+ +--------+ |
+|  | pypdf / BeautifulSoup | | nlp_capstone.ner   | | nlp_capstone.ner | | Secure | |
+|  | Document Readers      | | .text_normalize    | | .span_validators | | BERT   | |
+|  +-----------------------+ +--------------------+ +------------------+ +--------+ |
+|                                                        |                 |        |
+|                                                        v                 v        |
+|                                                     +-------------------------------+
+|                                                     | Categorized & Validated CTI   |
+|                                                     | Threat Actors, Malware, IOCs  |
+|                                                     +-------------------------------+
 +-----------------------------------------------------------------------------------+
 ```
 

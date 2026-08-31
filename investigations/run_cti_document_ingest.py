@@ -33,6 +33,7 @@ if str(BASE_DIR) not in sys.path:
 from agent_soc_manager.tools.cti_nlp_tools import (  # noqa: E402
     create_cti_nlp_agent,
     extract_and_validate_iocs,
+    extract_entities_with_securebert,
     fetch_and_parse_cisa_advisory,
     mcp_server,
     normalize_cti_document,
@@ -158,7 +159,13 @@ async def main_async():
     iocs = extract_and_validate_iocs(norm["normalized_text"])
     print(json.dumps(iocs["indicators"], indent=2))
 
-    print("\n4. Initializing CTI NLP ADK Agent:")
+    print("\n4. In-Process SecureBERT Semantic Entities:")
+    bert_res = extract_entities_with_securebert(norm["normalized_text"], confidence_threshold=0.5)
+    print(f"   Model: {bert_res.get('model')} (Inference Mode: {bert_res.get('inference_mode')})")
+    print(f"   Unique Entities Extracted: {bert_res.get('unique_entities_extracted')}")
+    print(json.dumps(bert_res["categorized_entities"], indent=2))
+
+    print("\n5. Initializing CTI NLP ADK Agent:")
     agent = create_cti_nlp_agent(name="cti_nlp_showcase_agent")
     print(f"   [OK] Agent Name: {agent.name}")
     print(f"   [OK] Model:      {agent.model}")

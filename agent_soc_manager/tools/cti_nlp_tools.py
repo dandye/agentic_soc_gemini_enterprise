@@ -448,11 +448,36 @@ async def fetch_and_parse_cisa_advisory(slug_or_url: str) -> dict[str, Any]:
     }
 
 
+@mcp_server.tool()
+def extract_entities_with_securebert(
+    text: str,
+    confidence_threshold: float = 0.5,
+) -> dict[str, Any]:
+    """Extracts semantic CTI entities (threat actors, malware families, hacking tools, CVEs)
+
+    using in-process SecureBERT neural token classification (pzryathzsdhc/cti-ner-securebert).
+
+    Runs locally in process memory (CPU) with zero external network overhead.
+
+    Args:
+        text: Raw threat report or advisory text.
+        confidence_threshold: Minimum prediction probability [0.0 - 1.0]. Default is 0.5.
+
+    Returns:
+        Dict containing categorized threat actors, malware, tools, CVEs, and confidence metrics.
+    """
+    from agent_soc_manager.tools.securebert_engine import SecureBertNerEngine
+
+    engine = SecureBertNerEngine.get_instance()
+    return engine.extract_entities(text=text, confidence_threshold=confidence_threshold)
+
+
 def get_cti_nlp_function_tools() -> list[Any]:
     """Returns the list of standalone Python function tools for direct in-process ADK agents."""
     return [
         normalize_cti_document,
         extract_and_validate_iocs,
+        extract_entities_with_securebert,
         parse_security_document,
         fetch_and_parse_cisa_advisory,
     ]
@@ -475,16 +500,18 @@ def create_cti_nlp_agent(
         "You are an expert Cyber Threat Intelligence (CTI) Ingestion and NER Analyst. "
         "Your role is to analyze security advisories, vulnerability bulletins, incident summaries, "
         "and threat reports.\n\n"
-        "You have direct access to specialized CTI processing tools:\n"
-        "1. `parse_security_document`: Extracts text from PDF, HTML, Markdown, or plaintext documents, "
-        "normalizes the text, and extracts all validated IOCs.\n"
-        "2. `fetch_and_parse_cisa_advisory`: Fetches CISA cybersecurity alerts by slug (e.g., 'aa24-038a') "
-        "or URL, returning clean content and extracted indicators.\n"
-        "3. `extract_and_validate_iocs`: Extracts and grammatically validates IP addresses, file hashes "
-        "(MD5, SHA1, SHA256, SHA512), CVE IDs, CWE IDs, and MITRE ATT&CK techniques.\n"
-        "4. `normalize_cti_document`: Cleans boilerplate headers, pagination, and rejoins broken hashes.\n\n"
+        "You have direct access to specialized in-process CTI processing tools:\n"
+        "1. `extract_entities_with_securebert`: In-process neural Named Entity Recognition (SecureBERT) "
+        "for semantic extraction of threat actor groups, malware families, hacking tools, and affected products.\n"
+        "2. `extract_and_validate_iocs`: High-speed deterministic extraction and grammatical validation for "
+        "IP addresses, file hashes (MD5, SHA1, SHA256, SHA512), CVE IDs, CWE IDs, and MITRE ATT&CK techniques.\n"
+        "3. `parse_security_document`: Ingests and parses PDF, HTML, Markdown, or plaintext documents, "
+        "normalizing text and extracting all validated indicators.\n"
+        "4. `fetch_and_parse_cisa_advisory`: Directly fetches CISA cybersecurity alerts by slug (e.g. 'aa24-038a') "
+        "or URL, downloading PDF attachments and extracting full telemetry.\n"
+        "5. `normalize_cti_document`: Cleans boilerplate headers, pagination, and rejoins split hashes.\n\n"
         "Always present threat intelligence findings structured by Threat Actors, Malware Families, "
-        "CVE Vulnerabilities, MITRE ATT&CK TTPs, and validated IOC tables."
+        "Hacking Tools, CVE Vulnerabilities, MITRE ATT&CK TTPs, and validated IOC tables."
     )
 
     return Agent(

@@ -147,12 +147,12 @@ async def test_fetch_and_parse_cisa_advisory_mocked():
 def test_fastmcp_server_and_agent_builder():
     """Verifies FastMCP server tool registration and ADK Agent construction."""
     tools = get_cti_nlp_function_tools()
-    assert len(tools) == 4
+    assert len(tools) == 5
 
     agent = create_cti_nlp_agent(name="cti_test_agent")
     assert isinstance(agent, Agent)
     assert agent.name == "cti_test_agent"
-    assert len(agent.tools) == 4
+    assert len(agent.tools) == 5
 
     # Verify FastMCP server definition
     assert mcp_server.name == "cti-nlp-processor"
