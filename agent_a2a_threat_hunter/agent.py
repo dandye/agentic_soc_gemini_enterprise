@@ -32,6 +32,8 @@ from google.adk.tools.mcp_tool.mcp_toolset import McpToolset
 from google.genai.types import Part
 from vertexai.preview import rag
 
+from installation_scripts.code_executor_factory import get_code_executor
+
 
 # Add text/markdown mimetype for .md files
 mimetypes.add_type("text/markdown", ".md")
@@ -862,7 +864,9 @@ async def save_report_artifact(filename: str, report_content: str, ctx: Context)
 def get_secret(secret_name: str, project_id: str | None) -> str:
     """Retrieve a secret from Google Cloud Secret Manager with local env fallback."""
     val = os.environ.get(secret_name, "")
-    if not project_id:
+    if val:
+        return val
+    if not project_id or os.environ.get("GCP_VERTEXAI_ENABLED") == "False":
         return val
 
     try:
@@ -870,7 +874,7 @@ def get_secret(secret_name: str, project_id: str | None) -> str:
 
         client = secretmanager.SecretManagerServiceClient()
         name = f"projects/{project_id}/secrets/{secret_name}/versions/latest"
-        response = client.access_secret_version(name=name)
+        response = client.access_secret_version(name=name, timeout=3.0)
         secret_val = response.payload.data.decode("UTF-8").strip()
         if secret_val:
             logger.info(
@@ -1111,9 +1115,11 @@ def create_agent():
     tools.append(save_report_artifact)
 
     # ========================================================================
-    # Create the Agent with all configured tools
+    # Create the Agent with all configured tools and Code Execution Sandbox
     # ========================================================================
-    logger.info(f"Creating Threat Hunter Agent with {len(tools)} tools...")
+    logger.info(f"Creating Threat Hunter Agent with {len(tools)} tools and Code Execution Sandbox...")
+
+    code_executor = get_code_executor("auto")
 
     agent = Agent(
         model=THREAT_HUNTER_MODEL,
@@ -1125,8 +1131,16 @@ ROLE & FOCUS:
 - You formulate and validate hunting hypotheses based on threat intelligence and attacker TTPs.
 - You proactively search SIEM/Chronicle logs, GTI, and cloud security telemetry to find indicators of compromise (IOCs) or suspicious behaviors.
 - You query the Neo4j graph database to trace lateral movement, pivoting paths, and map threat relationships.
+- You leverage your Python Code Execution Sandbox to analyze high-volume telemetry, calculate Shannon entropy for DGA detection, and compute beaconing jitter statistics.
 - You analyze telemetry and document your findings, providing clear logs, UDM queries, and actor profiles.
 - When an active threat is confirmed, document your findings and clearly outline containment recommendations for the Tier 2 Incident Responder.
+
+CODE EXECUTION & PYTHON SANDBOX ANALYTICS:
+You have access to a secure, isolated Python Code Execution Sandbox. You can write and execute Python code enclosed in ```python code blocks to perform deep computational and data analytics:
+1. **High-Volume Telemetry Processing:** Aggregate large arrays of Chronicle UDM logs or JSON telemetry using `pandas` and `numpy` to summarize findings without bloating conversational context.
+2. **Shannon Entropy (DGA & Tunneling Detection):** Calculate Shannon entropy $H(X) = -\\sum P(x) \\log_2 P(x)$ on observed domain queries, suspicious filenames, or payload strings to flag high-entropy Domain Generation Algorithms (DGA) or covert exfiltration channels ($H(X) > 3.8$).
+3. **C2 Beaconing & Periodic Jitter Analysis:** Calculate timestamp delta intervals ($\\Delta t = t_i - t_{i-1}$), mean interval, standard deviation, and coefficient of variation ($CV = \\sigma / \\mu$) across network connection events. A low $CV < 0.15$ confirms automated periodic C2 beaconing.
+4. **Timeline & Process Tree Analysis:** Correlate parent-child process relationships (`cmd.exe` -> `powershell.exe` -> `rundll32.exe`) and generate chronologically ordered attack timelines.
 
 WORKFLOW APPROACH:
 1. **Hypothesis Formulation:** Retrieve relevant runbooks (e.g., `apt_threat_hunt.md`, `proactive_threat_hunting_based_on_gti_campaign_or_actor.md`, `ioc_threat_hunt.md`) using `retrieve_agentic_soc_runbooks`.
@@ -1176,6 +1190,7 @@ When reporting results, ALWAYS include:
 
 Remember: Proactive hunting requires deep analytical thinking, persistence, and thorough documentation. Never assume telemetry is clean without verifying it.""",
         tools=tools,
+        code_executor=code_executor,
         before_model_callback=prevent_runaway_loop_callback,
         before_tool_callback=before_tool_cache,
         after_tool_callback=after_tool_cache,
