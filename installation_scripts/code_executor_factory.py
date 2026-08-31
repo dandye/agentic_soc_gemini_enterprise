@@ -180,3 +180,237 @@ def calculate_beaconing_jitter(timestamps: List[str]) -> Dict[str, Any]:
             else f"VARIABLE HUMAN / BURSTY TRAFFIC (Mean ~{mean_interval:.1f}s, CV={coefficient_of_variation:.3f})"
         ),
     }
+
+
+def extract_payload_strings(data: bytes | str, min_length: int = 4) -> List[str]:
+    """Extracts printable ASCII and UTF-16LE strings from raw binary payload data.
+
+    Args:
+        data: Raw bytes or string buffer to extract strings from.
+        min_length: Minimum length of continuous printable characters.
+
+    Returns:
+        List of extracted string tokens.
+    """
+    import re
+
+    if isinstance(data, str):
+        data = data.encode("utf-8")
+
+    extracted: List[str] = []
+
+    # 1. ASCII strings
+    ascii_pattern = re.compile(rb"[\x20-\x7e]{" + str(min_length).encode() + rb",}")
+    for m in ascii_pattern.finditer(data):
+        extracted.append(m.group(0).decode("ascii", errors="ignore"))
+
+    # 2. UTF-16LE strings (common in Windows PE binaries, PowerShell scripts, registry blobs)
+    utf16_pattern = re.compile(
+        rb"(?:[\x20-\x7e]\x00){" + str(min_length).encode() + rb",}"
+    )
+    for m in utf16_pattern.finditer(data):
+        try:
+            decoded = m.group(0).decode("utf-16le", errors="ignore")
+            if decoded and decoded not in extracted:
+                extracted.append(decoded)
+        except Exception:
+            pass
+
+    return extracted
+
+
+def deobfuscate_xor_strings(
+    payload: bytes | str, key_range: range | list | None = None
+) -> List[Dict[str, Any]]:
+    """Brute-forces single-byte XOR obfuscation to recover hidden URLs, IPs, commands, and strings (FLOSS pattern).
+
+    Args:
+        payload: Obfuscated binary payload or hex string.
+        key_range: Optional key candidates to evaluate (defaults to 1..255).
+
+    Returns:
+        Sorted list of candidate decrypted outputs ranked by confidence score.
+    """
+    import binascii
+    import re
+
+    if isinstance(payload, str):
+        try:
+            payload_bytes = binascii.unhexlify(
+                payload.replace(" ", "").replace("0x", "")
+            )
+        except Exception:
+            payload_bytes = payload.encode("latin1")
+    else:
+        payload_bytes = payload
+
+    if key_range is None:
+        key_range = range(1, 256)
+
+    candidates = []
+    high_value_keywords = [
+        "http://",
+        "https://",
+        ".exe",
+        ".dll",
+        "powershell",
+        "cmd.exe",
+        "rundll32",
+        "reg.exe",
+        "whoami",
+        "beacon",
+        "user-agent",
+        ".com",
+        ".net",
+        ".org",
+        ".io",
+    ]
+
+    for key in key_range:
+        decoded_bytes = bytes([b ^ key for b in payload_bytes])
+        strings = extract_payload_strings(decoded_bytes, min_length=4)
+
+        if not strings:
+            continue
+
+        score = 0
+        matched_indicators = []
+        for s in strings:
+            s_lower = s.lower()
+            for kw in high_value_keywords:
+                if kw in s_lower:
+                    score += 25
+                    matched_indicators.append(s)
+            if re.search(r"\b(?:\d{1,3}\.){3}\d{1,3}\b", s):
+                score += 30
+                matched_indicators.append(s)
+            if re.search(r"https?://[a-zA-Z0-9.-]+", s):
+                score += 40
+                matched_indicators.append(s)
+
+        printable_ratio = (
+            sum(32 <= b <= 126 for b in decoded_bytes) / len(decoded_bytes)
+            if decoded_bytes
+            else 0
+        )
+        if printable_ratio > 0.6:
+            score += int(printable_ratio * 20)
+
+        if score > 0 or strings:
+            candidates.append({
+                "key": key,
+                "key_hex": f"0x{key:02X}",
+                "confidence_score": score,
+                "printable_ratio": round(printable_ratio, 3),
+                "matched_indicators": list(set(matched_indicators)),
+                "decoded_strings": strings,
+            })
+
+    candidates.sort(
+        key=lambda x: (x["confidence_score"], x["printable_ratio"]), reverse=True
+    )
+    return candidates
+
+
+def validate_and_test_yara_rule(
+    rule_text: str, target_data: bytes | str
+) -> Dict[str, Any]:
+    """Compiles and tests a YARA rule against payload data inside the sandbox (YARA pattern).
+
+    Args:
+        rule_text: Text of the YARA rule definition.
+        target_data: Target binary bytes or string to test matching against.
+
+    Returns:
+        Dictionary with compilation status ('valid': True/False), syntax errors, and match results.
+    """
+    import re
+
+    if isinstance(target_data, str):
+        target_bytes = target_data.encode("utf-8", errors="ignore")
+    else:
+        target_bytes = target_data
+
+    # 1. Try native yara compilation if yara-python is installed
+    try:
+        import yara
+
+        try:
+            compiled_rules = yara.compile(source=rule_text)
+            matches = compiled_rules.match(data=target_bytes)
+            matched_names = [m.rule for m in matches]
+            return {
+                "valid": True,
+                "compiler": "native_yara",
+                "matches": len(matches) > 0,
+                "matched_rules": matched_names,
+                "match_count": len(matches),
+            }
+        except yara.SyntaxError as syn_err:
+            return {
+                "valid": False,
+                "compiler": "native_yara",
+                "matches": False,
+                "error": str(syn_err),
+            }
+    except ImportError:
+        pass
+
+    # 2. Resilient built-in YARA rule validator & evaluator fallback
+    rule_match = re.search(r"rule\s+([A-Za-z0-9_]+)", rule_text)
+    if not rule_match:
+        return {
+            "valid": False,
+            "compiler": "builtin_yara_parser",
+            "matches": False,
+            "error": "Syntax error: Missing or invalid 'rule <RuleName>' identifier",
+        }
+
+    rule_name = rule_match.group(1)
+
+    if "condition:" not in rule_text:
+        return {
+            "valid": False,
+            "compiler": "builtin_yara_parser",
+            "matches": False,
+            "error": "Syntax error: Missing 'condition:' section in YARA rule",
+        }
+
+    string_definitions = {}
+    strings_section_match = re.search(
+        r"strings:(.*?)(?:condition:|$)", rule_text, re.DOTALL
+    )
+    if strings_section_match:
+        raw_strings = strings_section_match.group(1)
+        for line in raw_strings.splitlines():
+            line = line.strip()
+            if not line or line.startswith("//"):
+                continue
+            str_def_match = re.match(r"(\$[A-Za-z0-9_]+)\s*=\s*\"([^\"]+)\"", line)
+            if str_def_match:
+                var_name, str_val = str_def_match.groups()
+                string_definitions[var_name] = str_val.encode("utf-8")
+            elif "=" in line and not line.endswith("}"):
+                return {
+                    "valid": False,
+                    "compiler": "builtin_yara_parser",
+                    "matches": False,
+                    "error": f"Syntax error in string definition line: '{line}'",
+                }
+
+    matched_strings = []
+    for var_name, str_bytes in string_definitions.items():
+        if str_bytes in target_bytes:
+            matched_strings.append(var_name)
+
+    matches = len(matched_strings) > 0 if string_definitions else True
+
+    return {
+        "valid": True,
+        "compiler": "builtin_yara_parser",
+        "matches": matches,
+        "matched_rules": [rule_name] if matches else [],
+        "matched_strings": matched_strings,
+        "match_count": 1 if matches else 0,
+    }
+

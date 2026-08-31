@@ -23,6 +23,9 @@ from installation_scripts.code_executor_factory import (
     get_code_executor,
     calculate_shannon_entropy,
     calculate_beaconing_jitter,
+    extract_payload_strings,
+    deobfuscate_xor_strings,
+    validate_and_test_yara_rule,
 )
 
 
@@ -96,3 +99,46 @@ class TestSecurityAnalyticsMath:
         assert stats["is_periodic"] is True
         assert stats["mean_interval_seconds"] == pytest.approx(60.5, abs=1.0)
         assert stats["coefficient_of_variation"] < 0.1
+
+    def test_extract_payload_strings(self):
+        # Buffer with interspersed binary bytes and ASCII/UTF16 strings
+        raw_buffer = b"\x00\x01\x02evil_binary.exe\x00\xff\xfeh\x00t\x00t\x00p\x00:\x00/\x00/\x00c\x002\x00\x00\x00"
+        extracted = extract_payload_strings(raw_buffer, min_length=4)
+        assert "evil_binary.exe" in extracted
+        assert "http://c2" in extracted
+
+    def test_deobfuscate_xor_strings(self):
+        secret_url = b"https://apt29-c2.evil-domain.com/beacon"
+        xor_key = 0x5A
+        obfuscated_bytes = bytes([b ^ xor_key for b in secret_url])
+
+        results = deobfuscate_xor_strings(obfuscated_bytes)
+        assert len(results) > 0
+        best_candidate = results[0]
+        assert best_candidate["key"] == 0x5A
+        assert "https://apt29-c2.evil-domain.com/beacon" in best_candidate["decoded_strings"]
+
+    def test_validate_and_test_yara_rule_success(self):
+        rule_text = """
+        rule APT29_Beacon_Indicator {
+            meta:
+                author = "Threat Hunter Specialist"
+                description = "Detects APT29 beacon string"
+            strings:
+                $beacon = "apt29-c2.evil-domain.com"
+            condition:
+                $beacon
+        }
+        """
+        target_payload = b"\x90\x90Payload header with https://apt29-c2.evil-domain.com/beacon active\x00"
+        verification = validate_and_test_yara_rule(rule_text, target_payload)
+        assert verification["valid"] is True
+        assert verification["matches"] is True
+        assert "APT29_Beacon_Indicator" in verification["matched_rules"]
+
+    def test_validate_and_test_yara_rule_syntax_error(self):
+        broken_rule = "rule Broken_Rule { strings: $a = 123 condition: non_existent_token }"
+        verification = validate_and_test_yara_rule(broken_rule, b"test")
+        assert verification["valid"] is False
+        assert "error" in verification
+
