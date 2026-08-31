@@ -13,7 +13,7 @@ FORBIDDEN_CYPHER_KEYWORDS = [
     "MERGE",
     "DROP",
     "DETACH",
-    "CALL apoc.periodic",
+    "CALL APOC.PERIODIC",
 ]
 
 
@@ -22,7 +22,9 @@ def sanitize_cypher_query(query: str) -> str:
     clean_query = query.strip()
     upper_query = clean_query.upper()
     for kw in FORBIDDEN_CYPHER_KEYWORDS:
-        if re.search(r"\b" + re.escape(kw) + r"\b", upper_query):
+        kw_upper = kw.upper()
+        pattern = r"\b" + r"\s+".join(re.escape(part) for part in kw_upper.split()) + r"\b"
+        if re.search(pattern, upper_query):
             raise ValueError(f"Destructive Cypher commands are not permitted: {kw}")
     return clean_query
 

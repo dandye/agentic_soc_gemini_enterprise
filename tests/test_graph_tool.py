@@ -24,6 +24,18 @@ def test_sanitize_cypher_query_blocks_destructive_keywords():
             sanitize_cypher_query(q)
 
 
+def test_sanitize_cypher_query_blocks_apoc_periodic():
+    apoc_queries = [
+        "CALL apoc.periodic.iterate('MATCH (n) RETURN n', 'RETURN n', {batchSize:100})",
+        "call apoc.periodic.commit('MATCH (n) RETURN n', {})",
+        "CALL APOC.PERIODIC.iterate('RETURN 1', 'RETURN 2', {})",
+        "call   apoc.periodic.rock_on('RETURN 1')",
+    ]
+    for q in apoc_queries:
+        with pytest.raises(ValueError, match="Destructive Cypher commands are not permitted: CALL APOC.PERIODIC"):
+            sanitize_cypher_query(q)
+
+
 def test_sanitize_cypher_query_allows_read_only():
     valid_queries = [
         "MATCH (u:User {name: 'frank'}) RETURN u LIMIT 10",
