@@ -1037,6 +1037,19 @@ def create_agent():
     tools.append(save_report_artifact)
 
     # ========================================================================
+    # Configure CTI NLP & In-Process SecureBERT Tools
+    # ========================================================================
+    logger.info("Configuring CTI NLP & in-process SecureBERT tools...")
+    try:
+        from agent_soc_manager.tools.cti_nlp_tools import get_cti_nlp_function_tools
+
+        cti_nlp_tools = get_cti_nlp_function_tools()
+        tools.extend(cti_nlp_tools)
+        logger.info("Added %d CTI NLP function tools (including in-process SecureBERT).", len(cti_nlp_tools))
+    except Exception as nlp_err:
+        logger.warning("Could not load CTI NLP tools: %s", nlp_err)
+
+    # ========================================================================
     # Create the Agent with all configured tools
     # ========================================================================
     logger.info(f"Creating CTI Researcher Agent with {len(tools)} tools...")

@@ -30,8 +30,17 @@ from google.cloud.aiplatform_v1beta1 import (
 from vertexai import agent_engines
 from vertexai.preview.reasoning_engines import AdkApp
 
+
+# Ensure repository root is in sys.path
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+import importlib  # noqa: E402
+import shutil  # noqa: E402
+
 # Added AgentSpaceManager for synchronized UI purges
-from installation_scripts.manage_gem_ent import AgentSpaceManager
+from installation_scripts.manage_gem_ent import AgentSpaceManager  # noqa: E402
 
 
 # Import Discovery Engine client for Agent Builder assistants
@@ -43,15 +52,8 @@ except ImportError:
         "Discovery Engine client library not available. Install with: pip install google-cloud-discoveryengine"
     )
 
-
-# Import SOC Agent package
-sys.path.insert(0, str(Path(__file__).parent.parent))
-# Additional imports for deployment
-import importlib
-import shutil
-
 # Import validation utilities
-from installation_scripts.env_validation import (
+from installation_scripts.env_validation import (  # noqa: E402
     format_validation_errors,
     validate_env_vars,
     validate_file_path_exists,
@@ -94,6 +96,22 @@ def agent_display_name(agent_module: str) -> str:
     )
 
 
+# Disable mTLS client cert probing to prevent non-zero return code crashes on Cloudtop
+try:
+    import google.auth.transport._mtls_helper as _mtls_helper
+
+    _mtls_helper.has_client_certificate = lambda: False
+    _mtls_helper.get_client_cert_and_key = lambda: (False, None, None)
+    _mtls_helper.get_client_ssl_credentials = lambda *args, **kwargs: (
+        False,
+        None,
+        None,
+        None,
+    )
+except Exception:  # noqa: S110
+    pass
+
+
 class AgentEngineManager:
     """Manages Agent Engine operations in Gemini Enterprise Agent Platform."""
 
@@ -117,6 +135,17 @@ class AgentEngineManager:
         env_vars = dict(os.environ)
         return env_vars
 
+    def _get_credentials(self):
+        """Resolve Google Cloud Credentials from GOOGLE_APPLICATION_CREDENTIALS if set."""
+        sa_path = self.env_vars.get("GOOGLE_APPLICATION_CREDENTIALS") or os.environ.get(
+            "GOOGLE_APPLICATION_CREDENTIALS"
+        )
+        if sa_path and Path(sa_path).exists():
+            from google.oauth2 import service_account
+
+            return service_account.Credentials.from_service_account_file(sa_path)
+        return None
+
     def get_module_location(self, agent_module: str) -> str:
         """Resolve the regional location for a specific agent module from configuration."""
         env_var_name = f"{agent_module.upper()}_LOCATION"
@@ -136,8 +165,13 @@ class AgentEngineManager:
             raise typer.Exit(code=1)
 
         try:
-            vertexai.init(project=self.project, location=self.location)
-            aiplatform.init(project=self.project, location=self.location)
+            creds = self._get_credentials()
+            vertexai.init(
+                project=self.project, location=self.location, credentials=creds
+            )
+            aiplatform.init(
+                project=self.project, location=self.location, credentials=creds
+            )
             typer.secho(
                 f"Initialized Gemini Enterprise Agent Platform - Project: {self.project}, Location: {self.location}",
                 fg=typer.colors.GREEN,
@@ -724,9 +758,17 @@ class AgentEngineManager:
                 GCP_STAGING_BUCKET = f"gs://{GCP_STAGING_BUCKET}"
                 typer.echo(f"Note: prefixed staging bucket -> {GCP_STAGING_BUCKET}")
 
+            creds = self._get_credentials()
             vertexai.init(
                 project=GCP_PROJECT_ID,
                 location=GCP_LOCATION,
+                credentials=creds,
+                staging_bucket=GCP_STAGING_BUCKET,
+            )
+            aiplatform.init(
+                project=GCP_PROJECT_ID,
+                location=GCP_LOCATION,
+                credentials=creds,
                 staging_bucket=GCP_STAGING_BUCKET,
             )
 
@@ -996,32 +1038,25 @@ class AgentEngineManager:
                 "external/mcp-security/server/secops-soar",
                 "external/mcp-security/server/gti",
                 "external/mcp-security/server/scc",
+                "external/nlp_capstone",
             ]
             if not use_secret_manager:
                 extra_packages.append(sa_filename)
 
             # Resolve the service account email to bind to the Reasoning Engine
-            sa_email = None
-            if CHRONICLE_SERVICE_ACCOUNT_PATH:
-                try:
-                    with open(CHRONICLE_SERVICE_ACCOUNT_PATH) as f:
-                        import json
-
-                        sa_data = json.load(f)
-                    sa_email = sa_data.get("client_email")
-                except Exception:  # noqa: S110
-                    pass
-            if not sa_email:
-                sa_email = f"vertex-express@{GCP_PROJECT_ID}.iam.gserviceaccount.com"
-
-            typer.echo(
-                f"Binding Reasoning Engine to service account identity: {sa_email}"
-            )
+            sa_email = os.environ.get("REASONING_ENGINE_SERVICE_ACCOUNT")
+            if sa_email:
+                typer.echo(
+                    f"Binding Reasoning Engine to service account identity: {sa_email}"
+                )
+            else:
+                typer.echo(
+                    "Using project default Vertex AI Agent Engine service agent identity."
+                )
 
             deploy_kwargs = {
                 "display_name": display_name,
                 "description": description,
-                "service_account": sa_email,
                 "requirements": [
                     "cloudpickle",
                     "google-adk~=2.2.0",
@@ -1032,6 +1067,11 @@ class AgentEngineManager:
                     "python-dotenv",
                     "httpx>=0.28.1",
                     "mcp[cli]>=1.4.1,<1.27.0",
+                    "fastmcp",
+                    "torch",
+                    "transformers",
+                    "pypdf",
+                    "beautifulsoup4",
                     "secops>=0.18.0",
                     "google-auth>=2.38.0",
                     "google-auth-httplib2>=0.2.0",

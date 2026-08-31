@@ -26,14 +26,15 @@ def mock_env():
             "CHRONICLE_CHATOPS_SECRET": "test-secret-12345678901234567890123456789012",
             "GCP_PROJECT_ID": "test-project",
             "GCP_LOCATION": "us-central1",
+            "CHATOPS_ENABLED": "true",
         },
     ):
         yield
 
 
-@patch("webhook_handler.ReasoningEngine")
+@patch("vertexai.agent_engines.get")
 @patch("webhook_handler.vertexai.init")
-def test_webhook_integration(mock_vertex_init, mock_reasoning_engine, mock_env):
+def test_webhook_integration(mock_vertex_init, mock_agent_engines_get, mock_env):
     """
     Simulates a full button click workflow:
     1. Generate a signed token as if created by a card.
@@ -42,13 +43,19 @@ def test_webhook_integration(mock_vertex_init, mock_reasoning_engine, mock_env):
     """
     # Setup mock
     mock_agent_instance = MagicMock()
-    mock_reasoning_engine.return_value = mock_agent_instance
+
+    async def mock_async_stream(*args, **kwargs):
+        yield "event_1"
+
+    mock_agent_instance.async_stream_query.side_effect = mock_async_stream
+    mock_agent_engines_get.return_value = mock_agent_instance
 
     # 1. Create a valid payload
     payload = {
         "action": "Ban Malicious IP",
         "session_id": "test-session-789",
         "agent_engine_id": "projects/test/locations/us/reasoningEngines/123",
+        "user_id": "test-user-123",
     }
     token = generate_signed_payload(payload)
 
@@ -61,10 +68,11 @@ def test_webhook_integration(mock_vertex_init, mock_reasoning_engine, mock_env):
     assert "Ban Malicious IP" in response.text
 
     # Verify Agent Engine was called correctly
-    mock_reasoning_engine.assert_called_with(payload["agent_engine_id"])
-    mock_agent_instance.query.assert_called_once_with(
+    mock_agent_engines_get.assert_called_with(payload["agent_engine_id"])
+    mock_agent_instance.async_stream_query.assert_called_once_with(
+        user_id="test-user-123",
         session_id=payload["session_id"],
-        input=build_session_message(payload["action"])[1],
+        message=build_session_message(payload["action"])[1],
     )
 
 

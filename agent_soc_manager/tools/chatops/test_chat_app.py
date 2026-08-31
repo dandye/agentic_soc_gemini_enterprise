@@ -36,14 +36,17 @@ for _name, _path in (
         _mod.__path__ = [str(_path)]
         sys.modules[_name] = _mod
 
-if "google.adk.agents.context" not in sys.modules:
-    _adk = types.ModuleType("google.adk")
-    _adk_agents = types.ModuleType("google.adk.agents")
-    _adk_context = types.ModuleType("google.adk.agents.context")
-    _adk_context.Context = object
-    sys.modules.setdefault("google.adk", _adk)
-    sys.modules.setdefault("google.adk.agents", _adk_agents)
-    sys.modules.setdefault("google.adk.agents.context", _adk_context)
+try:
+    from google.adk.agents.context import Context  # noqa: F401
+except ImportError:
+    if "google.adk.agents.context" not in sys.modules:
+        _adk = types.ModuleType("google.adk")
+        _adk_agents = types.ModuleType("google.adk.agents")
+        _adk_context = types.ModuleType("google.adk.agents.context")
+        _adk_context.Context = object
+        sys.modules.setdefault("google.adk", _adk)
+        sys.modules.setdefault("google.adk.agents", _adk_agents)
+        sys.modules.setdefault("google.adk.agents.context", _adk_context)
 
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
