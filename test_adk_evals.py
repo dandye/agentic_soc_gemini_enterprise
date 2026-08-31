@@ -78,35 +78,71 @@ async def run_programmatic_eval_async(
         return {"status": "FAILED_THRESHOLDS", "error": str(e)}
 
 
+AGENT_PRESETS = {
+    "triage": {
+        "agent_module": "test_agents.soc_triage_agent",
+        "evalset": Path("test_agents/soc_triage_agent/soc_triage_evalset.json"),
+        "config": Path("test_agents/soc_triage_agent/eval_config.json"),
+    },
+    "knowledge": {
+        "agent_module": "test_agents.soc_knowledge_agent",
+        "evalset": Path("evalsets/soc_knowledge_evalset.json"),
+        "config": Path("test_agents/soc_knowledge_agent/eval_config.json"),
+    },
+}
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Test Google ADK Native Evaluation Framework"
     )
     parser.add_argument(
+        "--agent",
+        type=str,
+        choices=["triage", "knowledge"],
+        default=None,
+        help="Convenience preset to select preconfigured agent suite (triage, knowledge)",
+    )
+    parser.add_argument(
         "--agent-module",
         type=str,
-        default="test_agents.soc_triage_agent",
-        help="Import path of agent module (e.g. test_agents.soc_triage_agent)",
+        default=None,
+        help="Import path of agent module (e.g. test_agents.soc_triage_agent, test_agents.soc_knowledge_agent)",
     )
     parser.add_argument(
         "--evalset",
         type=Path,
-        default=Path("test_agents/soc_triage_agent/soc_triage_evalset.json"),
+        default=None,
         help="Path to EvalSet JSON file",
     )
     parser.add_argument(
         "--config",
         type=Path,
-        default=Path("test_agents/soc_triage_agent/eval_config.json"),
+        default=None,
         help="Path to EvalConfig JSON file",
     )
     args = parser.parse_args()
 
+    # Determine preset or defaults
+    if args.agent:
+        preset = AGENT_PRESETS[args.agent]
+        agent_module = args.agent_module or preset["agent_module"]
+        evalset = args.evalset or preset["evalset"]
+        config = args.config or preset["config"]
+    elif args.agent_module == "test_agents.soc_knowledge_agent":
+        agent_module = args.agent_module
+        evalset = args.evalset or AGENT_PRESETS["knowledge"]["evalset"]
+        config = args.config or AGENT_PRESETS["knowledge"]["config"]
+    else:
+        agent_module = args.agent_module or AGENT_PRESETS["triage"]["agent_module"]
+        evalset = args.evalset or AGENT_PRESETS["triage"]["evalset"]
+        config = args.config or AGENT_PRESETS["triage"]["config"]
+
     results = asyncio.run(
         run_programmatic_eval_async(
-            agent_module=args.agent_module,
-            eval_set_path=args.evalset.resolve(),
-            config_path=args.config.resolve(),
+            agent_module=agent_module,
+            eval_set_path=evalset.resolve(),
+            config_path=config.resolve(),
         )
     )
 
