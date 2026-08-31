@@ -32,7 +32,7 @@ from google.adk.tools.mcp_tool.mcp_toolset import McpToolset
 from google.genai.types import Part
 from vertexai.preview import rag
 
-from installation_scripts.code_executor_factory import get_code_executor
+from .code_executor_factory import get_code_executor
 
 
 # Add text/markdown mimetype for .md files
@@ -916,8 +916,10 @@ def create_agent():
     """
     Create the standalone Threat Hunter Agent with MCP and log analysis tools.
     """
-    # Load environment variables from .env file
-    load_dotenv(Path(".env"), override=True)
+    # Load environment variables if not already set in environment
+    env_file = os.environ.get("ENV_FILE", ".env")
+    if Path(env_file).exists():
+        load_dotenv(Path(env_file), override=False)
 
     # Model Configuration
     THREAT_HUNTER_MODEL = os.environ.get("THREAT_HUNTER_MODEL", "gemini-2.5-flash")

@@ -646,6 +646,7 @@ class AgentEngineManager:
         try:
             # Load environment variables
             typer.echo("Loading environment configuration...")
+            os.environ["ENV_FILE"] = str(self.env_file)
             load_dotenv(self.env_file, override=True)
 
             # Validate required environment variables
@@ -659,8 +660,9 @@ class AgentEngineManager:
                 "SOAR_URL",
                 "SOAR_APP_KEY",
                 "GTI_API_KEY",
-                "RAG_CORPUS_ID",
             ]
+            if agent_module == "agent_soc_manager":
+                required_vars.append("RAG_CORPUS_ID")
 
             # Check for missing or placeholder values
             is_valid, errors = validate_env_vars(required_vars)
@@ -695,23 +697,20 @@ class AgentEngineManager:
                 )
                 return None
 
-            # Validate RAG_CORPUS_ID format
-            # Pattern validates GCP resource name structure for RAG corpora.
-            # Supports both numeric and alphanumeric corpus IDs with common separators.
-            # This is intentionally permissive to allow for GCP naming flexibility
-            # while catching obvious format errors (missing slashes, wrong order).
+            # Validate RAG_CORPUS_ID format if provided
             rag_corpus_id = os.environ.get("RAG_CORPUS_ID", "")
-            rag_pattern = r"^projects/[^/]+/locations/[^/]+/ragCorpora/[a-zA-Z0-9_-]+$"
-            if not re.match(rag_pattern, rag_corpus_id):
-                typer.secho(
-                    f" Invalid RAG_CORPUS_ID format: {rag_corpus_id}",
-                    fg=typer.colors.RED,
-                )
-                typer.secho(
-                    "  Expected format: projects/PROJECT_ID/locations/LOCATION/ragCorpora/CORPUS_ID",
-                    fg=typer.colors.YELLOW,
-                )
-                return None
+            if rag_corpus_id:
+                rag_pattern = r"^projects/[^/]+/locations/[^/]+/ragCorpora/[a-zA-Z0-9_-]+$"
+                if not re.match(rag_pattern, rag_corpus_id):
+                    typer.secho(
+                        f" Invalid RAG_CORPUS_ID format: {rag_corpus_id}",
+                        fg=typer.colors.RED,
+                    )
+                    typer.secho(
+                        "  Expected format: projects/PROJECT_ID/locations/LOCATION/ragCorpora/CORPUS_ID",
+                        fg=typer.colors.YELLOW,
+                    )
+                    return None
 
             # Initialize Gemini Enterprise Agent Platform
             typer.echo("Initializing Gemini Enterprise Agent Platform...")
