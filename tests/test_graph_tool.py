@@ -4,8 +4,21 @@ from agent_knowledge.tools.graph_tool import (
     query_knowledge_graph,
     sanitize_cypher_query,
     _run_cypher_query,
+    _get_neo4j_driver,
+    close_neo4j_driver,
     FORBIDDEN_CYPHER_KEYWORDS,
 )
+
+
+import asyncio
+
+@pytest.fixture(autouse=True)
+def cleanup_driver():
+    yield
+    try:
+        asyncio.run(close_neo4j_driver())
+    except Exception:
+        pass
 
 
 def test_sanitize_cypher_query_blocks_destructive_keywords():
@@ -44,6 +57,31 @@ def test_sanitize_cypher_query_allows_read_only():
     ]
     for q in valid_queries:
         assert sanitize_cypher_query(q) == q.strip()
+
+
+def test_sanitize_cypher_query_allows_keywords_in_string_literals():
+    """Verify that reserved keywords inside string literals or identifiers are not falsely blocked."""
+    literal_queries = [
+        "MATCH (u:User) WHERE u.status = 'SET' RETURN u",
+        'MATCH (u:User) WHERE u.action = "RESET PASSWORD" RETURN u',
+        "MATCH (h:Host) WHERE h.tag = 'dataset_node' RETURN h",
+        "MATCH (e:Event) WHERE e.message = 'DROP TABLE attempt prevented' RETURN e",
+        "MATCH (u:User) WHERE u.note = 'User created via API' RETURN u",
+    ]
+    for q in literal_queries:
+        assert sanitize_cypher_query(q) == q.strip()
+
+
+def test_sanitize_cypher_query_handles_comments_correctly():
+    """Verify comment stripping allows benign comments while blocking commented mutations."""
+    # Benign comments containing keywords inside comment text
+    commented_read = "MATCH (u:User) // CREATE new read logic\nRETURN u LIMIT 5"
+    assert sanitize_cypher_query(commented_read) == commented_read.strip()
+
+    # Block destructive keyword even if comments exist elsewhere
+    destructive_with_comment = "// Just checking\nMATCH (n) DETACH DELETE n"
+    with pytest.raises(ValueError, match="Destructive Cypher commands are not permitted"):
+        sanitize_cypher_query(destructive_with_comment)
 
 
 @pytest.mark.asyncio
@@ -109,9 +147,10 @@ async def test_query_knowledge_graph_lateral_movement_mock():
             )
             assert "dc-root01" in res
             assert "ADMINISTERS" in res
-            # Check cypher interpolation for max_hops
             call_cypher = mock_run.call_args[0][0]
             assert "*1..3" in call_cypher
+            assert "ActiveDirectory" in call_cypher
+            assert "CrownJewel" in call_cypher
 
 
 @pytest.mark.asyncio
@@ -284,22 +323,18 @@ async def test_query_knowledge_graph_max_hops_clamping():
 
 
 @pytest.mark.asyncio
-async def test_run_cypher_query_driver_execution():
+async def test_run_cypher_query_driver_execution_and_caching():
     mock_driver = MagicMock()
+    mock_driver.close = AsyncMock()
     mock_session = AsyncMock()
     mock_result = AsyncMock()
     mock_result.data = AsyncMock(return_value=[{"col": "val"}])
     mock_session.run = AsyncMock(return_value=mock_result)
 
-    # Context manager setup for driver and session
     mock_session_ctx = AsyncMock()
     mock_session_ctx.__aenter__.return_value = mock_session
     mock_session_ctx.__aexit__.return_value = None
     mock_driver.session.return_value = mock_session_ctx
-
-    mock_driver_ctx = AsyncMock()
-    mock_driver_ctx.__aenter__.return_value = mock_driver
-    mock_driver_ctx.__aexit__.return_value = None
 
     with patch.dict(
         "os.environ",
@@ -309,9 +344,20 @@ async def test_run_cypher_query_driver_execution():
             "NEO4J_PASSWORD": "password",
         },
     ):
-        with patch("neo4j.AsyncGraphDatabase.driver", return_value=mock_driver_ctx):
-            records = await _run_cypher_query("MATCH (n) RETURN n LIMIT 1", {"entity": "test"})
-            assert records == [{"col": "val"}]
+        with patch("neo4j.AsyncGraphDatabase.driver", return_value=mock_driver) as mock_driver_ctor:
+            # First call instantiates driver
+            records_1 = await _run_cypher_query("MATCH (n) RETURN n LIMIT 1", {"entity": "test"})
+            assert records_1 == [{"col": "val"}]
+            assert mock_driver_ctor.call_count == 1
+
+            # Second call reuses cached driver
+            records_2 = await _run_cypher_query("MATCH (n) RETURN n LIMIT 2", {"entity": "test"})
+            assert records_2 == [{"col": "val"}]
+            assert mock_driver_ctor.call_count == 1
+
+            # Explicit close closes driver
+            await close_neo4j_driver()
+            mock_driver.close.assert_awaited_once()
 
 
 @pytest.mark.asyncio

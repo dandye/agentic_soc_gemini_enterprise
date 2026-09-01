@@ -16,11 +16,33 @@ FORBIDDEN_CYPHER_KEYWORDS = [
     "CALL APOC.PERIODIC",
 ]
 
+# Cached driver instance across queries
+_driver_cache: Optional[Any] = None
+_driver_cache_key: Optional[tuple[str, str, str]] = None
+
 
 def sanitize_cypher_query(query: str) -> str:
-    """Ensure Cypher queries are strictly read-only."""
+    """
+    Ensure Cypher queries are strictly read-only by verifying structure.
+
+    Strips comments and string literals prior to keyword inspection so that
+    reserved words inside quotes (e.g. status = 'SET') or comments are not
+    falsely flagged, while active Cypher mutation clauses are strictly blocked.
+    """
     clean_query = query.strip()
-    upper_query = clean_query.upper()
+
+    # 1. Strip multi-line comments /* ... */
+    stripped = re.sub(r"/\*.*?\*/", " ", clean_query, flags=re.DOTALL)
+    # 2. Strip single-line comments // ... and -- ...
+    stripped = re.sub(r"(//|--).*?$", " ", stripped, flags=re.MULTILINE)
+    # 3. Strip single-quoted string literals '...' (with escaped quotes)
+    stripped = re.sub(r"'(\\.|[^\\'])*'", "''", stripped)
+    # 4. Strip double-quoted string literals "..." (with escaped quotes)
+    stripped = re.sub(r'"(\\.|[^\\"])*"', '""', stripped)
+    # 5. Strip backtick-quoted identifiers `...`
+    stripped = re.sub(r"`[^`]*`", "``", stripped)
+
+    upper_query = stripped.upper()
     for kw in FORBIDDEN_CYPHER_KEYWORDS:
         kw_upper = kw.upper()
         pattern = r"\b" + r"\s+".join(re.escape(part) for part in kw_upper.split()) + r"\b"
@@ -29,8 +51,10 @@ def sanitize_cypher_query(query: str) -> str:
     return clean_query
 
 
-async def _run_cypher_query(cypher: str, params: dict[str, Any]) -> list[dict[str, Any]]:
-    """Execute Cypher query against Neo4j instance with timeout."""
+async def _get_neo4j_driver() -> Any:
+    """Retrieve or initialize a cached AsyncGraphDatabase driver instance."""
+    global _driver_cache, _driver_cache_key
+
     uri = os.environ.get("NEO4J_URI")
     user = os.environ.get("NEO4J_USER", "neo4j")
     password = os.environ.get("NEO4J_PASSWORD")
@@ -40,13 +64,44 @@ async def _run_cypher_query(cypher: str, params: dict[str, Any]) -> list[dict[st
             "Neo4j connection not configured (NEO4J_URI or NEO4J_PASSWORD missing)."
         )
 
+    current_key = (uri, user, password)
+    if _driver_cache is not None and _driver_cache_key == current_key:
+        return _driver_cache
+
     from neo4j import AsyncGraphDatabase
 
-    async with AsyncGraphDatabase.driver(uri, auth=(user, password)) as driver:
-        async with driver.session() as session:
-            result = await session.run(cypher, params)
-            records = await result.data()
-            return records
+    # Close previous driver if credentials/URI changed
+    if _driver_cache is not None:
+        try:
+            await _driver_cache.close()
+        except Exception as e:
+            logger.warning(f"Error closing stale Neo4j driver: {e}")
+
+    _driver_cache = AsyncGraphDatabase.driver(uri, auth=(user, password))
+    _driver_cache_key = current_key
+    return _driver_cache
+
+
+async def close_neo4j_driver() -> None:
+    """Explicitly close the cached Neo4j driver connection."""
+    global _driver_cache, _driver_cache_key
+    if _driver_cache is not None:
+        try:
+            await _driver_cache.close()
+        except Exception as e:
+            logger.warning(f"Error closing Neo4j driver: {e}")
+        finally:
+            _driver_cache = None
+            _driver_cache_key = None
+
+
+async def _run_cypher_query(cypher: str, params: dict[str, Any]) -> list[dict[str, Any]]:
+    """Execute Cypher query against Neo4j instance using cached driver with session isolation."""
+    driver = await _get_neo4j_driver()
+    async with driver.session() as session:
+        result = await session.run(cypher, params)
+        records = await result.data()
+        return records
 
 
 async def query_knowledge_graph(
@@ -86,8 +141,13 @@ async def query_knowledge_graph(
         elif query_type == "lateral_movement_path":
             cypher = (
                 f"MATCH p = shortestPath((src)-[*1..{max_hops}]-(dst)) "
-                "WHERE (src.name = $entity OR src.hostname = $entity) AND (dst:DomainController OR dst.tier = 'Tier 0' OR dst.role = 'DC') "
-                "RETURN [n in nodes(p) | coalesce(n.name, n.hostname, n.username)] AS path_nodes, "
+                "WHERE (src.name = $entity OR src.hostname = $entity OR src.ip = $entity) "
+                "AND ("
+                "  dst:DomainController OR dst:ActiveDirectory OR dst.tier = 'Tier 0' OR dst.role = 'DC' "
+                "  OR dst.role =~ '(?i).*(DomainController|DC|Domain-Controller|ActiveDirectory|KMS|Vault|CrownJewel).*' "
+                "  OR dst.is_crown_jewel = true"
+                ") "
+                "RETURN [n in nodes(p) | coalesce(n.name, n.hostname, n.username, n.ip)] AS path_nodes, "
                 "[r in relationships(p) | type(r)] AS rels "
                 "LIMIT 10"
             )
