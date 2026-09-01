@@ -671,44 +671,50 @@ async def generate_memory(
     Triggers memory generation for the current session.
     This saves the conversation to memory at the end of each interaction.
     """
-    ctx = ctx or callback_context
-    if not ctx:
-        logger.warning("No context provided to generate_memory")
-        return
+    from opentelemetry import trace
 
-    # Log usage metadata to Cloud Logging
-    await log_usage_metadata(ctx)
+    tracer = trace.get_tracer("agent_a2a_threat_hunter")
+    with tracer.start_as_current_span("threat_hunter.generate_memory") as span:
+        ctx = ctx or callback_context
+        if not ctx:
+            logger.warning("No context provided to generate_memory")
+            return
 
-    try:
-        # SHARED MEMORY SCOPE OVERRIDE
-        if hasattr(ctx, "_invocation_context") and getattr(
-            ctx._invocation_context, "memory_service", None
-        ):
-            session_events = (
-                ctx._invocation_context.session.events
-                if getattr(ctx._invocation_context, "session", None)
-                else []
-            )
+        # Log usage metadata to Cloud Logging
+        await log_usage_metadata(ctx)
 
-            logger.info(
-                "MEMORY_GENERATION: Triggering Vertex AI Memory Bank generation."
+        try:
+            # SHARED MEMORY SCOPE OVERRIDE
+            if hasattr(ctx, "_invocation_context") and getattr(
+                ctx._invocation_context, "memory_service", None
+            ):
+                session_events = (
+                    ctx._invocation_context.session.events
+                    if getattr(ctx._invocation_context, "session", None)
+                    else []
+                )
+
+                logger.info(
+                    "MEMORY_GENERATION: Triggering Vertex AI Memory Bank generation."
+                )
+                span.set_attribute("memory.event_count", len(session_events))
+                await ctx._invocation_context.memory_service.add_events_to_memory(
+                    app_name=ctx._invocation_context.app_name,
+                    user_id="global_soc_team",
+                    events=session_events,
+                    custom_metadata=memory_bank_config,
+                )
+                logger.info(
+                    "MEMORY_GENERATION: Successfully submitted events to Vertex AI memory service."
+                )
+            else:
+                if hasattr(ctx, "add_session_to_memory"):
+                    await ctx.add_session_to_memory()
+        except Exception as e:
+            logger.error(
+                f"MEMORY_GENERATION_ERROR: Failed to generate memory: {e}", exc_info=True
             )
-            await ctx._invocation_context.memory_service.add_events_to_memory(
-                app_name=ctx._invocation_context.app_name,
-                user_id="global_soc_team",
-                events=session_events,
-                custom_metadata=memory_bank_config,
-            )
-            logger.info(
-                "MEMORY_GENERATION: Successfully submitted events to Vertex AI memory service."
-            )
-        else:
-            if hasattr(ctx, "add_session_to_memory"):
-                await ctx.add_session_to_memory()
-    except Exception as e:
-        logger.error(
-            f"MEMORY_GENERATION_ERROR: Failed to generate memory: {e}", exc_info=True
-        )
+            span.record_exception(e)
 
 
 async def before_tool_cache(tool, args, tool_context: Context, **kwargs):
@@ -787,78 +793,91 @@ async def save_report_artifact(filename: str, report_content: str, ctx: Context)
         filename: A logical filename for the report ending in .md (e.g. 'MALWARETEST-WIN_Containment_Report.md').
         report_content: The complete markdown content of the report you generated.
     """
-    logger.info(f"SAVE_REPORT_ARTIFACT: Attempting to save {filename}")
-    try:
-        report_bytes = report_content.encode("utf-8")
-        mime_type, _ = mimetypes.guess_type(filename)
-        report_artifact = Part.from_bytes(
-            data=report_bytes, mime_type=mime_type or "text/markdown"
-        )
-        version = await ctx.save_artifact(filename=filename, artifact=report_artifact)
-        link_to_provide = f"[{filename}](artifact://{filename})"
+    from opentelemetry import trace
 
+    tracer = trace.get_tracer("agent_a2a_threat_hunter")
+    with tracer.start_as_current_span("threat_hunter.save_report_artifact") as span:
+        span.set_attribute("artifact.filename", filename)
+        span.set_attribute("artifact.length_bytes", len(report_content.encode("utf-8")))
+        logger.info(f"SAVE_REPORT_ARTIFACT: Attempting to save {filename}")
         try:
-            if (
-                hasattr(ctx, "_invocation_context")
-                and ctx._invocation_context.artifact_service
-            ):
-                art_svc = ctx._invocation_context.artifact_service
-                while (
-                    hasattr(art_svc, "_invocation_context")
-                    and hasattr(art_svc._invocation_context, "artifact_service")
-                    and art_svc._invocation_context.artifact_service is not art_svc
-                ):
-                    art_svc = art_svc._invocation_context.artifact_service
-
-                if hasattr(art_svc, "bucket_name"):
-                    bucket = art_svc.bucket_name
-                    root_ctx = (
-                        art_svc._invocation_context
-                        if hasattr(art_svc, "_invocation_context")
-                        else ctx._invocation_context
-                    )
-
-                    app_name = getattr(root_ctx, "app_name", "unknown_app")
-                    user_id = getattr(root_ctx, "user_id", "unknown_user")
-                    session_id = "unknown_session"
-                    if hasattr(root_ctx, "session") and hasattr(root_ctx.session, "id"):
-                        session_id = root_ctx.session.id
-
-                    blob_name = (
-                        f"{app_name}/{user_id}/{session_id}/{filename}/{version}"
-                    )
-
-                    try:
-                        from datetime import timedelta
-
-                        from google.cloud import storage
-
-                        storage_client = storage.Client()
-                        bucket_obj = storage_client.bucket(bucket)
-                        blob_obj = bucket_obj.blob(blob_name)
-
-                        signed_url = blob_obj.generate_signed_url(
-                            version="v4", expiration=timedelta(hours=24), method="GET"
-                        )
-                        link_to_provide = f"[{filename}]({signed_url})"
-                    except Exception as sign_e:
-                        logger.warning(f"Could not generate signed url: {sign_e}")
-                        gcs_url = (
-                            f"https://storage.cloud.google.com/{bucket}/{blob_name}"
-                        )
-                        link_to_provide = f"[{filename}]({gcs_url})"
-        except Exception as link_e:
-            logger.warning(
-                f"Could not construct direct GCS link, falling back to artifact schema: {link_e}"
+            report_bytes = report_content.encode("utf-8")
+            mime_type, _ = mimetypes.guess_type(filename)
+            report_artifact = Part.from_bytes(
+                data=report_bytes, mime_type=mime_type or "text/markdown"
             )
+            version = await ctx.save_artifact(
+                filename=filename, artifact=report_artifact
+            )
+            link_to_provide = f"[{filename}](artifact://{filename})"
 
-        logger.info(
-            f"SAVE_REPORT_ARTIFACT_SUCCESS: Saved {filename} as version {version}"
-        )
-        return f"Successfully saved report '{filename}'. You MUST provide this exact link to the user in your final response: {link_to_provide}"
-    except Exception as e:
-        logger.error(f"SAVE_REPORT_ARTIFACT_ERROR: Failed to save report: {e}")
-        return f"Error saving report: {e}"
+            try:
+                if (
+                    hasattr(ctx, "_invocation_context")
+                    and ctx._invocation_context.artifact_service
+                ):
+                    art_svc = ctx._invocation_context.artifact_service
+                    while (
+                        hasattr(art_svc, "_invocation_context")
+                        and hasattr(art_svc._invocation_context, "artifact_service")
+                        and art_svc._invocation_context.artifact_service is not art_svc
+                    ):
+                        art_svc = art_svc._invocation_context.artifact_service
+
+                    if hasattr(art_svc, "bucket_name"):
+                        bucket = art_svc.bucket_name
+                        root_ctx = (
+                            art_svc._invocation_context
+                            if hasattr(art_svc, "_invocation_context")
+                            else ctx._invocation_context
+                        )
+
+                        app_name = getattr(root_ctx, "app_name", "unknown_app")
+                        user_id = getattr(root_ctx, "user_id", "unknown_user")
+                        session_id = "unknown_session"
+                        if hasattr(root_ctx, "session") and hasattr(
+                            root_ctx.session, "id"
+                        ):
+                            session_id = root_ctx.session.id
+
+                        blob_name = (
+                            f"{app_name}/{user_id}/{session_id}/{filename}/{version}"
+                        )
+
+                        try:
+                            from datetime import timedelta
+
+                            from google.cloud import storage
+
+                            storage_client = storage.Client()
+                            bucket_obj = storage_client.bucket(bucket)
+                            blob_obj = bucket_obj.blob(blob_name)
+
+                            signed_url = blob_obj.generate_signed_url(
+                                version="v4",
+                                expiration=timedelta(hours=24),
+                                method="GET",
+                            )
+                            link_to_provide = f"[{filename}]({signed_url})"
+                        except Exception as sign_e:
+                            logger.warning(f"Could not generate signed url: {sign_e}")
+                            gcs_url = (
+                                f"https://storage.cloud.google.com/{bucket}/{blob_name}"
+                            )
+                            link_to_provide = f"[{filename}]({gcs_url})"
+            except Exception as link_e:
+                logger.warning(
+                    f"Could not construct direct GCS link, falling back to artifact schema: {link_e}"
+                )
+
+            logger.info(
+                f"SAVE_REPORT_ARTIFACT_SUCCESS: Saved {filename} as version {version}"
+            )
+            return f"Successfully saved report '{filename}'. You MUST provide this exact link to the user in your final response: {link_to_provide}"
+        except Exception as e:
+            logger.error(f"SAVE_REPORT_ARTIFACT_ERROR: Failed to save report: {e}")
+            span.record_exception(e)
+            return f"Error saving report: {e}"
 
 
 def get_secret(secret_name: str, project_id: str | None) -> str:
@@ -1079,35 +1098,47 @@ def create_agent():
             cypher_query: The Cypher query string to execute. Example:
               "MATCH (h:Host {name: 'WRK-SHASEK'})<-[:INVOLVES]-(i:Investigation) RETURN i.id, i.verdict"
         """
-        logger.info(f"NEO4J_GRAPH_QUERY: query='{cypher_query}'")
+        from opentelemetry import trace
 
-        rejection = _reject_write_cypher(cypher_query)
-        if rejection:
-            logger.warning(f"NEO4J_GRAPH_QUERY rejected write clause: {cypher_query!r}")
-            return rejection
+        tracer = trace.get_tracer("agent_a2a_threat_hunter")
+        with tracer.start_as_current_span("threat_hunter.query_knowledge_graph") as span:
+            span.set_attribute("db.system", "neo4j")
+            span.set_attribute("db.statement", cypher_query)
+            logger.info(f"NEO4J_GRAPH_QUERY: query='{cypher_query}'")
 
-        uri = os.environ.get("NEO4J_URI", "bolt://localhost:7687")
-        user = os.environ.get("NEO4J_USER", "neo4j")
-        password = get_secret("NEO4J_PASSWORD", GCP_PROJECT_ID)
+            rejection = _reject_write_cypher(cypher_query)
+            if rejection:
+                logger.warning(
+                    f"NEO4J_GRAPH_QUERY rejected write clause: {cypher_query!r}"
+                )
+                span.set_attribute("db.rejected", True)
+                return rejection
 
-        try:
-            from neo4j import GraphDatabase
+            uri = os.environ.get("NEO4J_URI", "bolt://localhost:7687")
+            user = os.environ.get("NEO4J_USER", "neo4j")
+            password = get_secret("NEO4J_PASSWORD", GCP_PROJECT_ID)
 
-            with GraphDatabase.driver(uri, auth=(user, password)) as driver:
-                with driver.session() as session:
+            try:
+                from neo4j import GraphDatabase
 
-                    def _run(tx):
-                        result = tx.run(cypher_query)
-                        return [record.data() for record in result]
+                with GraphDatabase.driver(uri, auth=(user, password)) as driver:
+                    with driver.session() as session:
 
-                    records = session.execute_read(_run)
+                        def _run(tx):
+                            result = tx.run(cypher_query)
+                            return [record.data() for record in result]
 
-            if not records:
-                return "No matching records found in Neo4j."
-            return json.dumps(records, indent=2)
-        except Exception as e:
-            logger.error(f"Neo4j query failed: {e}")
-            return f"Error querying Neo4j: {e}"
+                        records = session.execute_read(_run)
+
+                if not records:
+                    span.set_attribute("db.result_count", 0)
+                    return "No matching records found in Neo4j."
+                span.set_attribute("db.result_count", len(records))
+                return json.dumps(records, indent=2)
+            except Exception as e:
+                logger.error(f"Neo4j query failed: {e}")
+                span.record_exception(e)
+                return f"Error querying Neo4j: {e}"
 
     tools.append(query_knowledge_graph)
 
