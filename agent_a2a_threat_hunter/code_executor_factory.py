@@ -35,8 +35,16 @@ def _agent_engine_sandbox_deepcopy(self: Any, memo: dict) -> Any:
     for k, v in self.__dict__.items():
         object.__setattr__(m, k, copy.deepcopy(v, memo))
     if hasattr(self, "__pydantic_fields_set__"):
-        object.__setattr__(m, "__pydantic_fields_set__", copy.deepcopy(self.__pydantic_fields_set__, memo))
-    object.__setattr__(m, "__pydantic_extra__", None)
+        object.__setattr__(
+            m,
+            "__pydantic_fields_set__",
+            copy.deepcopy(self.__pydantic_fields_set__, memo),
+        )
+    object.__setattr__(
+        m,
+        "__pydantic_extra__",
+        copy.deepcopy(getattr(self, "__pydantic_extra__", None), memo),
+    )
     priv = {}
     for k, v in getattr(self, "__pydantic_private__", {}).items():
         if k == "_agent_engine_creation_lock":
@@ -191,9 +199,15 @@ def calculate_beaconing_jitter(timestamps: List[str]) -> Dict[str, Any]:
 
     n = len(intervals)
     mean_interval = sum(intervals) / n
-    variance = sum((x - mean_interval) ** 2 for x in intervals) / n
+    variance = (
+        sum((x - mean_interval) ** 2 for x in intervals) / (n - 1)
+        if n > 1
+        else 0.0
+    )
     std_dev = math.sqrt(variance)
-    coefficient_of_variation = std_dev / mean_interval if mean_interval > 0 else 0.0
+    coefficient_of_variation = (
+        std_dev / mean_interval if mean_interval > 0 else 0.0
+    )
 
     # Low CV (< 0.15) indicates high regularity / automated periodic beaconing
     is_periodic = coefficient_of_variation < 0.15
@@ -252,13 +266,16 @@ def extract_payload_strings(data: bytes | str, min_length: int = 4) -> List[str]
 
 
 def deobfuscate_xor_strings(
-    payload: bytes | str, key_range: range | list | None = None
+    payload: bytes | str,
+    key_range: range | list | None = None,
+    max_preview_bytes: int = 65536,
 ) -> List[Dict[str, Any]]:
     """Brute-forces single-byte XOR obfuscation to recover hidden URLs, IPs, commands, and strings (FLOSS pattern).
 
     Args:
         payload: Obfuscated binary payload or hex string.
         key_range: Optional key candidates to evaluate (defaults to 1..255).
+        max_preview_bytes: Max initial buffer bytes to scan for scoring to prevent sandbox CPU timeouts on large blobs.
 
     Returns:
         Sorted list of candidate decrypted outputs ranked by confidence score.
@@ -278,6 +295,12 @@ def deobfuscate_xor_strings(
 
     if key_range is None:
         key_range = range(1, 256)
+
+    eval_payload = (
+        payload_bytes[:max_preview_bytes]
+        if len(payload_bytes) > max_preview_bytes
+        else payload_bytes
+    )
 
     candidates = []
     high_value_keywords = [
@@ -299,7 +322,7 @@ def deobfuscate_xor_strings(
     ]
 
     for key in key_range:
-        decoded_bytes = bytes([b ^ key for b in payload_bytes])
+        decoded_bytes = bytes([b ^ key for b in eval_payload])
         strings = extract_payload_strings(decoded_bytes, min_length=4)
 
         if not strings:
@@ -348,6 +371,12 @@ def validate_and_test_yara_rule(
     rule_text: str, target_data: bytes | str
 ) -> Dict[str, Any]:
     """Compiles and tests a YARA rule against payload data inside the sandbox (YARA pattern).
+
+    Note:
+        Uses native `yara-python` compiler when available. If native `yara` is not installed,
+        uses a built-in fallback parser supporting standard string matches ($s = "...")
+        and presence conditions. Advanced regex ($re = /.../) and boolean expressions
+        require the native `yara-python` compiler.
 
     Args:
         rule_text: Text of the YARA rule definition.

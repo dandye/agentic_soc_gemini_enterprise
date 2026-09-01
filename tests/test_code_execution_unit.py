@@ -142,3 +142,17 @@ class TestSecurityAnalyticsMath:
         assert verification["valid"] is False
         assert "error" in verification
 
+    def test_deobfuscate_xor_large_buffer_preview(self):
+        # 100KB buffer with null-terminated payload at the beginning
+        secret_url = b"https://apt29-c2.evil-domain.com/beacon\x00"
+        xor_key = 0x5A
+        obfuscated_prefix = bytes([b ^ xor_key for b in secret_url])
+        # Null-padding in cleartext is 0x5A in raw obfuscated bytes
+        large_payload = obfuscated_prefix + (b"\x5A" * 100_000)
+
+        results = deobfuscate_xor_strings(large_payload, max_preview_bytes=4096)
+        assert len(results) > 0
+        best_candidate = results[0]
+        assert best_candidate["key"] == 0x5A
+        assert "https://apt29-c2.evil-domain.com/beacon" in best_candidate["decoded_strings"]
+
