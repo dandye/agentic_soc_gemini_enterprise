@@ -1,8 +1,6 @@
 """KnowledgeAgent Router orchestrating multi-modal enterprise grounding."""
 
 import logging
-from pathlib import Path
-from typing import Optional
 
 from google.adk.agents import Agent
 from google.adk.tools.skill_toolset import SkillToolset
@@ -11,7 +9,7 @@ from .skills import load_all_domain_skills
 from .sub_agents.rag_agent import create_rag_knowledge_agent
 from .tools.alloydb_tool import query_asset_catalog
 from .tools.graph_tool import query_knowledge_graph
-from .tools.memory_tool import query_investigation_memory
+from .tools.memory_tool import add_investigation_note, query_investigation_memory
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +21,7 @@ You have access to 4 distinct knowledge planes:
 1. **Unstructured RAG (via rag_knowledge_specialist sub-agent)**: Incident Response Playbooks (IRPs), security policies, CTI actor dossiers, and historical post-mortems.
 2. **Operational Graph (via query_knowledge_graph)**: Neo4j relationship topology, user logons, process trees, and lateral movement attack paths.
 3. **Asset & Case Catalog (via query_asset_catalog)**: AlloyDB/Omnia structured asset inventories (Tier 0-2 ratings, owners, IPs) and pgvector semantic case histories.
-4. **Working Memory (via query_investigation_memory)**: Cross-session analyst notes, active hypotheses, and previous containment tags.
+4. **Working Memory (via query_investigation_memory / add_investigation_note)**: Cross-session analyst notes, active hypotheses, and previous containment tags.
 
 When answering a question:
 - Decompose complex inquiries into the appropriate store lookups.
@@ -31,6 +29,7 @@ When answering a question:
 - For asset criticality, owner, or business tier lookups, query AlloyDB using query_asset_catalog.
 - For incident playbooks, threat actor TTPs, or policies, delegate to the rag_knowledge_specialist sub-agent.
 - For past investigation context on an indicator, check investigation memory using query_investigation_memory.
+- When an analyst or orchestrator asks to record an observation, hypothesis, or tag, use add_investigation_note.
 - Synthesize all findings into a structured, cohesive response with actionable conclusions and citations.
 """
 
@@ -68,6 +67,7 @@ def create_knowledge_agent(model: str = "gemini-2.5-flash") -> Agent:
         query_knowledge_graph,
         query_asset_catalog,
         query_investigation_memory,
+        add_investigation_note,
     ] + skill_tools
 
     return Agent(

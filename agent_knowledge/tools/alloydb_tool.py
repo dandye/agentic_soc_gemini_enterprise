@@ -9,7 +9,7 @@ async def _execute_sql_query(sql: str, params: tuple[Any, ...]) -> list[dict[str
     """Execute query against AlloyDB / PostgreSQL instance using AsyncConnection and dict_row."""
     host = os.environ.get("ALLOYDB_HOST")
     port = int(os.environ.get("ALLOYDB_PORT", "5432"))
-    database = os.environ.get("ALLOYDB_DATABASE", "secops")
+    database = os.environ.get("ALLOYDB_DATABASE", "postgres")
     user = os.environ.get("ALLOYDB_USER", "postgres")
     password = os.environ.get("ALLOYDB_PASSWORD")
     sslmode = os.environ.get("ALLOYDB_SSLMODE", "prefer")
@@ -61,46 +61,92 @@ async def query_asset_catalog(
 
     try:
         if search_mode == "exact_asset":
-            sql = (
-                "SELECT hostname, ip_address, mac_address, tier, owner, business_unit, os, is_crown_jewel "
-                "FROM assets "
-                "WHERE LOWER(hostname) = LOWER(%s) OR ip_address = %s OR LOWER(owner) = LOWER(%s) "
-                "LIMIT %s"
-            )
-            records = await _execute_sql_query(sql, (query, query, query, top_k))
+            try:
+                sql = (
+                    "SELECT hostname, ip_address, mac_address, tier, owner, business_unit, os, is_crown_jewel "
+                    "FROM assets "
+                    "WHERE LOWER(hostname) = LOWER(%s) OR ip_address = %s OR LOWER(owner) = LOWER(%s) "
+                    "LIMIT %s"
+                )
+                records = await _execute_sql_query(sql, (query, query, query, top_k))
+            except Exception as table_err:
+                err_str = str(table_err).lower()
+                if "relation \"assets\" does not exist" in err_str or "assets" in err_str:
+                    sql = (
+                        "SELECT de.entity_value AS asset_identifier, de.entity_type, de.context, "
+                        "dr.id AS related_case_id, dr.display_name AS related_case, dr.verdict, dr.confidence "
+                        "FROM detection_entities de "
+                        "LEFT JOIN detection_reports dr ON de.investigation_id = dr.id "
+                        "WHERE LOWER(de.entity_value) LIKE LOWER(%s) "
+                        "LIMIT %s"
+                    )
+                    like_query = f"%{query}%"
+                    records = await _execute_sql_query(sql, (like_query, top_k))
+                else:
+                    raise
         elif search_mode == "semantic_case_history":
-            sql = (
-                "SELECT case_id, title, summary, resolution, affected_assets, created_at "
-                "FROM historical_cases "
-                "WHERE summary ILIKE %s OR title ILIKE %s "
-                "ORDER BY created_at DESC "
-                "LIMIT %s"
-            )
             like_query = f"%{query}%"
-            records = await _execute_sql_query(sql, (like_query, like_query, top_k))
+            try:
+                sql = (
+                    "SELECT case_id, title, summary, resolution, affected_assets, created_at "
+                    "FROM historical_cases "
+                    "WHERE summary ILIKE %s OR title ILIKE %s "
+                    "ORDER BY created_at DESC "
+                    "LIMIT %s"
+                )
+                records = await _execute_sql_query(sql, (like_query, like_query, top_k))
+            except Exception as table_err:
+                err_str = str(table_err).lower()
+                if "relation \"historical_cases\" does not exist" in err_str or "historical_cases" in err_str:
+                    sql = (
+                        "SELECT id AS case_id, display_name AS title, verdict, confidence, "
+                        "LEFT(summary, 500) AS summary, created_at "
+                        "FROM detection_reports "
+                        "WHERE summary ILIKE %s OR display_name ILIKE %s "
+                        "ORDER BY created_at DESC "
+                        "LIMIT %s"
+                    )
+                    records = await _execute_sql_query(sql, (like_query, like_query, top_k))
+                else:
+                    raise
         elif search_mode == "hybrid":
             like_query = f"%{query}%"
-            if asset_tier_filter:
-                sql = (
-                    "SELECT hostname, ip_address, tier, owner, business_unit, os, is_crown_jewel "
-                    "FROM assets "
-                    "WHERE (LOWER(hostname) LIKE LOWER(%s) OR LOWER(owner) LIKE LOWER(%s) OR ip_address LIKE %s) "
-                    "AND tier = %s "
-                    "LIMIT %s"
-                )
-                records = await _execute_sql_query(
-                    sql, (like_query, like_query, like_query, asset_tier_filter, top_k)
-                )
-            else:
-                sql = (
-                    "SELECT hostname, ip_address, tier, owner, business_unit, os, is_crown_jewel "
-                    "FROM assets "
-                    "WHERE (LOWER(hostname) LIKE LOWER(%s) OR LOWER(owner) LIKE LOWER(%s) OR ip_address LIKE %s) "
-                    "LIMIT %s"
-                )
-                records = await _execute_sql_query(
-                    sql, (like_query, like_query, like_query, top_k)
-                )
+            try:
+                if asset_tier_filter:
+                    sql = (
+                        "SELECT hostname, ip_address, tier, owner, business_unit, os, is_crown_jewel "
+                        "FROM assets "
+                        "WHERE (LOWER(hostname) LIKE LOWER(%s) OR LOWER(owner) LIKE LOWER(%s) OR ip_address LIKE %s) "
+                        "AND tier = %s "
+                        "LIMIT %s"
+                    )
+                    records = await _execute_sql_query(
+                        sql, (like_query, like_query, like_query, asset_tier_filter, top_k)
+                    )
+                else:
+                    sql = (
+                        "SELECT hostname, ip_address, tier, owner, business_unit, os, is_crown_jewel "
+                        "FROM assets "
+                        "WHERE (LOWER(hostname) LIKE LOWER(%s) OR LOWER(owner) LIKE LOWER(%s) OR ip_address LIKE %s) "
+                        "LIMIT %s"
+                    )
+                    records = await _execute_sql_query(
+                        sql, (like_query, like_query, like_query, top_k)
+                    )
+            except Exception as table_err:
+                err_str = str(table_err).lower()
+                if "relation \"assets\" does not exist" in err_str or "assets" in err_str:
+                    sql = (
+                        "SELECT id AS case_id, display_name AS title, verdict, confidence, "
+                        "LEFT(summary, 300) AS summary_preview, created_at "
+                        "FROM detection_reports "
+                        "WHERE summary ILIKE %s OR display_name ILIKE %s "
+                        "ORDER BY created_at DESC "
+                        "LIMIT %s"
+                    )
+                    records = await _execute_sql_query(sql, (like_query, like_query, top_k))
+                else:
+                    raise
         else:
             return (
                 f"Unknown search_mode: '{search_mode}'. Supported: "
