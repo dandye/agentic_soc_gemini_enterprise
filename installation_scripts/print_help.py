@@ -65,6 +65,7 @@ GROUPS = {
         "clean",
         "lint",
         "format",
+        "pre-commit",
         "check-env",
         "check-prereqs",
         "check-deploy",
