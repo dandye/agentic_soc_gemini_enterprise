@@ -1,3 +1,4 @@
+import html
 import logging
 import os
 
@@ -36,6 +37,10 @@ async def handle_action(t: str = Query(..., description="Signed action token")):
             "No action was executed.</p></body></html>",
             status_code=503,
         )
+    action = None
+    session_id = None
+    agent_engine_id = None
+    user_id = None
     try:
         # 1. Verify and decode payload
         payload = verify_signed_payload(t)
@@ -100,7 +105,7 @@ async def handle_action(t: str = Query(..., description="Signed action token")):
                 <div class="card">
                     <div class="icon">OK</div>
                     <h1>Action Confirmed</h1>
-                    <p>The action <b>{action}</b> has been successfully processed by the AI Agent.</p>
+                    <p>The action <b>{html.escape(str(action))}</b> has been successfully processed by the AI Agent.</p>
                     <p>You can close this tab and return to Google Chat.</p>
                 </div>
             </body>
@@ -112,10 +117,13 @@ async def handle_action(t: str = Query(..., description="Signed action token")):
         # Debugging information to help identify the 400 error
         # Ensure IDs are strings and strip any quotes if they exist in the value
         agent_engine_id_str = (
-            str(agent_engine_id).strip("\"'") if agent_engine_id else "N/A"
+            html.escape(str(agent_engine_id).strip("\"'")) if agent_engine_id else "N/A"
         )
-        session_id_str = str(session_id).strip("\"'") if session_id else "N/A"
-        user_id_str = str(user_id).strip("\"'") if user_id else "N/A"
+        session_id_str = (
+            html.escape(str(session_id).strip("\"'")) if session_id else "N/A"
+        )
+        user_id_str = html.escape(str(user_id).strip("\"'")) if user_id else "N/A"
+        error_msg = html.escape(str(e))
 
         debug_info = f"""
         <div style="background: #f8f9fa; border: 1px solid #dee2e6; padding: 15px; border-radius: 5px; text-align: left; margin-top: 20px;">
@@ -124,7 +132,7 @@ async def handle_action(t: str = Query(..., description="Signed action token")):
                 <li>Agent ID: "{agent_engine_id_str}"</li>
                 <li>Session ID: "{session_id_str}"</li>
                 <li>User ID: "{user_id_str}"</li>
-                <li>Error: {str(e)}</li>
+                <li>Error: {error_msg}</li>
             </ul>
         </div>
         """
@@ -133,7 +141,7 @@ async def handle_action(t: str = Query(..., description="Signed action token")):
             <html>
                 <body style="font-family: Arial; text-align: center; padding-top: 50px;">
                     <h1 style="color: #d93025;">Action Failed</h1>
-                    <p>There was an error processing your request: {str(e)}</p>
+                    <p>There was an error processing your request: {error_msg}</p>
                     {debug_info}
                     <p>Check the Cloud Run logs for more details.</p>
                 </body>
