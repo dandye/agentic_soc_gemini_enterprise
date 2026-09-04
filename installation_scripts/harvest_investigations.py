@@ -11,6 +11,8 @@ import typer
 from dotenv import load_dotenv
 from google.auth.transport.requests import Request
 from google.oauth2 import service_account
+
+
 try:
     from secops import SecOpsClient
 except ImportError:
