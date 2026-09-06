@@ -1000,27 +1000,34 @@ class AgentEngineManager:
                 extra_packages.append(sa_filename)
 
             # Resolve the service account email to bind to the Reasoning Engine
+            custom_re_sa = os.environ.get("REASONING_ENGINE_SERVICE_ACCOUNT")
             sa_email = None
-            if CHRONICLE_SERVICE_ACCOUNT_PATH:
+            if custom_re_sa:
+                sa_email = custom_re_sa
+            elif CHRONICLE_SERVICE_ACCOUNT_PATH:
                 try:
                     with open(CHRONICLE_SERVICE_ACCOUNT_PATH) as f:
                         import json
 
                         sa_data = json.load(f)
-                    sa_email = sa_data.get("client_email")
+                    client_sa = sa_data.get("client_email", "")
+                    if client_sa.endswith(f"@{GCP_PROJECT_ID}.iam.gserviceaccount.com"):
+                        sa_email = client_sa
                 except Exception:  # noqa: S110
                     pass
-            if not sa_email:
-                sa_email = f"vertex-express@{GCP_PROJECT_ID}.iam.gserviceaccount.com"
 
-            typer.echo(
-                f"Binding Reasoning Engine to service account identity: {sa_email}"
-            )
+            if sa_email:
+                typer.echo(
+                    f"Binding Reasoning Engine to service account identity: {sa_email}"
+                )
+            else:
+                typer.echo(
+                    "Deploying Reasoning Engine with default project service identity"
+                )
 
             deploy_kwargs = {
                 "display_name": display_name,
                 "description": description,
-                "service_account": sa_email,
                 "requirements": [
                     "cloudpickle",
                     "google-adk~=2.2.0",
@@ -1058,6 +1065,8 @@ class AgentEngineManager:
                 "extra_packages": extra_packages,
                 "env_vars": env_vars,
             }
+            if sa_email:
+                deploy_kwargs["service_account"] = sa_email
 
             # Add Memory Bank configuration logging
             if memory_bank_config:
