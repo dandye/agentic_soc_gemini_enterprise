@@ -208,3 +208,43 @@ curl -s --connect-timeout 1 http://169.254.169.254/computeMetadata/v1/ || echo "
         assert clean_audit["is_sandboxed"] is True
         assert "ZERO-TRUST" in clean_audit["verdict"]
 
+    def test_detonate_symlink_containment(self, tmp_path):
+        # Dropper attempts symlink traversal attack to host files
+        symlink_dropper = """#!/bin/bash
+ln -s /etc/passwd ./passwd_link
+echo "ATTACK_SUCCESS" > ./local_payload.bin
+"""
+        report = detonate_and_capture_forensics(
+            symlink_dropper,
+            payload_type="bash",
+            timeout_sec=5,
+            custom_workdir=str(tmp_path),
+        )
+        assert report["execution_success"] is True
+        symlink_artifacts = [a for a in report["dropped_artifacts"] if a.get("artifact_type") == "symlink"]
+        assert len(symlink_artifacts) == 1
+        assert symlink_artifacts[0]["target"] == "/etc/passwd"
+        assert symlink_artifacts[0]["preview"] == "<symlink -> /etc/passwd>"
+        assert symlink_artifacts[0]["sha256"] == "symlink_unresolved"
+
+    def test_detonate_detects_modified_files(self, tmp_path):
+        # Pre-seed a baseline file
+        target_file = tmp_path / "important_data.txt"
+        target_file.write_text("ORIGINAL_CONTENT", encoding="utf-8")
+
+        # Payload modifies existing file
+        ransomware_dropper = """#!/bin/bash
+echo "ENCRYPTED_LOCKED_CONTENT" > important_data.txt
+"""
+        report = detonate_and_capture_forensics(
+            ransomware_dropper,
+            payload_type="bash",
+            timeout_sec=5,
+            custom_workdir=str(tmp_path),
+        )
+        assert report["execution_success"] is True
+        modified_artifacts = [a for a in report["dropped_artifacts"] if a.get("artifact_type") == "modified_file"]
+        assert len(modified_artifacts) == 1
+        assert modified_artifacts[0]["filename"] == "/important_data.txt"
+        assert "ENCRYPTED_LOCKED_CONTENT" in modified_artifacts[0]["preview"]
+

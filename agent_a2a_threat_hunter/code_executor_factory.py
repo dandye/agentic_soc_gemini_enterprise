@@ -321,6 +321,9 @@ def deobfuscate_xor_strings(
         ".io",
     ]
 
+    ipv4_pattern = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
+    url_pattern = re.compile(r"https?://[a-zA-Z0-9.-]+")
+
     for key in key_range:
         decoded_bytes = bytes([b ^ key for b in eval_payload])
         strings = extract_payload_strings(decoded_bytes, min_length=4)
@@ -336,10 +339,10 @@ def deobfuscate_xor_strings(
                 if kw in s_lower:
                     score += 25
                     matched_indicators.append(s)
-            if re.search(r"\b(?:\d{1,3}\.){3}\d{1,3}\b", s):
+            if ipv4_pattern.search(s):
                 score += 30
                 matched_indicators.append(s)
-            if re.search(r"https?://[a-zA-Z0-9.-]+", s):
+            if url_pattern.search(s):
                 score += 40
                 matched_indicators.append(s)
 
@@ -519,10 +522,16 @@ def verify_sandbox_containment(
         with urllib.request.urlopen(req, timeout=1.5):
             metadata_blocked = False
             metadata_reason = "ALERT: Metadata server returned 200 OK (unshielded access)"
+    except urllib.error.HTTPError as http_err:
+        # Received HTTP response (e.g. 401, 403, 404, 500) -> Network socket connection succeeded!
+        metadata_blocked = False
+        metadata_reason = f"ALERT: Metadata endpoint reached (HTTP {http_err.code})"
     except urllib.error.URLError as url_err:
+        # Connection refused, timeout, or network unreachable
         metadata_blocked = True
         metadata_reason = f"Contained: Connection refused or timed out ({url_err.reason})"
     except Exception as ex:
+        # Check if underlying cause is timeout or network refusal
         metadata_blocked = True
         metadata_reason = f"Contained: Access blocked ({ex})"
 
@@ -589,9 +598,15 @@ def detonate_and_capture_forensics(
     Returns:
         Structured forensic report with execution status, dropped artifacts, hashes, and containment notes.
     """
+    if payload_type not in ("bash", "python"):
+        raise ValueError(
+            f"Unsupported payload_type '{payload_type}'. Must be 'bash' or 'python'."
+        )
+
     import hashlib
     import os
     import shutil
+    import signal
     import subprocess
     import sys
     import tempfile
@@ -599,16 +614,28 @@ def detonate_and_capture_forensics(
 
     start_time = time.time()
     workdir = custom_workdir or tempfile.mkdtemp(prefix="detonation_sandbox_")
-    script_path = os.path.join(workdir, "untrusted_payload.sh" if payload_type == "bash" else "untrusted_payload.py")
+    real_workdir = os.path.realpath(workdir)
+    script_path = os.path.join(
+        workdir, "untrusted_payload.sh" if payload_type == "bash" else "untrusted_payload.py"
+    )
 
     with open(script_path, "w", encoding="utf-8") as f:
         f.write(payload)
 
-    # Record baseline state of workdir (excluding the script itself)
-    baseline_files = set()
+    # Record baseline state of workdir (files and their SHA-256 hashes to detect modifications)
+    baseline_hashes = {}
     for root, _, files in os.walk(workdir):
         for fname in files:
-            baseline_files.add(os.path.abspath(os.path.join(root, fname)))
+            full_path = os.path.join(root, fname)
+            if not os.path.islink(full_path) and os.path.isfile(full_path):
+                try:
+                    hasher = hashlib.sha256()
+                    with open(full_path, "rb") as bf:
+                        while chunk := bf.read(4096):
+                            hasher.update(chunk)
+                    baseline_hashes[os.path.abspath(full_path)] = hasher.hexdigest()
+                except Exception:
+                    pass
 
     # Prepare execution command
     if payload_type == "python":
@@ -629,45 +656,86 @@ def detonate_and_capture_forensics(
     stderr_text = ""
     timed_out = False
 
+    # Spawn within a dedicated process group (start_new_session=True) so child processes can be terminated
+    proc = None
     try:
-        proc = subprocess.run(
+        proc = subprocess.Popen(
             exec_cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            timeout=timeout_sec,
             cwd=workdir,
             env=clean_env,
+            start_new_session=True,
         )
+        stdout_text, stderr_text = proc.communicate(timeout=timeout_sec)
         exit_code = proc.returncode
-        stdout_text = proc.stdout
-        stderr_text = proc.stderr
-    except subprocess.TimeoutExpired as e:
+    except subprocess.TimeoutExpired:
         timed_out = True
         exit_code = 124
-        stdout_text = e.stdout or ""
-        stderr_text = f"Detonation timed out after {timeout_sec}s."
+        if proc:
+            try:
+                # Terminate the entire process group to avoid leaking detached child daemons
+                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            except Exception:
+                pass
+            stdout_text, stderr_text = proc.communicate()
+        stderr_text = (stderr_text or "") + f"\nDetonation timed out after {timeout_sec}s."
     except Exception as ex:
         exit_code = 1
         stderr_text = f"Detonation execution error: {ex}"
+        if proc:
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            except Exception:
+                pass
 
     # Differential filesystem analysis (Forensic Artifact Extraction)
+    # Defends against symlink traversal attacks: verifies realpath resides strictly inside workdir
     dropped_artifacts = []
+    abs_script_path = os.path.abspath(script_path)
+
     for root, _, files in os.walk(workdir):
         for fname in files:
-            full_path = os.path.abspath(os.path.join(root, fname))
-            if full_path in baseline_files or full_path == os.path.abspath(script_path):
+            full_path = os.path.join(root, fname)
+            abs_path = os.path.abspath(full_path)
+
+            if abs_path == abs_script_path:
+                continue
+
+            # Check if this is a symlink: prevent reading arbitrary files outside workdir
+            if os.path.islink(full_path):
+                target_link = os.readlink(full_path)
+                dropped_artifacts.append({
+                    "filename": f"/{os.path.relpath(full_path, workdir)}",
+                    "artifact_type": "symlink",
+                    "target": target_link,
+                    "size_bytes": 0,
+                    "sha256": "symlink_unresolved",
+                    "preview": f"<symlink -> {target_link}>",
+                })
+                continue
+
+            real_path = os.path.realpath(full_path)
+            if not real_path.startswith(real_workdir):
+                # Symlink or hardlink escape attempt
                 continue
 
             try:
-                rel_path = os.path.relpath(full_path, workdir)
                 file_size = os.path.getsize(full_path)
-
                 hasher = hashlib.sha256()
                 with open(full_path, "rb") as bf:
                     while chunk := bf.read(4096):
                         hasher.update(chunk)
                 file_sha256 = hasher.hexdigest()
+
+                # If file existed in baseline, only report if contents changed (tampering / encryption)
+                if abs_path in baseline_hashes:
+                    if file_sha256 == baseline_hashes[abs_path]:
+                        continue
+                    artifact_type = "modified_file"
+                else:
+                    artifact_type = "created_file"
 
                 try:
                     with open(full_path, "r", encoding="utf-8", errors="ignore") as tf:
@@ -675,8 +743,10 @@ def detonate_and_capture_forensics(
                 except Exception:
                     preview = "<binary content>"
 
+                rel_path = os.path.relpath(full_path, workdir)
                 dropped_artifacts.append({
                     "filename": f"/{rel_path}",
+                    "artifact_type": artifact_type,
                     "size_bytes": file_size,
                     "sha256": file_sha256,
                     "preview": preview,

