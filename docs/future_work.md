@@ -72,10 +72,59 @@ graph TD
 
 ---
 
-## 4. Related Technical Research
+---
 
-As Google Cloud's metadata and data governance tooling evolves, we must actively research and align our metadata architecture with upcoming platform capabilities:
-* **Dataplex Catalog to Knowledge Catalog transition:**
-  * **Core Concept:** Google Cloud's **Knowledge Catalog** (the AI-powered successor to Dataplex Catalog) acts as an enterprise-grade metadata management platform. It provides a **dynamic knowledge graph** of both structured and unstructured data, delivering deep semantics and business context to AI agents.
-  * **OKF Integration:** Research how our newly adopted **Open Knowledge Format (OKF)** bundles (which standardize human-and-agent-friendly markdown metadata) can be directly ingested, mapped, and queried within the Knowledge Catalog to serve as the unified grounding layer for our multi-agent SOC network.
-  * **Semantic Traversal:** Study how the Knowledge Catalog's dynamic graph model can be correlated with our Neo4j Security Operations Knowledge Graph to enable cross-system entity traversal and threat prevalence mapping.
+## 5. Sandboxed Infosec CLI Tooling (Google & Mandiant Suite)
+
+Running untrusted, weaponized security artifacts directly inside the agent host environment poses severe parser-exploit and breakout risks. In future phases, our **Vertex AI Code Execution Sandbox (gVisor microVMs)** will serve as an isolated detonation and deep-inspection environment equipped with first-party Google and Mandiant infosec CLI tools:
+
+```mermaid
+graph TD
+    Alert[Chronicle SIEM / SOAR / GTI Alert] --> Agent[Threat Hunter / Detection Engineer]
+    Agent -->|Stage Raw Artifacts| Sandbox[Vertex AI gVisor Sandbox Container]
+    
+    subgraph "Mandiant Reverse Engineering"
+        Sandbox --> capa[capa: MITRE ATT&CK Capability Mapping]
+        Sandbox --> floss[FLOSS: Obfuscated & Stack String Extraction]
+        Sandbox --> speakeasy[speakeasy: Windows PE/Syscall Emulation]
+        Sandbox --> gampa[gampa: Stripped Go Malware Analysis]
+    end
+    
+    subgraph "Google Digital Forensics & IR"
+        Sandbox --> plaso[Plaso / log2timeline: Super-Timeline Extraction]
+        Sandbox --> libcloud[cloud-forensics-utils: GCP Disk Forensic Analysis]
+        Sandbox --> timesketch[Timesketch CLI: Timeline Correlation]
+    end
+    
+    subgraph "Google & VirusTotal Threat Hunting"
+        Sandbox --> yara[yara-x / yara-python: Rule Matching & Precision Testing]
+        Sandbox --> vt[vt-cli / vt-py: Threat Graph & Behavioral Tree Querying]
+        Sandbox --> osv[osv-scanner: Supply Chain & SBOM Vulnerability Scan]
+    end
+
+    Sandbox -->|Sanitized JSON Summaries Only| Agent
+    Agent --> IncidentReport[Containment & Remediation Report]
+```
+
+### Tooling Categories & Capabilities:
+1. **Mandiant FLARE Suite (Reverse Engineering & Binary Triage):**
+   - **`capa`:** Automated malware capability detection mapping binary logic directly to MITRE ATT&CK techniques without manual disassembly.
+   - **`FLOSS`:** Automated string solver extracting encrypted, stack-allocated, and XOR-obfuscated strings from malware.
+   - **`speakeasy`:** Portable x86/x64 Windows binary and shellcode emulator executing hostile code in a software CPU engine to log API calls, registry modifications, and network connections.
+   - **`gampa`:** Reconstructing stripped Golang binary symbols, type descriptors, and call graphs.
+2. **Google DFIR (Forensics & Timeline Reconstruction):**
+   - **`Plaso` (`log2timeline`):** Ingests raw disk images, NTFS `$MFT`, Windows EVTX, and syslogs to generate microsecond-accurate super-timelines.
+   - **`cloud-forensics-utils` / `libcloudforensics`:** Automates forensic snapshotting, disk analysis, and memory capture on GCP Compute Engine VMs.
+   - **`Timesketch` CLI:** Programmatically query, correlate, and sketch events across compromised endpoints.
+3. **Google Threat Hunting & Signature Engineering:**
+   - **`yara` / `yara-x`:** Evaluates detection rules against memory dumps, PCAPs, and binaries in an isolated sandbox.
+   - **`vt-cli` / `vt-py`:** Programmatic VirusTotal threat graph queries and sandbox behavioral extraction.
+   - **`osv-scanner`:** Vulnerability scanning of open-source dependencies and container lockfiles.
+4. **Network & Packet Forensics:**
+   - **`zeek` & `scapy`:** Structured protocol logging (`conn.log`, `dns.log`, `http.log`) and programmatic packet manipulation on PCAP dumps.
+
+### Hardened Sandbox Guardrails:
+- **Default-Deny Egress (`network_enabled=False`):** Prevents emulated malware from phoning home to live C2 nodes or probing corporate networks.
+- **Read-Only Input Mounts:** Untrusted disk images, PCAPs, and binaries are mounted read-only.
+- **MicroVM & Kernel Isolation:** gVisor intercepts and isolates all guest Linux syscalls from host kernel memory.
+
