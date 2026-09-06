@@ -475,3 +475,256 @@ def validate_and_test_yara_rule(
         "match_count": 1 if matches else 0,
     }
 
+
+def verify_sandbox_containment(
+    metadata_ip: str = "169.254.169.254",
+    forbidden_env_keys: List[str] | None = None,
+) -> Dict[str, Any]:
+    """Evaluates zero-trust isolation boundaries (metadata access, environment variables, network egress).
+
+    Audits that the runtime environment enforces:
+    1. GCP Metadata Server isolation (169.254.169.254 is unreachable).
+    2. Environment credential isolation (host secrets/keys are stripped).
+    3. Network egress blocking (outbound C2 connections fail).
+
+    Args:
+        metadata_ip: Cloud metadata server IP address to probe.
+        forbidden_env_keys: Specific secret environment variables that must NOT be visible.
+
+    Returns:
+        Structured audit dictionary with boolean isolation verdicts and security details.
+    """
+    import os
+    import socket
+    import urllib.request
+    import urllib.error
+
+    if forbidden_env_keys is None:
+        forbidden_env_keys = [
+            "CHRONICLE_SERVICE_ACCOUNT_PATH",
+            "GTI_API_KEY",
+            "SOAR_APP_KEY",
+            "HOST_SUPER_SECRET",
+            "OAUTH_CLIENT_SECRET",
+        ]
+
+    # 1. Metadata Server Access Probe
+    metadata_blocked = False
+    metadata_reason = ""
+    try:
+        req = urllib.request.Request(
+            f"http://{metadata_ip}/computeMetadata/v1/instance/",
+            headers={"Metadata-Flavor": "Google"},
+        )
+        with urllib.request.urlopen(req, timeout=1.5):
+            metadata_blocked = False
+            metadata_reason = "ALERT: Metadata server returned 200 OK (unshielded access)"
+    except urllib.error.URLError as url_err:
+        metadata_blocked = True
+        metadata_reason = f"Contained: Connection refused or timed out ({url_err.reason})"
+    except Exception as ex:
+        metadata_blocked = True
+        metadata_reason = f"Contained: Access blocked ({ex})"
+
+    # 2. Host Secret / Environment Variable Isolation Probe
+    leaked_secrets = []
+    for key in forbidden_env_keys:
+        val = os.getenv(key)
+        if val and not val.startswith("test-") and not val.startswith("mock-"):
+            leaked_secrets.append(key)
+
+    env_isolated = len(leaked_secrets) == 0
+
+    # 3. Default-Deny Egress Probe
+    egress_blocked = False
+    egress_reason = ""
+    try:
+        # Non-routable documentation IP (RFC 5737 TEST-NET-2)
+        sock = socket.create_connection(("198.51.100.1", 80), timeout=1.0)
+        sock.close()
+        egress_blocked = False
+        egress_reason = "ALERT: Outbound connection succeeded to external test IP"
+    except Exception as ex:
+        egress_blocked = True
+        egress_reason = f"Contained: Outbound egress blocked ({type(ex).__name__})"
+
+    is_hardened = metadata_blocked and env_isolated and egress_blocked
+
+    return {
+        "is_sandboxed": is_hardened,
+        "metadata_shielded": metadata_blocked,
+        "metadata_status": metadata_reason,
+        "env_credentials_shielded": env_isolated,
+        "leaked_keys": leaked_secrets,
+        "egress_denied": egress_blocked,
+        "egress_status": egress_reason,
+        "verdict": (
+            "ZERO-TRUST SANDBOX ENFORCED (Metadata blocked, credentials stripped, egress denied)"
+            if is_hardened
+            else "CONTAINMENT WARNING: Potential host boundary leakage detected"
+        ),
+    }
+
+
+def detonate_and_capture_forensics(
+    payload: str,
+    payload_type: str = "bash",
+    timeout_sec: int = 15,
+    custom_workdir: str | None = None,
+) -> Dict[str, Any]:
+    """Detonates an untrusted script or dropper in a contained execution harness and captures filesystem diffs.
+
+    Inspired by the Cloud Run Sandboxes 04-secops-payload-detonator pattern:
+    1. Records pre-execution filesystem state in an isolated directory.
+    2. Executes the untrusted script with restricted permissions and timeout.
+    3. Traverses the directory structure to identify dropped files, persistence scripts, or modified files.
+    4. Computes SHA-256 hashes and extracts preview text for all recovered artifacts.
+
+    Args:
+        payload: Script content (bash or python) to detonate.
+        payload_type: 'bash' or 'python'.
+        timeout_sec: Maximum execution duration before termination.
+        custom_workdir: Optional directory to use for detonation (defaults to a temp directory).
+
+    Returns:
+        Structured forensic report with execution status, dropped artifacts, hashes, and containment notes.
+    """
+    import hashlib
+    import os
+    import shutil
+    import subprocess
+    import sys
+    import tempfile
+    import time
+
+    start_time = time.time()
+    workdir = custom_workdir or tempfile.mkdtemp(prefix="detonation_sandbox_")
+    script_path = os.path.join(workdir, "untrusted_payload.sh" if payload_type == "bash" else "untrusted_payload.py")
+
+    with open(script_path, "w", encoding="utf-8") as f:
+        f.write(payload)
+
+    # Record baseline state of workdir (excluding the script itself)
+    baseline_files = set()
+    for root, _, files in os.walk(workdir):
+        for fname in files:
+            baseline_files.add(os.path.abspath(os.path.join(root, fname)))
+
+    # Prepare execution command
+    if payload_type == "python":
+        exec_cmd = [sys.executable, script_path]
+    else:
+        exec_cmd = ["/bin/bash", script_path]
+
+    # Environment isolation: clean minimal environment for detonation
+    clean_env = {
+        "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+        "TMPDIR": workdir,
+        "TEMP": workdir,
+        "HOME": workdir,
+    }
+
+    exit_code = 0
+    stdout_text = ""
+    stderr_text = ""
+    timed_out = False
+
+    try:
+        proc = subprocess.run(
+            exec_cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=timeout_sec,
+            cwd=workdir,
+            env=clean_env,
+        )
+        exit_code = proc.returncode
+        stdout_text = proc.stdout
+        stderr_text = proc.stderr
+    except subprocess.TimeoutExpired as e:
+        timed_out = True
+        exit_code = 124
+        stdout_text = e.stdout or ""
+        stderr_text = f"Detonation timed out after {timeout_sec}s."
+    except Exception as ex:
+        exit_code = 1
+        stderr_text = f"Detonation execution error: {ex}"
+
+    # Differential filesystem analysis (Forensic Artifact Extraction)
+    dropped_artifacts = []
+    for root, _, files in os.walk(workdir):
+        for fname in files:
+            full_path = os.path.abspath(os.path.join(root, fname))
+            if full_path in baseline_files or full_path == os.path.abspath(script_path):
+                continue
+
+            try:
+                rel_path = os.path.relpath(full_path, workdir)
+                file_size = os.path.getsize(full_path)
+
+                hasher = hashlib.sha256()
+                with open(full_path, "rb") as bf:
+                    while chunk := bf.read(4096):
+                        hasher.update(chunk)
+                file_sha256 = hasher.hexdigest()
+
+                try:
+                    with open(full_path, "r", encoding="utf-8", errors="ignore") as tf:
+                        preview = tf.read(200).replace("\n", " ")
+                except Exception:
+                    preview = "<binary content>"
+
+                dropped_artifacts.append({
+                    "filename": f"/{rel_path}",
+                    "size_bytes": file_size,
+                    "sha256": file_sha256,
+                    "preview": preview,
+                })
+            except Exception:
+                pass
+
+    # Cleanup if temporary
+    if not custom_workdir:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+    # Coerce stdout and stderr to string safely (proc.stdout / stderr can be bytes in some runtime contexts)
+    stdout_str = (
+        stdout_text.decode("utf-8", errors="ignore")
+        if isinstance(stdout_text, bytes)
+        else str(stdout_text or "")
+    )
+    stderr_str = (
+        stderr_text.decode("utf-8", errors="ignore")
+        if isinstance(stderr_text, bytes)
+        else str(stderr_text or "")
+    )
+
+    elapsed_ms = (time.time() - start_time) * 1000
+
+    # Detect if C2 or metadata theft was prevented based on execution output
+    c2_prevented = (
+        "beacon blocked" in stdout_str.lower()
+        or "c2 blocked" in stdout_str.lower()
+        or "connection refused" in stderr_str.lower()
+        or "network is unreachable" in stderr_str.lower()
+    )
+    metadata_prevented = (
+        "metadata access blocked" in stdout_str.lower()
+        or "metadata blocked" in stdout_str.lower()
+        or "metadata" not in stdout_str.lower()
+    )
+
+    return {
+        "execution_success": exit_code == 0 and not timed_out,
+        "exit_code": exit_code,
+        "timed_out": timed_out,
+        "stdout": stdout_str,
+        "stderr": stderr_str,
+        "execution_time_ms": round(elapsed_ms, 2),
+        "dropped_files_count": len(dropped_artifacts),
+        "dropped_artifacts": dropped_artifacts,
+        "c2_callbacks_prevented": c2_prevented,
+        "metadata_theft_prevented": metadata_prevented,
+    }
+

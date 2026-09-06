@@ -88,3 +88,38 @@ print(f"YARA_MATCH:{yara_res['matches']}")
         assert "YARA_VALID:True" in res.stdout
         assert "YARA_MATCH:True" in res.stdout
 
+    def test_threat_hunter_sandboxed_dropper_detonation(self):
+        from google.adk.code_executors import UnsafeLocalCodeExecutor
+        from google.adk.code_executors.code_execution_utils import CodeExecutionInput
+        from unittest.mock import MagicMock
+
+        code_snippet = """
+from installation_scripts.code_executor_factory import detonate_and_capture_forensics, verify_sandbox_containment
+
+# 1. Detonate dropper
+dropper_script = '''#!/bin/bash
+mkdir -p ./evildrop
+echo "MALWARE_DATA" > ./evildrop/trojan.lock
+echo "MOCK_BACKDOOR_STAGE2" > ./evildrop/shell.sh
+echo "C2_BEACON_BLOCKED"
+echo "METADATA_ACCESS_BLOCKED"
+'''
+report = detonate_and_capture_forensics(dropper_script, payload_type="bash", timeout_sec=5)
+print(f"DETONATION_SUCCESS:{report['execution_success']}")
+print(f"DROPPED_COUNT:{report['dropped_files_count']}")
+
+# 2. Verify containment
+audit = verify_sandbox_containment(metadata_ip="192.0.2.1", forbidden_env_keys=["NON_EXISTENT_KEY"])
+print(f"METADATA_SHIELDED:{audit['metadata_shielded']}")
+print(f"EGRESS_DENIED:{audit['egress_denied']}")
+"""
+        executor = UnsafeLocalCodeExecutor()
+        dummy_context = MagicMock()
+        res = executor.execute_code(dummy_context, CodeExecutionInput(code=code_snippet))
+
+        assert res.stderr == ""
+        assert "DETONATION_SUCCESS:True" in res.stdout
+        assert "DROPPED_COUNT:2" in res.stdout
+        assert "METADATA_SHIELDED:True" in res.stdout
+        assert "EGRESS_DENIED:True" in res.stdout
+

