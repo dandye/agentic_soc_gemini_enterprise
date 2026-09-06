@@ -355,13 +355,20 @@ def deobfuscate_xor_strings(
             score += int(printable_ratio * 20)
 
         if score > 0 or strings:
+            # If payload was truncated for fast preview scoring, decode full payload for winning candidate
+            if len(payload_bytes) > len(eval_payload):
+                full_decoded = bytes([b ^ key for b in payload_bytes])
+                full_strings = extract_payload_strings(full_decoded, min_length=4)
+            else:
+                full_strings = strings
+
             candidates.append({
                 "key": key,
                 "key_hex": f"0x{key:02X}",
                 "confidence_score": score,
                 "printable_ratio": round(printable_ratio, 3),
                 "matched_indicators": list(set(matched_indicators)),
-                "decoded_strings": strings,
+                "decoded_strings": full_strings,
             })
 
     candidates.sort(
@@ -717,8 +724,12 @@ def detonate_and_capture_forensics(
                 continue
 
             real_path = os.path.realpath(full_path)
-            if not real_path.startswith(real_workdir):
-                # Symlink or hardlink escape attempt
+            try:
+                if os.path.commonpath([real_workdir, real_path]) != real_workdir:
+                    # Path traversal or symlink escape attempt outside the detonation workspace
+                    continue
+            except ValueError:
+                # Different drives on Windows or incompatible paths
                 continue
 
             try:
