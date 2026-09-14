@@ -54,8 +54,20 @@ default:
     @{{ python }} installation_scripts/print_help.py {{ justfile() }}
 
 
+# Initialize and update git submodules
+submodules:
+    git submodule update --init --recursive
+
+# Ensure git submodules are initialized
+check-submodules:
+    #!/usr/bin/env bash
+    if [ ! -d "external/mcp-security/server/secops" ]; then
+        echo "Git submodules not initialized. Initializing..."
+        git submodule update --init --recursive
+    fi
+
 # Validate Stage 1 prerequisites
-check-prereqs:
+check-prereqs: check-submodules
     #!/usr/bin/env bash
     set -a; [ -f "{{env_file}}" ] && source "{{env_file}}"; set +a
     if [ -z "$GCP_PROJECT_ID" ]; then echo "ERROR: GCP_PROJECT_ID not set in {{env_file}}"; exit 1; fi
@@ -81,8 +93,8 @@ check-integration: check-deploy
 install:
     {{ python }} -m pip install -r requirements.txt
 
-# Set up environment and install dependencies
-setup:
+# Set up environment, initialize submodules, and install dependencies
+setup: check-submodules
     #!/usr/bin/env bash
     if [ ! -f "{{ env_file }}" ]; then
         echo "Creating {{ env_file }} file from template..."
