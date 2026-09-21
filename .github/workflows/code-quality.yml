@@ -46,10 +46,7 @@ jobs:
 
       - name: Run pre-commit hooks
         run: |
-          # Run without modifying files (check mode only for CI)
-          SKIP=ruff pre-commit run --all-files --show-diff-on-failure
-          # Run ruff separately in check mode (no --fix)
-          ruff check .
+          pre-commit run --all-files --show-diff-on-failure
 
   # NOTE: Additional jobs (type-check, security, tests) are disabled in this PR
   # They will be re-enabled after fixing existing issues in separate PRs:

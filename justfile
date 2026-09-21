@@ -888,6 +888,18 @@ format:
         echo "No formatter available (install ruff or black)"
     fi
 
+# Run pre-commit hooks across all files
+pre-commit:
+    #!/usr/bin/env bash
+    if command -v pre-commit >/dev/null 2>&1; then
+        pre-commit run --all-files
+    elif command -v uvx >/dev/null 2>&1; then
+        uvx pre-commit run --all-files
+    else
+        echo "Error: Neither pre-commit nor uvx is available"
+        exit 1
+    fi
+
 # Harvest and enrich investigations and detections from Chronicle SIEM
 harvest: harvest-investigations harvest-detections
 

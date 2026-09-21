@@ -9,6 +9,7 @@ __pycache__/
 implementation_plan.md
 .env*
 .env.secops.adc
+.env.argolis
 investigations/*
 !investigations/similarity_reports/
 *.json
@@ -38,3 +39,13 @@ docs/docs-dist/
 .coverage
 coverage.xml
 *.egg-info/
+# Test coverage artifacts
+coverage.xml
+.coverage
+htmlcov/
+
+# direnv and isolated gcloud state
+.gcloud/
+.envrc
+
+
