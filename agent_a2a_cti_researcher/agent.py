@@ -702,9 +702,23 @@ async def generate_memory(
         )
 
 
+DISABLED_ONEMCP_TOOLS: frozenset[str] = frozenset({"create_feed", "update_feed"})
+
+
 async def before_tool_cache(tool, args, tool_context: Context, **kwargs):
     """Checks for a cached result before executing a tool."""
     try:
+        tool_name = getattr(tool, "name", None)
+        if tool_name in DISABLED_ONEMCP_TOOLS:
+            logger.warning(
+                f"Blocked disabled OneMCP feed tool '{tool_name}' before execution."
+            )
+            return {
+                "error": (
+                    f"Tool '{tool_name}' is disabled when OneMCP (remote/hosted MCP) is used."
+                )
+            }
+
         if (
             tool.name == "load_memory"
             and hasattr(tool_context, "_invocation_context")

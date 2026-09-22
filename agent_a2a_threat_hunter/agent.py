@@ -712,14 +712,29 @@ async def generate_memory(
                     await ctx.add_session_to_memory()
         except Exception as e:
             logger.error(
-                f"MEMORY_GENERATION_ERROR: Failed to generate memory: {e}", exc_info=True
+                f"MEMORY_GENERATION_ERROR: Failed to generate memory: {e}",
+                exc_info=True,
             )
             span.record_exception(e)
+
+
+DISABLED_ONEMCP_TOOLS: frozenset[str] = frozenset({"create_feed", "update_feed"})
 
 
 async def before_tool_cache(tool, args, tool_context: Context, **kwargs):
     """Checks for a cached result before executing a tool."""
     try:
+        tool_name = getattr(tool, "name", None)
+        if tool_name in DISABLED_ONEMCP_TOOLS:
+            logger.warning(
+                f"Blocked disabled OneMCP feed tool '{tool_name}' before execution."
+            )
+            return {
+                "error": (
+                    f"Tool '{tool_name}' is disabled when OneMCP (remote/hosted MCP) is used."
+                )
+            }
+
         if (
             tool.name == "load_memory"
             and hasattr(tool_context, "_invocation_context")
@@ -1101,7 +1116,9 @@ def create_agent():
         from opentelemetry import trace
 
         tracer = trace.get_tracer("agent_a2a_threat_hunter")
-        with tracer.start_as_current_span("threat_hunter.query_knowledge_graph") as span:
+        with tracer.start_as_current_span(
+            "threat_hunter.query_knowledge_graph"
+        ) as span:
             span.set_attribute("db.system", "neo4j")
             span.set_attribute("db.statement", cypher_query)
             logger.info(f"NEO4J_GRAPH_QUERY: query='{cypher_query}'")
@@ -1150,7 +1167,9 @@ def create_agent():
     # ========================================================================
     # Create the Agent with all configured tools and Code Execution Sandbox
     # ========================================================================
-    logger.info(f"Creating Threat Hunter Agent with {len(tools)} tools and Code Execution Sandbox...")
+    logger.info(
+        f"Creating Threat Hunter Agent with {len(tools)} tools and Code Execution Sandbox..."
+    )
 
     code_executor = get_code_executor("auto")
 

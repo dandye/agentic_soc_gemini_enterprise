@@ -1918,6 +1918,17 @@ async def before_tool_cache(tool, args, tool_context: Context, **kwargs):
     This prevents redundant API calls and saves execution time/tokens.
     """
     try:
+        tool_name = getattr(tool, "name", None)
+        if tool_name in DISABLED_ONEMCP_TOOLS:
+            logger.warning(
+                f"Blocked disabled OneMCP feed tool '{tool_name}' before execution."
+            )
+            return {
+                "error": (
+                    f"Tool '{tool_name}' is disabled when OneMCP (remote/hosted MCP) is used."
+                )
+            }
+
         # SHARED MEMORY SCOPE OVERRIDE
         # Override the search_memory method on this specific context instance
         # to force LoadMemoryTool (on-demand) to retrieve from the global team scope.
@@ -2644,17 +2655,74 @@ def get_secops_headers(context) -> dict[str, str]:
     return headers
 
 
+DISABLED_ONEMCP_TOOLS: frozenset[str] = frozenset({"create_feed", "update_feed"})
+
+
+class OneMcpToolFilter:
+    """Picklable ToolPredicate that disables create_feed and update_feed on OneMCP."""
+
+    def __init__(self, inner_filter=None):
+        self.inner_filter = inner_filter
+
+    def __call__(self, tool, readonly_context=None) -> bool:
+        tool_name = getattr(tool, "name", None)
+        if not tool_name and hasattr(tool, "_mcp_tool"):
+            tool_name = getattr(tool._mcp_tool, "name", None)
+        if tool_name in DISABLED_ONEMCP_TOOLS:
+            return False
+        if self.inner_filter is None:
+            return True
+        if callable(self.inner_filter):
+            return bool(self.inner_filter(tool, readonly_context))
+        if isinstance(self.inner_filter, (list, tuple, set, frozenset)):
+            return tool_name in self.inner_filter
+        return False
+
+
+class RemoteSecOpsMcpToolset(McpToolset):
+    """Remote SecOps OneMCP Toolset that enforces exclusion of create_feed and update_feed."""
+
+    def _is_tool_selected(self, tool, readonly_context=None) -> bool:
+        tool_name = getattr(tool, "name", None)
+        if not tool_name and hasattr(tool, "_mcp_tool"):
+            tool_name = getattr(tool._mcp_tool, "name", None)
+        if tool_name in DISABLED_ONEMCP_TOOLS:
+            return False
+        if (
+            self.tool_filter is not None
+            and isinstance(self.tool_filter, list)
+            and len(self.tool_filter) == 0
+        ):
+            return False
+        return super()._is_tool_selected(tool, readonly_context)
+
+    async def get_tools(self, readonly_context=None) -> list:
+        all_tools = await super().get_tools(readonly_context)
+        return [t for t in all_tools if self._is_tool_selected(t, readonly_context)]
+
+
 def create_remote_secops_toolset(region, tool_filter=None) -> McpToolset:
     # Remote OneMCP pattern: https://chronicle.{region}.rep.googleapis.com/mcp
     secops_mcp_url = f"https://chronicle.{region}.rep.googleapis.com/mcp"
     logger.info(f"Initializing Remote MCP Toolset with URL: {secops_mcp_url}")
-    return McpToolset(
+    if tool_filter is None:
+        effective_tool_filter = OneMcpToolFilter()
+    elif isinstance(tool_filter, (list, tuple, set, frozenset)):
+        effective_tool_filter = [
+            t for t in tool_filter if t not in DISABLED_ONEMCP_TOOLS
+        ]
+    elif callable(tool_filter):
+        effective_tool_filter = OneMcpToolFilter(inner_filter=tool_filter)
+    else:
+        effective_tool_filter = tool_filter
+
+    return RemoteSecOpsMcpToolset(
         connection_params=StreamableHTTPConnectionParams(
             url=secops_mcp_url,
             timeout=90.0,  # Increase timeout to 90 seconds to prevent cold-start timeouts
         ),
         header_provider=get_secops_headers,
-        tool_filter=tool_filter,
+        tool_filter=effective_tool_filter,
         errlog=None,  # explicitly None to prevent sys.stderr capturing (which cannot be pickled)
     )
 
