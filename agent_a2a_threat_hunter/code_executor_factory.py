@@ -10,24 +10,28 @@ import datetime
 import math
 import os
 import threading
-from typing import Any, List, Dict
+from typing import Any
+
 
 # Set default mTLS and Vertex environment flags to prevent client cert provider errors
 os.environ.setdefault("GOOGLE_API_USE_MTLS_ENDPOINT", "never")
 os.environ.setdefault("GOOGLE_API_USE_CLIENT_CERTIFICATE", "false")
 
+import copy
+
 from google.adk.code_executors import (
+    AgentEngineSandboxCodeExecutor,
     BaseCodeExecutor,
     BuiltInCodeExecutor,
     UnsafeLocalCodeExecutor,
     VertexAiCodeExecutor,
-    AgentEngineSandboxCodeExecutor,
 )
 from google.adk.code_executors.code_execution_utils import (
     CodeExecutionInput,
     CodeExecutionResult,
 )
-import copy
+
+
 # Patch AgentEngineSandboxCodeExecutor.__deepcopy__ and __reduce__ to handle unpicklable threading.Lock
 def _agent_engine_sandbox_deepcopy(self: Any, memo: dict) -> Any:
     m = self.__class__.__new__(self.__class__)
@@ -70,7 +74,6 @@ def _agent_engine_sandbox_reduce(self: Any) -> Any:
 
 AgentEngineSandboxCodeExecutor.__deepcopy__ = _agent_engine_sandbox_deepcopy
 AgentEngineSandboxCodeExecutor.__reduce__ = _agent_engine_sandbox_reduce
-
 
 
 class LazyVertexAiCodeExecutor(BaseCodeExecutor):
@@ -170,7 +173,7 @@ def calculate_shannon_entropy(data: str) -> float:
     return entropy
 
 
-def calculate_beaconing_jitter(timestamps: List[str]) -> Dict[str, Any]:
+def calculate_beaconing_jitter(timestamps: list[str]) -> dict[str, Any]:
     """Calculates interval statistics, delta intervals, and jitter to detect periodic C2 beaconing.
 
     Args:
@@ -200,14 +203,10 @@ def calculate_beaconing_jitter(timestamps: List[str]) -> Dict[str, Any]:
     n = len(intervals)
     mean_interval = sum(intervals) / n
     variance = (
-        sum((x - mean_interval) ** 2 for x in intervals) / (n - 1)
-        if n > 1
-        else 0.0
+        sum((x - mean_interval) ** 2 for x in intervals) / (n - 1) if n > 1 else 0.0
     )
     std_dev = math.sqrt(variance)
-    coefficient_of_variation = (
-        std_dev / mean_interval if mean_interval > 0 else 0.0
-    )
+    coefficient_of_variation = std_dev / mean_interval if mean_interval > 0 else 0.0
 
     # Low CV (< 0.15) indicates high regularity / automated periodic beaconing
     is_periodic = coefficient_of_variation < 0.15
@@ -228,7 +227,7 @@ def calculate_beaconing_jitter(timestamps: List[str]) -> Dict[str, Any]:
     }
 
 
-def extract_payload_strings(data: bytes | str, min_length: int = 4) -> List[str]:
+def extract_payload_strings(data: bytes | str, min_length: int = 4) -> list[str]:
     """Extracts printable ASCII and UTF-16LE strings from raw binary payload data.
 
     Args:
@@ -243,7 +242,7 @@ def extract_payload_strings(data: bytes | str, min_length: int = 4) -> List[str]
     if isinstance(data, str):
         data = data.encode("utf-8")
 
-    extracted: List[str] = []
+    extracted: list[str] = []
 
     # 1. ASCII strings
     ascii_pattern = re.compile(rb"[\x20-\x7e]{" + str(min_length).encode() + rb",}")
@@ -259,7 +258,7 @@ def extract_payload_strings(data: bytes | str, min_length: int = 4) -> List[str]
             decoded = m.group(0).decode("utf-16le", errors="ignore")
             if decoded and decoded not in extracted:
                 extracted.append(decoded)
-        except Exception:
+        except Exception:  # noqa: S110
             pass
 
     return extracted
@@ -269,7 +268,7 @@ def deobfuscate_xor_strings(
     payload: bytes | str,
     key_range: range | list | None = None,
     max_preview_bytes: int = 65536,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Brute-forces single-byte XOR obfuscation to recover hidden URLs, IPs, commands, and strings (FLOSS pattern).
 
     Args:
@@ -362,14 +361,16 @@ def deobfuscate_xor_strings(
             else:
                 full_strings = strings
 
-            candidates.append({
-                "key": key,
-                "key_hex": f"0x{key:02X}",
-                "confidence_score": score,
-                "printable_ratio": round(printable_ratio, 3),
-                "matched_indicators": list(set(matched_indicators)),
-                "decoded_strings": full_strings,
-            })
+            candidates.append(
+                {
+                    "key": key,
+                    "key_hex": f"0x{key:02X}",
+                    "confidence_score": score,
+                    "printable_ratio": round(printable_ratio, 3),
+                    "matched_indicators": list(set(matched_indicators)),
+                    "decoded_strings": full_strings,
+                }
+            )
 
     candidates.sort(
         key=lambda x: (x["confidence_score"], x["printable_ratio"]), reverse=True
@@ -379,7 +380,7 @@ def deobfuscate_xor_strings(
 
 def validate_and_test_yara_rule(
     rule_text: str, target_data: bytes | str
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Compiles and tests a YARA rule against payload data inside the sandbox (YARA pattern).
 
     Note:
@@ -488,8 +489,8 @@ def validate_and_test_yara_rule(
 
 def verify_sandbox_containment(
     metadata_ip: str = "169.254.169.254",
-    forbidden_env_keys: List[str] | None = None,
-) -> Dict[str, Any]:
+    forbidden_env_keys: list[str] | None = None,
+) -> dict[str, Any]:
     """Evaluates zero-trust isolation boundaries (metadata access, environment variables, network egress).
 
     Audits that the runtime environment enforces:
@@ -506,8 +507,8 @@ def verify_sandbox_containment(
     """
     import os
     import socket
-    import urllib.request
     import urllib.error
+    import urllib.request
 
     if forbidden_env_keys is None:
         forbidden_env_keys = [
@@ -526,9 +527,11 @@ def verify_sandbox_containment(
             f"http://{metadata_ip}/computeMetadata/v1/instance/",
             headers={"Metadata-Flavor": "Google"},
         )
-        with urllib.request.urlopen(req, timeout=1.5):
+        with urllib.request.urlopen(req, timeout=1.5):  # noqa: S310
             metadata_blocked = False
-            metadata_reason = "ALERT: Metadata server returned 200 OK (unshielded access)"
+            metadata_reason = (
+                "ALERT: Metadata server returned 200 OK (unshielded access)"
+            )
     except urllib.error.HTTPError as http_err:
         # Received HTTP response (e.g. 401, 403, 404, 500) -> Network socket connection succeeded!
         metadata_blocked = False
@@ -536,7 +539,9 @@ def verify_sandbox_containment(
     except urllib.error.URLError as url_err:
         # Connection refused, timeout, or network unreachable
         metadata_blocked = True
-        metadata_reason = f"Contained: Connection refused or timed out ({url_err.reason})"
+        metadata_reason = (
+            f"Contained: Connection refused or timed out ({url_err.reason})"
+        )
     except Exception as ex:
         # Check if underlying cause is timeout or network refusal
         metadata_blocked = True
@@ -587,7 +592,7 @@ def detonate_and_capture_forensics(
     payload_type: str = "bash",
     timeout_sec: int = 15,
     custom_workdir: str | None = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Detonates an untrusted script or dropper in a contained execution harness and captures filesystem diffs.
 
     Inspired by the Cloud Run Sandboxes 04-secops-payload-detonator pattern:
@@ -623,7 +628,8 @@ def detonate_and_capture_forensics(
     workdir = custom_workdir or tempfile.mkdtemp(prefix="detonation_sandbox_")
     real_workdir = os.path.realpath(workdir)
     script_path = os.path.join(
-        workdir, "untrusted_payload.sh" if payload_type == "bash" else "untrusted_payload.py"
+        workdir,
+        "untrusted_payload.sh" if payload_type == "bash" else "untrusted_payload.py",
     )
 
     with open(script_path, "w", encoding="utf-8") as f:
@@ -641,7 +647,7 @@ def detonate_and_capture_forensics(
                         while chunk := bf.read(4096):
                             hasher.update(chunk)
                     baseline_hashes[os.path.abspath(full_path)] = hasher.hexdigest()
-                except Exception:
+                except Exception:  # noqa: S110
                     pass
 
     # Prepare execution command
@@ -666,7 +672,7 @@ def detonate_and_capture_forensics(
     # Spawn within a dedicated process group (start_new_session=True) so child processes can be terminated
     proc = None
     try:
-        proc = subprocess.Popen(
+        proc = subprocess.Popen(  # noqa: S603
             exec_cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -684,17 +690,19 @@ def detonate_and_capture_forensics(
             try:
                 # Terminate the entire process group to avoid leaking detached child daemons
                 os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-            except Exception:
+            except Exception:  # noqa: S110
                 pass
             stdout_text, stderr_text = proc.communicate()
-        stderr_text = (stderr_text or "") + f"\nDetonation timed out after {timeout_sec}s."
+        stderr_text = (
+            stderr_text or ""
+        ) + f"\nDetonation timed out after {timeout_sec}s."
     except Exception as ex:
         exit_code = 1
         stderr_text = f"Detonation execution error: {ex}"
         if proc:
             try:
                 os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-            except Exception:
+            except Exception:  # noqa: S110
                 pass
 
     # Differential filesystem analysis (Forensic Artifact Extraction)
@@ -713,14 +721,16 @@ def detonate_and_capture_forensics(
             # Check if this is a symlink: prevent reading arbitrary files outside workdir
             if os.path.islink(full_path):
                 target_link = os.readlink(full_path)
-                dropped_artifacts.append({
-                    "filename": f"/{os.path.relpath(full_path, workdir)}",
-                    "artifact_type": "symlink",
-                    "target": target_link,
-                    "size_bytes": 0,
-                    "sha256": "symlink_unresolved",
-                    "preview": f"<symlink -> {target_link}>",
-                })
+                dropped_artifacts.append(
+                    {
+                        "filename": f"/{os.path.relpath(full_path, workdir)}",
+                        "artifact_type": "symlink",
+                        "target": target_link,
+                        "size_bytes": 0,
+                        "sha256": "symlink_unresolved",
+                        "preview": f"<symlink -> {target_link}>",
+                    }
+                )
                 continue
 
             real_path = os.path.realpath(full_path)
@@ -749,20 +759,22 @@ def detonate_and_capture_forensics(
                     artifact_type = "created_file"
 
                 try:
-                    with open(full_path, "r", encoding="utf-8", errors="ignore") as tf:
+                    with open(full_path, encoding="utf-8", errors="ignore") as tf:
                         preview = tf.read(200).replace("\n", " ")
                 except Exception:
                     preview = "<binary content>"
 
                 rel_path = os.path.relpath(full_path, workdir)
-                dropped_artifacts.append({
-                    "filename": f"/{rel_path}",
-                    "artifact_type": artifact_type,
-                    "size_bytes": file_size,
-                    "sha256": file_sha256,
-                    "preview": preview,
-                })
-            except Exception:
+                dropped_artifacts.append(
+                    {
+                        "filename": f"/{rel_path}",
+                        "artifact_type": artifact_type,
+                        "size_bytes": file_size,
+                        "sha256": file_sha256,
+                        "preview": preview,
+                    }
+                )
+            except Exception:  # noqa: S110
                 pass
 
     # Cleanup if temporary
@@ -808,4 +820,3 @@ def detonate_and_capture_forensics(
         "c2_callbacks_prevented": c2_prevented,
         "metadata_theft_prevented": metadata_prevented,
     }
-

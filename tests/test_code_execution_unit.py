@@ -3,20 +3,14 @@ Unit tests for Vertex AI Code Execution Sandbox and CodeExecutorFactory.
 Follows strict Test-Driven Development (TDD).
 """
 
-import math
-import os
 import pytest
 from google.adk.agents import Agent
 from google.adk.code_executors import (
+    AgentEngineSandboxCodeExecutor,
     BaseCodeExecutor,
     BuiltInCodeExecutor,
     UnsafeLocalCodeExecutor,
     VertexAiCodeExecutor,
-    AgentEngineSandboxCodeExecutor,
-)
-from google.adk.code_executors.code_execution_utils import (
-    CodeExecutionInput,
-    CodeExecutionResult,
 )
 
 from installation_scripts.code_executor_factory import (
@@ -52,6 +46,7 @@ class TestCodeExecutorFactory:
 
     def test_factory_resolves_vertex_ai_extension(self):
         from installation_scripts.code_executor_factory import LazyVertexAiCodeExecutor
+
         executor = get_code_executor("vertex_ai")
         assert isinstance(executor, (VertexAiCodeExecutor, LazyVertexAiCodeExecutor))
         assert isinstance(executor, BaseCodeExecutor)
@@ -60,7 +55,9 @@ class TestCodeExecutorFactory:
         monkeypatch.delenv("AGENT_ENGINE_RESOURCE_NAME", raising=False)
         monkeypatch.delenv("SANDBOX_RESOURCE_NAME", raising=False)
         executor = get_code_executor("auto")
-        assert isinstance(executor, (BuiltInCodeExecutor, AgentEngineSandboxCodeExecutor))
+        assert isinstance(
+            executor, (BuiltInCodeExecutor, AgentEngineSandboxCodeExecutor)
+        )
 
 
 class TestSocCodeAnalysisAgent:
@@ -73,7 +70,10 @@ class TestSocCodeAnalysisAgent:
         assert root_agent.name == "soc_code_analysis_agent"
         assert hasattr(root_agent, "code_executor")
         assert root_agent.code_executor is not None
-        assert "threat" in root_agent.instruction.lower() or "analytics" in root_agent.instruction.lower()
+        assert (
+            "threat" in root_agent.instruction.lower()
+            or "analytics" in root_agent.instruction.lower()
+        )
 
 
 class TestSecurityAnalyticsMath:
@@ -84,7 +84,7 @@ class TestSecurityAnalyticsMath:
         benign_entropy = calculate_shannon_entropy("google.com")
         # High entropy DGA domain: high entropy
         dga_entropy = calculate_shannon_entropy("xk92bvf0q81lzmn04.evil-c2.net")
-        
+
         assert benign_entropy < 3.5
         assert dga_entropy > 3.8
 
@@ -118,7 +118,10 @@ class TestSecurityAnalyticsMath:
         assert len(results) > 0
         best_candidate = results[0]
         assert best_candidate["key"] == 0x5A
-        assert "https://apt29-c2.evil-domain.com/beacon" in best_candidate["decoded_strings"]
+        assert (
+            "https://apt29-c2.evil-domain.com/beacon"
+            in best_candidate["decoded_strings"]
+        )
 
     def test_validate_and_test_yara_rule_success(self):
         rule_text = """
@@ -139,7 +142,9 @@ class TestSecurityAnalyticsMath:
         assert "APT29_Beacon_Indicator" in verification["matched_rules"]
 
     def test_validate_and_test_yara_rule_syntax_error(self):
-        broken_rule = "rule Broken_Rule { strings: $a = 123 condition: non_existent_token }"
+        broken_rule = (
+            "rule Broken_Rule { strings: $a = 123 condition: non_existent_token }"
+        )
         verification = validate_and_test_yara_rule(broken_rule, b"test")
         assert verification["valid"] is False
         assert "error" in verification
@@ -156,7 +161,10 @@ class TestSecurityAnalyticsMath:
         assert len(results) > 0
         best_candidate = results[0]
         assert best_candidate["key"] == 0x5A
-        assert "https://apt29-c2.evil-domain.com/beacon" in best_candidate["decoded_strings"]
+        assert (
+            "https://apt29-c2.evil-domain.com/beacon"
+            in best_candidate["decoded_strings"]
+        )
 
     @pytest.mark.skip(
         reason=(
@@ -236,7 +244,11 @@ echo "ATTACK_SUCCESS" > ./local_payload.bin
             custom_workdir=str(tmp_path),
         )
         assert report["execution_success"] is True
-        symlink_artifacts = [a for a in report["dropped_artifacts"] if a.get("artifact_type") == "symlink"]
+        symlink_artifacts = [
+            a
+            for a in report["dropped_artifacts"]
+            if a.get("artifact_type") == "symlink"
+        ]
         assert len(symlink_artifacts) == 1
         assert symlink_artifacts[0]["target"] == "/etc/passwd"
         assert symlink_artifacts[0]["preview"] == "<symlink -> /etc/passwd>"
@@ -265,8 +277,11 @@ echo "ENCRYPTED_LOCKED_CONTENT" > important_data.txt
             custom_workdir=str(tmp_path),
         )
         assert report["execution_success"] is True
-        modified_artifacts = [a for a in report["dropped_artifacts"] if a.get("artifact_type") == "modified_file"]
+        modified_artifacts = [
+            a
+            for a in report["dropped_artifacts"]
+            if a.get("artifact_type") == "modified_file"
+        ]
         assert len(modified_artifacts) == 1
         assert modified_artifacts[0]["filename"] == "/important_data.txt"
         assert "ENCRYPTED_LOCKED_CONTENT" in modified_artifacts[0]["preview"]
-

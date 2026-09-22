@@ -3,12 +3,11 @@ Unit tests for Threat Hunter Agent Code Execution integration.
 Follows strict Test-Driven Development (TDD).
 """
 
-import os
 import pytest
 from google.adk.agents import Agent
 from google.adk.code_executors import BaseCodeExecutor
 
-from agent_a2a_threat_hunter.agent import create_agent, THREAT_HUNTER_PERSONA
+from agent_a2a_threat_hunter.agent import create_agent
 
 
 class TestThreatHunterCodeExecution:
@@ -30,7 +29,9 @@ class TestThreatHunterCodeExecution:
         assert agent.code_executor is not None
         assert isinstance(agent.code_executor, BaseCodeExecutor)
 
-    def test_threat_hunter_instruction_contains_analytics_recipes(self, monkeypatch, tmp_path):
+    def test_threat_hunter_instruction_contains_analytics_recipes(
+        self, monkeypatch, tmp_path
+    ):
         fake_sa = tmp_path / "fake_sa.json"
         fake_sa.write_text('{"type": "service_account"}')
 
@@ -43,15 +44,26 @@ class TestThreatHunterCodeExecution:
         instructions = agent.instruction.lower()
 
         # Verify instructions teach the agent how to leverage Python sandbox
-        assert "python" in instructions or "sandbox" in instructions or "code" in instructions
-        assert "entropy" in instructions or "beacon" in instructions or "telemetry" in instructions
-        assert "deobfuscate" in instructions or "xor" in instructions or "string" in instructions
+        assert (
+            "python" in instructions
+            or "sandbox" in instructions
+            or "code" in instructions
+        )
+        assert (
+            "entropy" in instructions
+            or "beacon" in instructions
+            or "telemetry" in instructions
+        )
+        assert (
+            "deobfuscate" in instructions
+            or "xor" in instructions
+            or "string" in instructions
+        )
         assert "yara" in instructions
 
     def test_threat_hunter_sandboxed_deobfuscation_and_yara_execution(self):
         from google.adk.code_executors import UnsafeLocalCodeExecutor
         from google.adk.code_executors.code_execution_utils import CodeExecutionInput
-        from google.adk.agents.invocation_context import InvocationContext
 
         # Test that sandboxed Python code executes de-obfuscation and YARA testing successfully
         code_snippet = """
@@ -80,7 +92,9 @@ print(f"YARA_MATCH:{yara_res['matches']}")
 
         executor = UnsafeLocalCodeExecutor()
         dummy_context = MagicMock()
-        res = executor.execute_code(dummy_context, CodeExecutionInput(code=code_snippet))
+        res = executor.execute_code(
+            dummy_context, CodeExecutionInput(code=code_snippet)
+        )
 
         assert res.stderr == ""
         assert "KEY_FOUND:0x5A" in res.stdout
@@ -97,9 +111,10 @@ print(f"YARA_MATCH:{yara_res['matches']}")
         )
     )
     def test_threat_hunter_sandboxed_dropper_detonation(self):
+        from unittest.mock import MagicMock
+
         from google.adk.code_executors import UnsafeLocalCodeExecutor
         from google.adk.code_executors.code_execution_utils import CodeExecutionInput
-        from unittest.mock import MagicMock
 
         code_snippet = """
 from installation_scripts.code_executor_factory import detonate_and_capture_forensics, verify_sandbox_containment
@@ -123,11 +138,12 @@ print(f"EGRESS_DENIED:{audit['egress_denied']}")
 """
         executor = UnsafeLocalCodeExecutor()
         dummy_context = MagicMock()
-        res = executor.execute_code(dummy_context, CodeExecutionInput(code=code_snippet))
+        res = executor.execute_code(
+            dummy_context, CodeExecutionInput(code=code_snippet)
+        )
 
         assert res.stderr == ""
         assert "DETONATION_SUCCESS:True" in res.stdout
         assert "DROPPED_COUNT:2" in res.stdout
         assert "METADATA_SHIELDED:True" in res.stdout
         assert "EGRESS_DENIED:True" in res.stdout
-

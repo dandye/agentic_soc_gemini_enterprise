@@ -23,19 +23,19 @@ Modern agentic systems require a balance across three distinct operational primi
 ```mermaid
 graph TD
     Alert([Security Alert / Case]) --> Orchestrator[SOC Multi-Agent Orchestrator]
-    
+
     subgraph "Federated Integration Layer (MCP)"
         Orchestrator -->|Federated Tool Schema| MCP[MCP Security Servers]
         MCP -->|Fetch Raw Logs & Cases| SIEM[(Chronicle SIEM / SOAR / GTI)]
     end
-    
+
     subgraph "Analytics & Synthesis Layer (Sandbox)"
         Orchestrator -->|Delegate Log Analytics| Hunter[Threat Hunter / Tier 2 Agent]
         Hunter -->|Write & Run Python Code| Sandbox[Vertex AI Agent Engine Sandbox]
         Sandbox -->|Execute in MicroVM / gVisor| PythonRuntime[Python Runtime: Pandas, Regex, Math]
         PythonRuntime -->|Return Compact Statistical Summary| Hunter
     end
-    
+
     subgraph "Remediation Layer (Deterministic HITL)"
         Hunter -->|Recommend Mitigation| HITL[Human-in-the-Loop Approval]
         HITL -->|Approved Action| SOARAction[SOAR Containment Playbook]

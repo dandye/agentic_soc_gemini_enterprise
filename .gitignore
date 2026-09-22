@@ -43,5 +43,3 @@ htmlcov/
 # direnv and isolated gcloud state
 .gcloud/
 .envrc
-
-

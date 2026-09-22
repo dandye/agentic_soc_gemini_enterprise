@@ -82,20 +82,20 @@ Running untrusted, weaponized security artifacts directly inside the agent host 
 graph TD
     Alert[Chronicle SIEM / SOAR / GTI Alert] --> Agent[Threat Hunter / Detection Engineer]
     Agent -->|Stage Raw Artifacts| Sandbox[Vertex AI gVisor Sandbox Container]
-    
+
     subgraph "Mandiant Reverse Engineering"
         Sandbox --> capa[capa: MITRE ATT&CK Capability Mapping]
         Sandbox --> floss[FLOSS: Obfuscated & Stack String Extraction]
         Sandbox --> speakeasy[speakeasy: Windows PE/Syscall Emulation]
         Sandbox --> gampa[gampa: Stripped Go Malware Analysis]
     end
-    
+
     subgraph "Google Digital Forensics & IR"
         Sandbox --> plaso[Plaso / log2timeline: Super-Timeline Extraction]
         Sandbox --> libcloud[cloud-forensics-utils: GCP Disk Forensic Analysis]
         Sandbox --> timesketch[Timesketch CLI: Timeline Correlation]
     end
-    
+
     subgraph "Google & VirusTotal Threat Hunting"
         Sandbox --> yara[yara-x / yara-python: Rule Matching & Precision Testing]
         Sandbox --> vt[vt-cli / vt-py: Threat Graph & Behavioral Tree Querying]
@@ -127,4 +127,3 @@ graph TD
 - **Default-Deny Egress (`network_enabled=False`):** Prevents emulated malware from phoning home to live C2 nodes or probing corporate networks.
 - **Read-Only Input Mounts:** Untrusted disk images, PCAPs, and binaries are mounted read-only.
 - **MicroVM & Kernel Isolation:** gVisor intercepts and isolates all guest Linux syscalls from host kernel memory.
-
