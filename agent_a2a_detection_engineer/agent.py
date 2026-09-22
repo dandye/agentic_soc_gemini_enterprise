@@ -617,6 +617,22 @@ class DynamicMcpToolset(McpToolset):
         return await super().get_tools(readonly_context)
 
 
+DISABLED_MCP_TOOLS: frozenset[str] = frozenset({"create_feed", "update_feed"})
+DISABLED_ONEMCP_TOOLS = DISABLED_MCP_TOOLS
+
+
+def _is_mcp_tool_selected(self, tool, readonly_context=None) -> bool:
+    tool_name = getattr(tool, "name", None) or getattr(
+        getattr(tool, "_mcp_tool", None), "name", None
+    )
+    if tool_name in DISABLED_MCP_TOOLS:
+        return False
+    return super(McpToolset, self)._is_tool_selected(tool, readonly_context)
+
+
+McpToolset._is_tool_selected = _is_mcp_tool_selected
+
+
 class RemoteOneMcpToolset(McpToolset):
     _is_dynamic_initialized: bool = False
 
@@ -626,7 +642,12 @@ class RemoteOneMcpToolset(McpToolset):
         dummy_params = StreamableHTTPConnectionParams(
             url="https://chronicle.us.rep.googleapis.com/mcp", headers={}
         )
-        super().__init__(connection_params=dummy_params, errlog=None, **kwargs)
+        super().__init__(
+            connection_params=dummy_params,
+            tool_filter=tool_filter,
+            errlog=None,
+            **kwargs,
+        )
         self.region = region
         self.project_id = project_id
         self.tool_filter = tool_filter
@@ -657,22 +678,7 @@ class RemoteOneMcpToolset(McpToolset):
             self._is_dynamic_initialized = True
 
         all_tools = await super().get_tools(readonly_context)
-        if not self.tool_filter:
-            return all_tools
-
-        filtered_tools = []
-        for tool in all_tools:
-            tool_name = getattr(tool, "name", None)
-            if not tool_name and hasattr(tool, "_mcp_tool"):
-                tool_name = getattr(tool._mcp_tool, "name", None)
-
-            if tool_name in self.tool_filter:
-                filtered_tools.append(tool)
-
-        logger.info(
-            f"Explicitly filtered Remote OneMCP tools: {len(all_tools)} -> {len(filtered_tools)}"
-        )
-        return filtered_tools
+        return [t for t in all_tools if self._is_tool_selected(t, readonly_context)]
 
 
 async def log_usage_metadata(ctx: Context):
@@ -758,6 +764,17 @@ async def generate_memory(
 async def before_tool_cache(tool, args, tool_context: Context, **kwargs):
     """Checks for a cached result before executing a tool."""
     try:
+        tool_name = getattr(tool, "name", None)
+        if tool_name in DISABLED_ONEMCP_TOOLS:
+            logger.warning(
+                f"Blocked disabled OneMCP feed tool '{tool_name}' before execution."
+            )
+            return {
+                "error": (
+                    f"Tool '{tool_name}' is disabled when OneMCP (remote/hosted MCP) is used."
+                )
+            }
+
         if (
             tool.name == "load_memory"
             and hasattr(tool_context, "_invocation_context")

@@ -4,12 +4,11 @@ Test Threat Hunter Code Execution on Real Telemetry Data.
 Executes mathematical analytics, payload de-obfuscation, and YARA verification.
 """
 
-import binascii
-import json
-import os
 import sys
 from pathlib import Path
+
 from dotenv import load_dotenv
+
 
 # Ensure project root in PYTHONPATH
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -17,12 +16,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 # Load .env
 load_dotenv(Path(".env"), override=True)
 
-from installation_scripts.code_executor_factory import (
+from installation_scripts.code_executor_factory import (  # noqa: E402
     calculate_beaconing_jitter,
     calculate_shannon_entropy,
     deobfuscate_xor_strings,
     detonate_and_capture_forensics,
-    extract_payload_strings,
     validate_and_test_yara_rule,
     verify_sandbox_containment,
 )
@@ -47,7 +45,9 @@ def run_real_data_tests():
 
     for domain, label in domain_samples:
         entropy = calculate_shannon_entropy(domain)
-        verdict = "MALICIOUS DGA / HIGH ENTROPY" if entropy > 3.8 else "BENIGN / STRUCTURED"
+        verdict = (
+            "MALICIOUS DGA / HIGH ENTROPY" if entropy > 3.8 else "BENIGN / STRUCTURED"
+        )
         print(f"  • Domain: {domain:<35} | Entropy: {entropy:.3f} | Verdict: {verdict}")
         print(f"    Context: {label}")
 
@@ -77,7 +77,9 @@ def run_real_data_tests():
     print(f"    - Interval count: {beacon_res['interval_count']}")
     print(f"    - Mean interval: {beacon_res['mean_interval_seconds']:.2f}s")
     print(f"    - Standard deviation: {beacon_res['std_dev_seconds']:.2f}s")
-    print(f"    - Coefficient of variation (CV): {beacon_res['coefficient_of_variation']:.4f}")
+    print(
+        f"    - Coefficient of variation (CV): {beacon_res['coefficient_of_variation']:.4f}"
+    )
     print(f"    - Verdict: {beacon_res['verdict']}")
 
     print("  Evaluating Human / Bursty Web Browsing Stream:")
@@ -85,7 +87,9 @@ def run_real_data_tests():
     print(f"    - Interval count: {human_res['interval_count']}")
     print(f"    - Mean interval: {human_res['mean_interval_seconds']:.2f}s")
     print(f"    - Standard deviation: {human_res['std_dev_seconds']:.2f}s")
-    print(f"    - Coefficient of variation (CV): {human_res['coefficient_of_variation']:.4f}")
+    print(
+        f"    - Coefficient of variation (CV): {human_res['coefficient_of_variation']:.4f}"
+    )
     print(f"    - Verdict: {human_res['verdict']}")
 
     # -------------------------------------------------------------------------
@@ -99,12 +103,12 @@ def run_real_data_tests():
     deobf_results = deobfuscate_xor_strings(hex_payload)
     if deobf_results:
         top = deobf_results[0]
-        print(f"  • Top Candidate Identified:")
+        print("  • Top Candidate Identified:")
         print(f"    - Brute-forced XOR Key: {top['key_hex']} (Decimal {top['key']})")
         print(f"    - Confidence Score: {top['confidence_score']}")
         print(f"    - Decoded Cleartext String: {top['decoded_strings'][0]}")
         print(f"    - Matched Indicators: {top['matched_indicators']}")
-        recovered_c2 = top['decoded_strings'][0]
+        recovered_c2 = top["decoded_strings"][0]
     else:
         print("  • ERROR: No valid candidates found.")
         recovered_c2 = ""
@@ -135,7 +139,7 @@ rule APT29_CozyBear_Stager_Beacon {{
     # Test against positive payload
     test_stream = b"\x90\x90\x90" + recovered_c2.encode("utf-8") + b"\x00"
     verification = validate_and_test_yara_rule(yara_rule_code, test_stream)
-    print(f"  Validation Results:")
+    print("  Validation Results:")
     print(f"    - Syntax Valid: {verification['valid']}")
     print(f"    - Rule Engine: {verification['compiler']}")
     print(f"    - Target Matched: {verification['matches']}")
@@ -158,14 +162,22 @@ echo "[*] Attempting GCP Metadata credential access..."
 curl -s --connect-timeout 2 -H "Metadata-Flavor: Google" http://169.254.169.254/computeMetadata/v1/ || echo "METADATA_ACCESS_BLOCKED"
 echo "[*] Dropper execution finished."
 """
-    detonation_report = detonate_and_capture_forensics(simulated_dropper, payload_type="bash", timeout_sec=10)
-    print(f"  Execution Success: {detonation_report['execution_success']} (Exit code {detonation_report['exit_code']})")
+    detonation_report = detonate_and_capture_forensics(
+        simulated_dropper, payload_type="bash", timeout_sec=10
+    )
+    print(
+        f"  Execution Success: {detonation_report['execution_success']} (Exit code {detonation_report['exit_code']})"
+    )
     print(f"  Execution Time: {detonation_report['execution_time_ms']} ms")
     print(f"  C2 Beaconing Prevented: {detonation_report['c2_callbacks_prevented']}")
-    print(f"  GCP Metadata Theft Prevented: {detonation_report['metadata_theft_prevented']}")
+    print(
+        f"  GCP Metadata Theft Prevented: {detonation_report['metadata_theft_prevented']}"
+    )
     print(f"  Dropped Artifacts Recovered: {detonation_report['dropped_files_count']}")
     for artifact in detonation_report["dropped_artifacts"]:
-        print(f"    • {artifact['filename']} ({artifact['size_bytes']} bytes) | SHA-256: {artifact['sha256']}")
+        print(
+            f"    • {artifact['filename']} ({artifact['size_bytes']} bytes) | SHA-256: {artifact['sha256']}"
+        )
         print(f"      Preview: {artifact['preview'][:80]}")
 
     # -------------------------------------------------------------------------
@@ -174,9 +186,15 @@ echo "[*] Dropper execution finished."
     print("\n[TEST 6] Zero-Trust Sandbox Isolation & Credential Shielding Audit:")
     containment_audit = verify_sandbox_containment()
     print(f"  Overall Hardened Verdict: {containment_audit['verdict']}")
-    print(f"  Metadata Server Shielded: {containment_audit['metadata_shielded']} ({containment_audit['metadata_status']})")
-    print(f"  Host Environment Secrets Stripped: {containment_audit['env_credentials_shielded']}")
-    print(f"  External Outbound Egress Blocked: {containment_audit['egress_denied']} ({containment_audit['egress_status']})")
+    print(
+        f"  Metadata Server Shielded: {containment_audit['metadata_shielded']} ({containment_audit['metadata_status']})"
+    )
+    print(
+        f"  Host Environment Secrets Stripped: {containment_audit['env_credentials_shielded']}"
+    )
+    print(
+        f"  External Outbound Egress Blocked: {containment_audit['egress_denied']} ({containment_audit['egress_status']})"
+    )
 
     print("\n" + "=" * 80)
     print("ALL REAL DATA TESTS COMPLETED SUCCESSFULLY!")

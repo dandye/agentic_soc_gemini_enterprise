@@ -707,6 +707,8 @@ def _apply_runtime_patches():
             return result
 
         McpTool._run_async_impl = _patched_run_async_impl
+        if "_is_mcp_tool_selected" in globals():
+            McpToolset._is_tool_selected = _is_mcp_tool_selected
         logger.warning(
             "[RUNTIME_PATCH_DEBUG] Successfully patched McpTool._run_async_impl"
         )
@@ -1918,6 +1920,17 @@ async def before_tool_cache(tool, args, tool_context: Context, **kwargs):
     This prevents redundant API calls and saves execution time/tokens.
     """
     try:
+        tool_name = getattr(tool, "name", None)
+        if tool_name in DISABLED_ONEMCP_TOOLS:
+            logger.warning(
+                f"Blocked disabled OneMCP feed tool '{tool_name}' before execution."
+            )
+            return {
+                "error": (
+                    f"Tool '{tool_name}' is disabled when OneMCP (remote/hosted MCP) is used."
+                )
+            }
+
         # SHARED MEMORY SCOPE OVERRIDE
         # Override the search_memory method on this specific context instance
         # to force LoadMemoryTool (on-demand) to retrieve from the global team scope.
@@ -2642,6 +2655,22 @@ def get_secops_headers(context) -> dict[str, str]:
         headers["Authorization"] = f"Bearer {user_token}"
 
     return headers
+
+
+DISABLED_MCP_TOOLS: frozenset[str] = frozenset({"create_feed", "update_feed"})
+DISABLED_ONEMCP_TOOLS = DISABLED_MCP_TOOLS
+
+
+def _is_mcp_tool_selected(self, tool, readonly_context=None) -> bool:
+    tool_name = getattr(tool, "name", None) or getattr(
+        getattr(tool, "_mcp_tool", None), "name", None
+    )
+    if tool_name in DISABLED_MCP_TOOLS:
+        return False
+    return super(McpToolset, self)._is_tool_selected(tool, readonly_context)
+
+
+McpToolset._is_tool_selected = _is_mcp_tool_selected
 
 
 def create_remote_secops_toolset(region, tool_filter=None) -> McpToolset:

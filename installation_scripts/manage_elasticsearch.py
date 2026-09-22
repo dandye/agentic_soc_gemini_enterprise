@@ -407,7 +407,7 @@ class ElasticsearchManager:
 
 @app.command()
 def create(
-    env_file: Annotated[Path, typer.Option(help="Path to .env file")] = Path(".env")
+    env_file: Annotated[Path, typer.Option(help="Path to .env file")] = Path(".env"),
 ):
     """Recreate the Elasticsearch index (deletes existing data)."""
     manager = ElasticsearchManager(env_file)
@@ -468,7 +468,7 @@ def search(
 
 @app.command()
 def info(
-    env_file: Annotated[Path, typer.Option(help="Path to .env file")] = Path(".env")
+    env_file: Annotated[Path, typer.Option(help="Path to .env file")] = Path(".env"),
 ):
     """Show details about the Elasticsearch index."""
     manager = ElasticsearchManager(env_file)

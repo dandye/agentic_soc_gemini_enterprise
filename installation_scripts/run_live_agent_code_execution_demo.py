@@ -8,7 +8,9 @@ import asyncio
 import os
 import sys
 from pathlib import Path
+
 from dotenv import load_dotenv
+
 
 # Ensure project root in path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -21,13 +23,22 @@ os.environ["GOOGLE_API_USE_MTLS_ENDPOINT"] = "never"
 os.environ["GOOGLE_API_USE_CLIENT_CERTIFICATE"] = "false"
 os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "TRUE"
 
-from google.adk.runners import Runner
-from google.adk.sessions.in_memory_session_service import InMemorySessionService
-from google.adk.artifacts.in_memory_artifact_service import InMemoryArtifactService
-from google.genai.types import Content, Part
-from google.adk.agents import Agent
-from installation_scripts.code_executor_factory import get_code_executor
-from test_agents.soc_code_analysis_agent.agent import SYSTEM_INSTRUCTION
+from google.adk.agents import Agent  # noqa: E402
+from google.adk.artifacts.in_memory_artifact_service import (  # noqa: E402
+    InMemoryArtifactService,
+)
+from google.adk.runners import Runner  # noqa: E402
+from google.adk.sessions.in_memory_session_service import (  # noqa: E402
+    InMemorySessionService,
+)
+from google.genai.types import Content, Part  # noqa: E402
+
+from installation_scripts.code_executor_factory import (  # noqa: E402
+    get_code_executor,
+)
+from test_agents.soc_code_analysis_agent.agent import (  # noqa: E402
+    SYSTEM_INSTRUCTION,
+)
 
 
 async def run_live_code_execution_session():
