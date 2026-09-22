@@ -36,13 +36,11 @@ class TestSocManagerRemoteOneMcpToolset:
         assert toolset._is_tool_selected(_DummyTool("list_rules"), None)
         assert toolset._is_tool_selected(_DummyTool("udm_search"), None)
 
-    def test_list_tool_filter_strips_create_and_update_feed(self):
+    def test_list_tool_filter_blocks_create_and_update_feed(self):
         toolset = soc_manager_agent.create_remote_secops_toolset(
             "us",
             tool_filter=["list_rules", "create_feed", "update_feed", "udm_search"],
         )
-        assert "create_feed" not in toolset.tool_filter
-        assert "update_feed" not in toolset.tool_filter
         assert not toolset._is_tool_selected(_DummyTool("create_feed"), None)
         assert not toolset._is_tool_selected(_DummyTool("update_feed"), None)
         assert toolset._is_tool_selected(_DummyTool("list_rules"), None)
@@ -70,32 +68,22 @@ class TestSocManagerRemoteOneMcpToolset:
         assert not toolset._is_tool_selected(_DummyTool("update_feed"), None)
         assert toolset._is_tool_selected(_DummyTool("list_rules"), None)
 
-    def test_tool_filter_is_picklable_for_reasoning_engine(self):
+    def test_tool_filter_remains_natively_picklable(self):
         toolset = soc_manager_agent.create_remote_secops_toolset("us", tool_filter=None)
         dumped = pickle.dumps(toolset.tool_filter)
         loaded_filter = pickle.loads(dumped)  # noqa: S301
-        assert not loaded_filter(_DummyTool("create_feed"), None)
-        assert not loaded_filter(_DummyTool("update_feed"), None)
-        assert loaded_filter(_DummyTool("list_rules"), None)
+        assert loaded_filter is None
+        assert not toolset._is_tool_selected(_DummyTool("create_feed"), None)
+        assert not toolset._is_tool_selected(_DummyTool("update_feed"), None)
+        assert toolset._is_tool_selected(_DummyTool("list_rules"), None)
 
-    @pytest.mark.asyncio
-    async def test_get_tools_excludes_create_and_update_feed(self):
-        toolset = soc_manager_agent.create_remote_secops_toolset("us", tool_filter=None)
-        mock_tools = [
-            _DummyTool("list_rules"),
-            _DummyTool("create_feed"),
-            _DummyTool("update_feed"),
-            _DummyTool("get_feed"),
-        ]
-        with patch.object(
-            McpToolset, "get_tools", new=AsyncMock(return_value=mock_tools)
-        ):
-            tools = await toolset.get_tools()
-            names = [t.name for t in tools]
-            assert "create_feed" not in names
-            assert "update_feed" not in names
-            assert "list_rules" in names
-            assert "get_feed" in names
+    def test_local_dynamic_mcp_toolset_also_blocks_feed_tools(self):
+        local_toolset = threat_hunter_agent.DynamicMcpToolset(
+            mcp_module="secops_mcp.server", target_env={}
+        )
+        assert not local_toolset._is_tool_selected(_DummyTool("create_feed"), None)
+        assert not local_toolset._is_tool_selected(_DummyTool("update_feed"), None)
+        assert local_toolset._is_tool_selected(_DummyTool("udm_search"), None)
 
     @pytest.mark.asyncio
     async def test_before_tool_cache_blocks_create_and_update_feed(self):
@@ -152,8 +140,6 @@ class TestDetectionEngineerRemoteOneMcpToolset:
             tool_filter=["list_rules", "create_feed", "update_feed"],
         )
         toolset._is_dynamic_initialized = True
-        assert "create_feed" not in toolset.tool_filter
-        assert "update_feed" not in toolset.tool_filter
 
         mock_tools = [
             _DummyTool("list_rules"),

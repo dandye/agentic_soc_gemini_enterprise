@@ -702,7 +702,23 @@ async def generate_memory(
         )
 
 
-DISABLED_ONEMCP_TOOLS: frozenset[str] = frozenset({"create_feed", "update_feed"})
+from google.adk.tools.base_toolset import BaseToolset  # noqa: E402
+
+DISABLED_MCP_TOOLS: frozenset[str] = frozenset({"create_feed", "update_feed"})
+DISABLED_ONEMCP_TOOLS = DISABLED_MCP_TOOLS
+_orig_base_is_tool_selected = BaseToolset._is_tool_selected
+
+
+def _is_mcp_tool_selected(self, tool, readonly_context=None) -> bool:
+    tool_name = getattr(tool, "name", None) or getattr(
+        getattr(tool, "_mcp_tool", None), "name", None
+    )
+    if tool_name in DISABLED_MCP_TOOLS:
+        return False
+    return _orig_base_is_tool_selected(self, tool, readonly_context)
+
+
+McpToolset._is_tool_selected = _is_mcp_tool_selected
 
 
 async def before_tool_cache(tool, args, tool_context: Context, **kwargs):

@@ -617,7 +617,23 @@ class DynamicMcpToolset(McpToolset):
         return await super().get_tools(readonly_context)
 
 
-DISABLED_ONEMCP_TOOLS: frozenset[str] = frozenset({"create_feed", "update_feed"})
+from google.adk.tools.base_toolset import BaseToolset  # noqa: E402
+
+DISABLED_MCP_TOOLS: frozenset[str] = frozenset({"create_feed", "update_feed"})
+DISABLED_ONEMCP_TOOLS = DISABLED_MCP_TOOLS
+_orig_base_is_tool_selected = BaseToolset._is_tool_selected
+
+
+def _is_mcp_tool_selected(self, tool, readonly_context=None) -> bool:
+    tool_name = getattr(tool, "name", None) or getattr(
+        getattr(tool, "_mcp_tool", None), "name", None
+    )
+    if tool_name in DISABLED_MCP_TOOLS:
+        return False
+    return _orig_base_is_tool_selected(self, tool, readonly_context)
+
+
+McpToolset._is_tool_selected = _is_mcp_tool_selected
 
 
 class RemoteOneMcpToolset(McpToolset):
@@ -629,34 +645,15 @@ class RemoteOneMcpToolset(McpToolset):
         dummy_params = StreamableHTTPConnectionParams(
             url="https://chronicle.us.rep.googleapis.com/mcp", headers={}
         )
-        sanitized_filter = (
-            [t for t in tool_filter if t not in DISABLED_ONEMCP_TOOLS]
-            if isinstance(tool_filter, (list, tuple, set, frozenset))
-            else tool_filter
-        )
         super().__init__(
             connection_params=dummy_params,
-            tool_filter=sanitized_filter,
+            tool_filter=tool_filter,
             errlog=None,
             **kwargs,
         )
         self.region = region
         self.project_id = project_id
-        self.tool_filter = sanitized_filter
-
-    def _is_tool_selected(self, tool, readonly_context=None) -> bool:
-        tool_name = getattr(tool, "name", None)
-        if not tool_name and hasattr(tool, "_mcp_tool"):
-            tool_name = getattr(tool._mcp_tool, "name", None)
-        if tool_name in DISABLED_ONEMCP_TOOLS:
-            return False
-        if (
-            self.tool_filter is not None
-            and isinstance(self.tool_filter, list)
-            and len(self.tool_filter) == 0
-        ):
-            return False
-        return super()._is_tool_selected(tool, readonly_context)
+        self.tool_filter = tool_filter
 
     async def get_tools(self, readonly_context=None) -> list:
         if not getattr(self, "_is_dynamic_initialized", False):
@@ -684,28 +681,7 @@ class RemoteOneMcpToolset(McpToolset):
             self._is_dynamic_initialized = True
 
         all_tools = await super().get_tools(readonly_context)
-        filtered_tools = []
-        for tool in all_tools:
-            tool_name = getattr(tool, "name", None)
-            if not tool_name and hasattr(tool, "_mcp_tool"):
-                tool_name = getattr(tool._mcp_tool, "name", None)
-
-            if tool_name in DISABLED_ONEMCP_TOOLS:
-                continue
-
-            if self.tool_filter is not None:
-                if callable(self.tool_filter):
-                    if not self.tool_filter(tool, readonly_context):
-                        continue
-                elif tool_name not in self.tool_filter:
-                    continue
-
-            filtered_tools.append(tool)
-
-        logger.info(
-            f"Explicitly filtered Remote OneMCP tools: {len(all_tools)} -> {len(filtered_tools)}"
-        )
-        return filtered_tools
+        return [t for t in all_tools if self._is_tool_selected(t, readonly_context)]
 
 
 async def log_usage_metadata(ctx: Context):

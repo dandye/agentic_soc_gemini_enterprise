@@ -2655,74 +2655,36 @@ def get_secops_headers(context) -> dict[str, str]:
     return headers
 
 
-DISABLED_ONEMCP_TOOLS: frozenset[str] = frozenset({"create_feed", "update_feed"})
+from google.adk.tools.base_toolset import BaseToolset  # noqa: E402
+
+DISABLED_MCP_TOOLS: frozenset[str] = frozenset({"create_feed", "update_feed"})
+DISABLED_ONEMCP_TOOLS = DISABLED_MCP_TOOLS
+_orig_base_is_tool_selected = BaseToolset._is_tool_selected
 
 
-class OneMcpToolFilter:
-    """Picklable ToolPredicate that disables create_feed and update_feed on OneMCP."""
-
-    def __init__(self, inner_filter=None):
-        self.inner_filter = inner_filter
-
-    def __call__(self, tool, readonly_context=None) -> bool:
-        tool_name = getattr(tool, "name", None)
-        if not tool_name and hasattr(tool, "_mcp_tool"):
-            tool_name = getattr(tool._mcp_tool, "name", None)
-        if tool_name in DISABLED_ONEMCP_TOOLS:
-            return False
-        if self.inner_filter is None:
-            return True
-        if callable(self.inner_filter):
-            return bool(self.inner_filter(tool, readonly_context))
-        if isinstance(self.inner_filter, (list, tuple, set, frozenset)):
-            return tool_name in self.inner_filter
+def _is_mcp_tool_selected(self, tool, readonly_context=None) -> bool:
+    tool_name = getattr(tool, "name", None) or getattr(
+        getattr(tool, "_mcp_tool", None), "name", None
+    )
+    if tool_name in DISABLED_MCP_TOOLS:
         return False
+    return _orig_base_is_tool_selected(self, tool, readonly_context)
 
 
-class RemoteSecOpsMcpToolset(McpToolset):
-    """Remote SecOps OneMCP Toolset that enforces exclusion of create_feed and update_feed."""
-
-    def _is_tool_selected(self, tool, readonly_context=None) -> bool:
-        tool_name = getattr(tool, "name", None)
-        if not tool_name and hasattr(tool, "_mcp_tool"):
-            tool_name = getattr(tool._mcp_tool, "name", None)
-        if tool_name in DISABLED_ONEMCP_TOOLS:
-            return False
-        if (
-            self.tool_filter is not None
-            and isinstance(self.tool_filter, list)
-            and len(self.tool_filter) == 0
-        ):
-            return False
-        return super()._is_tool_selected(tool, readonly_context)
-
-    async def get_tools(self, readonly_context=None) -> list:
-        all_tools = await super().get_tools(readonly_context)
-        return [t for t in all_tools if self._is_tool_selected(t, readonly_context)]
+McpToolset._is_tool_selected = _is_mcp_tool_selected
 
 
 def create_remote_secops_toolset(region, tool_filter=None) -> McpToolset:
     # Remote OneMCP pattern: https://chronicle.{region}.rep.googleapis.com/mcp
     secops_mcp_url = f"https://chronicle.{region}.rep.googleapis.com/mcp"
     logger.info(f"Initializing Remote MCP Toolset with URL: {secops_mcp_url}")
-    if tool_filter is None:
-        effective_tool_filter = OneMcpToolFilter()
-    elif isinstance(tool_filter, (list, tuple, set, frozenset)):
-        effective_tool_filter = [
-            t for t in tool_filter if t not in DISABLED_ONEMCP_TOOLS
-        ]
-    elif callable(tool_filter):
-        effective_tool_filter = OneMcpToolFilter(inner_filter=tool_filter)
-    else:
-        effective_tool_filter = tool_filter
-
-    return RemoteSecOpsMcpToolset(
+    return McpToolset(
         connection_params=StreamableHTTPConnectionParams(
             url=secops_mcp_url,
             timeout=90.0,  # Increase timeout to 90 seconds to prevent cold-start timeouts
         ),
         header_provider=get_secops_headers,
-        tool_filter=effective_tool_filter,
+        tool_filter=tool_filter,
         errlog=None,  # explicitly None to prevent sys.stderr capturing (which cannot be pickled)
     )
 
