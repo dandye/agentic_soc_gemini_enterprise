@@ -1,0 +1,45 @@
+{
+  "criteria": {
+    "tool_trajectory_avg_score": 0.5,
+    "response_match_score": 0.25,
+    "rubric_based_final_response_quality_v1": {
+      "threshold": 0.8,
+      "judge_model_options": {
+        "judge_model": "gemini-2.5-flash",
+        "num_samples": 1
+      },
+      "rubrics": [
+        {
+          "rubric_id": "rubric_multi_modal_knowledge_grounding",
+          "rubric_content": {
+            "text_property": "The agent accurately grounds its responses in enterprise knowledge stores (Neo4j graph topologies, AlloyDB asset catalog metadata, past investigation memory notes, or RAG playbook guidelines) without hallucinating ungrounded infrastructure details."
+          },
+          "description": "Checks grounding across enterprise knowledge planes."
+        },
+        {
+          "rubric_id": "rubric_actionable_soc_synthesis",
+          "rubric_content": {
+            "text_property": "The agent synthesizes raw telemetry and query results into actionable SOC intelligence, clearly highlighting asset criticality, lateral movement paths, past analyst hypotheses, or runbook remediation steps."
+          },
+          "description": "Checks synthesis quality and actionable recommendations for SOC analysts."
+        }
+      ]
+    },
+    "rubric_based_tool_use_quality_v1": {
+      "threshold": 0.8,
+      "judge_model_options": {
+        "judge_model": "gemini-2.5-flash",
+        "num_samples": 1
+      },
+      "rubrics": [
+        {
+          "rubric_id": "rubric_knowledge_plane_routing",
+          "rubric_content": {
+            "text_property": "The agent selects the appropriate tool or sub-agent for the inquiry: query_knowledge_graph for topological / lateral movement relationships, query_asset_catalog for asset criticality and owner metadata, query_investigation_memory for cross-session notes and hypotheses, and rag_knowledge_specialist for IRP playbooks and threat actor TTPs."
+          },
+          "description": "Checks tool and sub-agent routing precision."
+        }
+      ]
+    }
+  }
+}
