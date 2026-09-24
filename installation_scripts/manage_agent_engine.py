@@ -602,6 +602,61 @@ class AgentEngineManager:
             description=description,
         )
 
+    def _validate_and_resolve_extra_packages(self, extra_packages: list[str]) -> bool:
+        """
+        Validate that all extra_packages exist on disk.
+
+        If missing packages are under external/, attempt to auto-initialize git submodules.
+        Returns True if all packages exist, False otherwise.
+        """
+        missing_packages = [p for p in extra_packages if not Path(p).exists()]
+        if not missing_packages:
+            return True
+
+        submodule_missing = [
+            p
+            for p in missing_packages
+            if "external" in Path(p).parts or p.startswith("external/")
+        ]
+        if submodule_missing:
+            typer.secho(
+                "Missing git submodule packages. Attempting automatic submodule initialization...",
+                fg=typer.colors.YELLOW,
+            )
+            try:
+                import subprocess
+
+                subprocess.run(
+                    ["git", "submodule", "update", "--init", "--recursive"],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+                typer.secho(
+                    "Git submodules initialized successfully.",
+                    fg=typer.colors.GREEN,
+                )
+                missing_packages = [p for p in extra_packages if not Path(p).exists()]
+            except Exception as e:
+                typer.secho(
+                    f"Failed to auto-initialize git submodules: {e}",
+                    fg=typer.colors.RED,
+                )
+
+        if missing_packages:
+            typer.secho(" Configuration Error", fg=typer.colors.RED, bold=True)
+            typer.echo()
+            typer.echo("The following required extra_packages were not found on disk:")
+            for pkg in missing_packages:
+                typer.echo(f"  - {pkg}")
+            typer.echo()
+            typer.echo(
+                "Run 'just submodules' or 'git submodule update --init --recursive' to initialize submodules."
+            )
+            return False
+
+        return True
+
     def _deploy_agent_internal(
         self,
         agent_module: str = "agent_soc_manager",
@@ -1000,6 +1055,10 @@ class AgentEngineManager:
             ]
             if not use_secret_manager:
                 extra_packages.append(sa_filename)
+
+            # Pre-flight check: ensure all extra_packages exist before calling Vertex AI
+            if not self._validate_and_resolve_extra_packages(extra_packages):
+                return None
 
             # Resolve the service account email to bind to the Reasoning Engine
             custom_re_sa = os.environ.get("REASONING_ENGINE_SERVICE_ACCOUNT")
