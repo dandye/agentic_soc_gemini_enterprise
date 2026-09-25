@@ -84,6 +84,7 @@ AGENT_DISPLAY_NAMES = {
     "agent_a2a_cti_researcher": "SecOps Security Agent - CTI Researcher",
     "agent_a2a_detection_engineer": "SecOps Security Agent - Detection Engineer",
     "agent_soc_manager": "SecOps Security Agent - Orchestrator",
+    "agent_soc_router": "SecOps Security Agent - Decision Router",
 }
 
 
@@ -989,6 +990,7 @@ class AgentEngineManager:
             extra_packages = [
                 "installation_scripts/install.sh",  # installs MCP server packages
                 "agent_soc_manager",
+                "agent_soc_router",
                 "agent_a2a_tier2",
                 "agent_a2a_threat_hunter",
                 "agent_a2a_cti_researcher",
@@ -1038,6 +1040,8 @@ class AgentEngineManager:
                     "google-cloud-discoveryengine",
                     "pydantic",
                     "python-dotenv",
+                    "gliner2[local]",
+                    "torch>=2.2.0",
                     "httpx>=0.28.1",
                     "mcp[cli]>=1.4.1,<1.27.0",
                     "secops>=0.18.0",
