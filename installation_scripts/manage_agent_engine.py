@@ -17,6 +17,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Annotated
 
+# Ensure repository root is in sys.path before importing local modules
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
 import typer
 import vertexai
 from dotenv import load_dotenv, set_key
@@ -29,6 +34,18 @@ from google.cloud.aiplatform_v1beta1 import (
 )
 from vertexai import agent_engines
 from vertexai.preview.reasoning_engines import AdkApp
+
+# Bypass Cloudtop internal mTLS cert provider subprocess exit code -11
+os.environ["GOOGLE_API_USE_CLIENT_CERTIFICATE"] = "false"
+os.environ["GOOGLE_API_USE_MTLS_ENDPOINT"] = "never"
+os.environ["CLOUDSDK_CONTEXT_AWARE_USE_CLIENT_CERTIFICATE"] = "false"
+try:
+    import google.auth.transport._mtls_helper as _mtls_helper
+    _mtls_helper.has_client_certificate = lambda: False
+    _mtls_helper.get_client_cert_and_key = lambda: (False, None, None)
+    _mtls_helper.get_client_ssl_credentials = lambda *args, **kwargs: (False, None, None, None)
+except Exception:
+    pass
 
 # Added AgentSpaceManager for synchronized UI purges
 from installation_scripts.manage_gem_ent import AgentSpaceManager
@@ -987,7 +1004,7 @@ class AgentEngineManager:
                 f"{action_verb} agent engine to Gemini Enterprise Agent Platform as '{display_name}'..."
             )
 
-            extra_packages = [
+            candidate_packages = [
                 "installation_scripts/install.sh",  # installs MCP server packages
                 "agent_soc_manager",
                 "agent_soc_router",
@@ -1000,7 +1017,8 @@ class AgentEngineManager:
                 "external/mcp-security/server/gti",
                 "external/mcp-security/server/scc",
             ]
-            if not use_secret_manager:
+            extra_packages = [p for p in candidate_packages if os.path.exists(p)]
+            if not use_secret_manager and sa_filename and os.path.exists(sa_filename):
                 extra_packages.append(sa_filename)
 
             # Resolve the service account email to bind to the Reasoning Engine
