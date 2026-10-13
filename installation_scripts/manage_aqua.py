@@ -181,9 +181,13 @@ def create_source_snapshot(
         if not module_dir.exists():
             continue
         for src_file in sorted(module_dir.rglob("*")):
-            if src_file.is_dir():
+            if not src_file.is_file():
                 continue
-            if "__pycache__" in src_file.parts or src_file.suffix in (".pyc", ".pyo"):
+            if (
+                "__pycache__" in src_file.parts
+                or ".git" in src_file.parts
+                or src_file.suffix in (".pyc", ".pyo")
+            ):
                 continue
             rel_path = src_file.relative_to(root).as_posix()
             dst_file = rev_dir / rel_path

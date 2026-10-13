@@ -874,8 +874,16 @@ class AgentEngineManager:
                 # Copy to the root of the deployment directory instead of inside the module
                 dest_dir = Path(".")
                 dest_dir.mkdir(parents=True, exist_ok=True)
-                shutil.copy(CHRONICLE_SERVICE_ACCOUNT_PATH, dest_dir)
                 sa_filename = Path(CHRONICLE_SERVICE_ACCOUNT_PATH).name
+                dest_sa_path = dest_dir / sa_filename
+                if (
+                    not dest_sa_path.exists()
+                    or dest_sa_path.read_bytes()
+                    != Path(CHRONICLE_SERVICE_ACCOUNT_PATH).read_bytes()
+                ):
+                    tmp_sa_path = dest_dir / f".{sa_filename}.{os.getpid()}.tmp"
+                    shutil.copy(CHRONICLE_SERVICE_ACCOUNT_PATH, tmp_sa_path)
+                    os.replace(tmp_sa_path, dest_sa_path)
                 typer.echo(
                     f"Copied service account file ({sa_filename}) to project root for deployment"
                 )
