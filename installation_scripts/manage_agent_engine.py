@@ -58,6 +58,108 @@ from installation_scripts.env_validation import (
 )
 
 
+AGENT_OTEL_SERVICE_NAMES: dict[str, str] = {
+    "agent_soc_manager": "adk-soc-manager",
+    "agent_a2a_tier2": "adk-a2a-tier2",
+    "agent_a2a_threat_hunter": "adk-a2a-threat-hunter",
+    "agent_a2a_detection_engineer": "adk-a2a-detection-engineer",
+    "agent_a2a_cti_researcher": "adk-a2a-cti-researcher",
+}
+
+VALID_AQUA_TELEMETRY_MODES = ("cloud_logging", "cloud_ops", "big_query")
+
+
+def get_otel_service_name(agent_module: str) -> str:
+    """Return the distinct OpenTelemetry service name for a given agent module."""
+    if agent_module in AGENT_OTEL_SERVICE_NAMES:
+        return AGENT_OTEL_SERVICE_NAMES[agent_module]
+    normalized = agent_module.removeprefix("agent_").replace("_", "-")
+    return f"adk-{normalized}"
+
+
+def build_aqua_telemetry_config(
+    agent_module: str, env: dict[str, str] | None = None
+) -> dict[str, str]:
+    """Build AQuA-compatible OpenTelemetry and BigQuery ingestion environment variables."""
+    source_env = env if env is not None else os.environ
+    mode = source_env.get("AQUA_TELEMETRY_MODE", "cloud_logging").strip()
+    if mode not in VALID_AQUA_TELEMETRY_MODES:
+        raise ValueError(
+            f"Unsupported AQUA_TELEMETRY_MODE '{mode}'. Expected one of {VALID_AQUA_TELEMETRY_MODES}."
+        )
+
+    config = {
+        "GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY": "TRUE",
+        "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT": "TRUE",
+        "OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT": "32768",
+        "OTEL_SPAN_ATTRIBUTE_VALUE_LENGTH_LIMIT": "32768",
+        "OTEL_SERVICE_NAME": get_otel_service_name(agent_module),
+        "OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED": "TRUE",
+        "AQUA_TELEMETRY_SOURCE": mode,
+    }
+    if mode == "cloud_logging":
+        config["AQUA_TELEMETRY_DATASET"] = source_env.get(
+            "AQUA_TELEMETRY_DATASET", "telemetry"
+        )
+        config["AQUA_TELEMETRY_TABLE"] = source_env.get(
+            "AQUA_TELEMETRY_TABLE", "agent_telemetry_data"
+        )
+        config["AQUA_LOG_FILTER"] = source_env.get(
+            "AQUA_LOG_FILTER", "gen_ai_client_inference_operation_details"
+        )
+    elif mode == "cloud_ops":
+        config["AQUA_TELEMETRY_DATASET"] = source_env.get(
+            "AQUA_TELEMETRY_DATASET", "telemetry"
+        )
+        config["AQUA_TELEMETRY_TABLE"] = source_env.get(
+            "AQUA_TELEMETRY_TABLE", "_AllSpans"
+        )
+    elif mode == "big_query":
+        config["AQUA_TELEMETRY_DATASET"] = source_env.get(
+            "AQUA_TELEMETRY_DATASET", "agent_analytics"
+        )
+        config["AQUA_TELEMETRY_TABLE"] = source_env.get(
+            "AQUA_TELEMETRY_TABLE", "agent_events"
+        )
+        config["BIGQUERY_AGENT_ANALYTICS_ENABLED"] = "TRUE"
+    return config
+
+
+def maybe_build_bigquery_analytics_plugin(
+    agent_module: str | dict[str, str] | None = None,
+    env: dict[str, str] | None = None,
+):
+    """Instantiate BigQueryAgentAnalyticsPlugin when AQUA_TELEMETRY_MODE=big_query and dependencies exist."""
+    if isinstance(agent_module, dict) and env is None:
+        source_env = agent_module
+    else:
+        source_env = env if env is not None else os.environ
+    mode = source_env.get("AQUA_TELEMETRY_MODE", "cloud_logging").strip()
+    if mode != "big_query":
+        return None
+    project_id = source_env.get("GCP_PROJECT_ID") or source_env.get("PROJECT_ID")
+    if not project_id:
+        return None
+    dataset_id = source_env.get("AQUA_TELEMETRY_DATASET", "agent_analytics")
+    table_id = source_env.get("AQUA_TELEMETRY_TABLE", "agent_events")
+    try:
+        from google.adk.plugins.bigquery_agent_analytics_plugin import (
+            BigQueryAgentAnalyticsPlugin,
+        )
+
+        return BigQueryAgentAnalyticsPlugin(
+            project_id=project_id,
+            dataset_id=dataset_id,
+            table_id=table_id,
+        )
+    except Exception as exc:
+        logging.warning(
+            "BigQueryAgentAnalyticsPlugin unavailable (%s); falling back to span telemetry.",
+            exc,
+        )
+        return None
+
+
 app = typer.Typer(
     add_completion=False,
     help="Manage Agent Engine instances in Gemini Enterprise Agent Platform for the Google MCP Security Agent.",
@@ -830,15 +932,20 @@ class AgentEngineManager:
                 return GcsArtifactService(bucket_name=bucket_name)
 
             typer.echo("Creating ADK app...")
-            app = AdkApp(
-                agent=agent,
-                enable_tracing=True,
-                artifact_service_builder=build_artifact_service,
-            )
+            bq_plugin = maybe_build_bigquery_analytics_plugin()
+            adk_app_kwargs = {
+                "agent": agent,
+                "enable_tracing": True,
+                "artifact_service_builder": build_artifact_service,
+            }
+            if bq_plugin is not None:
+                adk_app_kwargs["plugins"] = [bq_plugin]
+            app = AdkApp(**adk_app_kwargs)
             # Get environment variables for deployment
             # HYBRID APPROACH:
             # - RAG sub-agent uses Vertex AI (initialized in agent code)
             # - Other agents use Gemini API key (no location restrictions!)
+            aqua_telemetry_vars = build_aqua_telemetry_config(agent_module)
             env_vars = {
                 "CHRONICLE_PROJECT_ID": os.environ.get("CHRONICLE_PROJECT_ID"),
                 "CHRONICLE_CUSTOMER_ID": os.environ.get("CHRONICLE_CUSTOMER_ID"),
@@ -859,13 +966,8 @@ class AgentEngineManager:
                 # See: https://github.com/google/adk-python/issues/3628
                 "GOOGLE_CLOUD_LOCATION": "global",
                 "GOOGLE_GENAI_USE_VERTEXAI": "TRUE",
-                # OpenTelemetry Tracing and Logging
-                "GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY": "TRUE",
-                "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT": "TRUE",
-                "OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT": "32768",  # Truncate large tool payloads to prevent 64KB GCP Trace limit crash
-                "OTEL_SPAN_ATTRIBUTE_VALUE_LENGTH_LIMIT": "32768",
-                "OTEL_SERVICE_NAME": "adk-soc-agent",
-                "OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED": "TRUE",
+                # OpenTelemetry Tracing and AQuA BigQuery Ingestion
+                **aqua_telemetry_vars,
                 # GTI Response Caching (Latency Optimization)
                 "GTI_CACHE_ENABLED": os.environ.get("GTI_CACHE_ENABLED", "True"),
                 "GTI_CACHE_FILE_TTL": os.environ.get(

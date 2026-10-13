@@ -2,12 +2,12 @@
 type: "Documentation"
 title: "SecOps Agent Scientific Hypothesis Registry"
 description: "Centralized ledger of falsifiable architectural and cognitive hypotheses tested across the agent optimization lifecycle, linking empirical evidence to design decisions."
-resource: "file:///Users/dandye/Projects/agentic_soc_agentspace__worktrees/harvest_detection_reports/evalsets/HYPOTHESES.md"
-timestamp: "2026-06-19T14:55:00Z"
+resource: "evalsets/HYPOTHESES.md"
+timestamp: "2026-10-13T17:28:00Z"
 provenance:
   source_type: "generative_ai"
   source_tool: "Antigravity"
-  timestamp: "2026-06-19T14:55:00Z"
+  timestamp: "2026-10-13T17:28:00Z"
 ---
 
 # SecOps Agent Scientific Hypothesis Registry
@@ -86,3 +86,18 @@ This registry serves as the central scientific ledger for the Agentic SOC projec
     *   *Hardened Turing Test Run*: Raised the overall quality grade from a baseline of **30.0%** to a stunning **95.0% (EXPERT)**.
     *   *Metric Breakdown*: Achieved **100%** on Timeline Accuracy, **100%** on Containment Precision, and **90%** on Telemetry Coverage.
     *   *Cognitive Breakthroughs*: Successfully avoided Rubeus temporal conflation, resolved the remote Chronicle schema mismatches via ADC/camelCase token integration, and demonstrated resilience by confidently closing the case as a False Positive despite a remote `list_cases` SOAR backend failure.
+
+---
+
+### `HYP-007`: Two-Loop Agent Quality Flywheel & Ambient Quality Agent (AQuA) Outer-Loop Diagnosis
+*   **Hypothesis Statement:** If we pair our offline inner-loop evaluation and atomic prompt optimization pipeline (`manage_eval.py`, `test_adk_evals.py`, `multi_turn_pivots.evalset.json`) with an Ambient Quality Agent (AQuA) outer-loop diagnostic sidecar (`manage_aqua.py`, `aqua/eval_config.yaml`, `aqua/custom_metrics.py`) that correlates full OpenTelemetry spans and versioned source code snapshots (`Revision N`), and promote discovered production failure clusters into hermetic inner-loop regression tests (`scripts/promote_aqua_insight.py` -> `evalsets/aqua_regressions.evalset.json`), then we will achieve **100% citation grounding accuracy** on promoted insights, eliminate silent cross-boundary context loss and SOAR Phase 2 empty-response false negatives, and guarantee **zero holdout split regressions** across iterative prompt optimization cycles.
+*   **Falsification Criteria:**
+    1. OpenTelemetry context detachment (`ValueError: <Token ...> was created in a different Context`) crashes parallel specialist runs (`delegate_concurrently`) or drops span telemetry.
+    2. Promoted AQuA insights contain unverified `<path>:<start>-<end>` citations or rely on uncalibrated LLM confidence scores rather than severity/impact and session prevalence.
+    3. Inner-loop atomic prompt patches improve training cases while regressing holdout split cases in `evalsets/multi_turn_pivots.evalset.json`.
+*   **Status:** [ACTIVE]
+*   **Linked Experiments & Artifacts:**
+    *   `docs/aqua_goal.md` (5 Core SOC Behavioral Invariants)
+    *   `aqua/eval_config.yaml` & `aqua/custom_metrics.py` (4 Domain-Specific SOC Evaluators)
+    *   `evalsets/multi_turn_pivots.evalset.json` (25 Multi-Turn Pivot Scenarios Across 5 Categories)
+    *   `evalsets/aqua_regressions.evalset.json` & `scripts/promote_aqua_insight.py` (Outer-to-Inner Loop Bridge)

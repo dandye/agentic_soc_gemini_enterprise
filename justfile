@@ -30,6 +30,7 @@ manage_eval := "installation_scripts/manage_eval.py"
 manage_neo4j := "installation_scripts/manage_neo4j.py"
 manage_alloydb := "installation_scripts/manage_alloydb.py"
 manage_licenses := "installation_scripts/manage_licenses.py"
+manage_aqua := "installation_scripts/manage_aqua.py"
 
 # Global options for GCS / RAG / Data Store (override on command line)
 bucket := ""
@@ -99,6 +100,7 @@ clean:
 
 # Deploy agent engine (use agent_module=soc_agent_flash for Flash)
 agent-engine-deploy description="": check-prereqs
+    {{ python }} {{ manage_aqua }} snapshot --agent-module {{ agent_module }}
     {{ python }} {{ manage_agent_engine }} deploy --agent-module {{ agent_module }} {{ if description != "" { "--description " + quote(description) } else { "" } }}
     @echo "========================================"
     @echo "Agent deployment complete - check output above for resource details"
@@ -106,6 +108,7 @@ agent-engine-deploy description="": check-prereqs
 
 # Update existing agent engine in-place (preserves memory bank)
 agent-engine-update description="": check-deploy
+    {{ python }} {{ manage_aqua }} snapshot --agent-module {{ agent_module }}
     {{ python }} {{ manage_agent_engine }} update --agent-module {{ agent_module }} {{ if description != "" { "--description " + quote(description) } else { "" } }}
     @echo "========================================"
     @echo "Agent update complete - check output above for resource details"
@@ -1106,3 +1109,28 @@ alias agentspace-list-apps := gem-ent-list-apps
 alias agentspace-create-app := gem-ent-create-app
 alias agentspace-redeploy := gem-ent-redeploy
 alias agentspace-register-alloydb := gem-ent-register-alloydb
+
+# ============================================================================
+# Ambient Quality Agent (AQuA) Outer-Loop Diagnostics (issue #121 / HYP-007)
+# ============================================================================
+
+# Initialize AQuA sidecar configuration with frontmatter-stripped docs/aqua_goal.md
+aqua-init source_dir="./agent_soc_manager":
+    {{ python }} {{ manage_aqua }} init --agent-source-dir {{ source_dir }} --env-file {{ env_file }}
+
+# Snapshot current agent source (Revision N) and deploy AQuA sidecar
+aqua-deploy:
+    {{ python }} {{ manage_aqua }} deploy --agent-module {{ agent_module }}
+
+# Trigger an AQuA outer-loop analysis run over production traces
+aqua-run start_time="-24h" eval_config="aqua/eval_config.yaml":
+    {{ python }} {{ manage_aqua }} run --start-time {{ quote(start_time) }} --eval-config {{ eval_config }}
+
+# Launch the AQuA visualization UI
+aqua-ui:
+    {{ python }} {{ manage_aqua }} ui
+
+# Promote a failing AQuA production insight into evalsets/aqua_regressions.evalset.json
+aqua-promote-insight insight_id insights_file="aqua/insights.json":
+    {{ python }} scripts/promote_aqua_insight.py --insight-id {{ quote(insight_id) }} --insights-file {{ insights_file }}
+

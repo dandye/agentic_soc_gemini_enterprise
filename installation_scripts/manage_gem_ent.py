@@ -14,7 +14,13 @@ import google.auth
 import requests
 import typer
 from dotenv import load_dotenv
-from env_migration import apply_legacy_env_aliases, legacy_deprecation_notice
+try:
+    from installation_scripts.env_migration import (
+        apply_legacy_env_aliases,
+        legacy_deprecation_notice,
+    )
+except ImportError:
+    from env_migration import apply_legacy_env_aliases, legacy_deprecation_notice
 from google.auth.transport import requests as google_requests
 
 # Import validation utilities

@@ -22,6 +22,7 @@ from installation_scripts.env_migration import app as env_app
 from installation_scripts.harvest_investigations import app as harvest_app
 from installation_scripts.manage_agent_engine import app as agent_engine_app
 from installation_scripts.manage_alloydb import app as alloydb_app
+from installation_scripts.manage_aqua import app as aqua_app
 from installation_scripts.manage_chat_ops import app as chatops_app
 from installation_scripts.manage_datastore import app as datastore_app
 from installation_scripts.manage_elasticsearch import app as elastic_app
@@ -97,6 +98,11 @@ app.add_typer(
 )
 app.add_typer(
     licenses_app, name="licenses", help="Manage Gemini Enterprise user licenses"
+)
+app.add_typer(
+    aqua_app,
+    name="aqua",
+    help="Manage Ambient Quality Agent (AQuA) outer-loop diagnostics",
 )
 
 

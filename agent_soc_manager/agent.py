@@ -878,26 +878,126 @@ def _patched_debug(msg, *args, **kwargs):
 llm_logger.debug = _patched_debug
 
 
-# Monkeypatch ADK's OpenTelemetry instrumentation to bypass buggy contextvars span tracing
-# and permanently eliminate "ValueError: was created in a different Context" crashes in the cloud.
+# Patch ADK's OpenTelemetry instrumentation to record real spans while safely handling
+# cross-context token detachment ("ValueError: <Token ...> was created in a different Context")
+# when async generators switch contexts during parallel sub-agent delegation (delegate_concurrently).
 import contextlib  # noqa: E402
 from collections.abc import AsyncIterator  # noqa: E402
 
 import google.adk.telemetry._instrumentation as adk_instrumentation  # noqa: E402
+from opentelemetry.context.contextvars_context import (  # noqa: E402
+    ContextVarsRuntimeContext,
+)
+
+_orig_otel_context_detach = ContextVarsRuntimeContext.detach
+
+
+def _safe_otel_context_detach(self, token) -> None:
+    try:
+        _orig_otel_context_detach(self, token)
+    except ValueError as exc:
+        if "was created in a different Context" not in str(exc):
+            raise
+
+
+ContextVarsRuntimeContext.detach = _safe_otel_context_detach
 
 
 @contextlib.asynccontextmanager
 async def patched_record_agent_invocation(
     ctx, agent
 ) -> AsyncIterator[adk_instrumentation.TelemetryContext]:
-    yield adk_instrumentation.TelemetryContext(otel_context=None)
+    start_time = adk_instrumentation.time.monotonic()
+    caught_error: Exception | None = None
+    span_name = f"invoke_agent {getattr(agent, 'name', 'unknown')}"
+    span = adk_instrumentation.tracing.tracer.start_span(span_name)
+    token = adk_instrumentation.context_api.attach(
+        adk_instrumentation.trace.set_span_in_context(span)
+    )
+    try:
+        adk_instrumentation.tracing.trace_agent_invocation(span, agent, ctx)
+        tel_ctx = adk_instrumentation.TelemetryContext(
+            otel_context=adk_instrumentation.context_api.get_current(),
+            span=span,
+        )
+        yield tel_ctx
+    except Exception as exc:
+        caught_error = exc
+        raise
+    finally:
+        try:
+            span.end()
+        finally:
+            try:
+                _safe_otel_context_detach(
+                    adk_instrumentation.context_api._RUNTIME_CONTEXT, token
+                )
+            except Exception:
+                pass
+            elapsed_ms = adk_instrumentation._get_elapsed_ms(span, start_time)
+            adk_instrumentation._record_agent_metrics(
+                getattr(agent, "name", "unknown"),
+                elapsed_ms,
+                getattr(ctx, "user_content", None),
+                getattr(getattr(ctx, "session", None), "events", []),
+                caught_error,
+            )
 
 
 @contextlib.asynccontextmanager
 async def patched_record_tool_execution(
     tool, agent, function_args
 ) -> AsyncIterator[adk_instrumentation.TelemetryContext]:
-    yield adk_instrumentation.TelemetryContext(otel_context=None)
+    start_time = adk_instrumentation.time.monotonic()
+    caught_error: Exception | None = None
+    span_name = f"execute_tool {getattr(tool, 'name', 'unknown')}"
+    span = adk_instrumentation.tracing.tracer.start_span(span_name)
+    token = adk_instrumentation.context_api.attach(
+        adk_instrumentation.trace.set_span_in_context(span)
+    )
+    tel_ctx = adk_instrumentation.TelemetryContext(
+        otel_context=adk_instrumentation.context_api.get_current(),
+        span=span,
+    )
+    try:
+        try:
+            yield tel_ctx
+        except Exception as exc:
+            caught_error = exc
+            raise
+        finally:
+            response_event = (
+                tel_ctx.function_response_event if caught_error is None else None
+            )
+            adk_instrumentation.tracing.trace_tool_call(
+                tool=tool,
+                args=function_args,
+                function_response_event=response_event,
+                error=caught_error,
+                error_type=tel_ctx.error_type,
+            )
+    finally:
+        try:
+            span.end()
+        finally:
+            try:
+                _safe_otel_context_detach(
+                    adk_instrumentation.context_api._RUNTIME_CONTEXT, token
+                )
+            except Exception:
+                pass
+            try:
+                adk_instrumentation._metrics.record_tool_execution_duration(
+                    tool_name=getattr(tool, "name", "unknown"),
+                    agent_name=getattr(agent, "name", "unknown"),
+                    elapsed_ms=adk_instrumentation._get_elapsed_ms(span, start_time),
+                    error=caught_error,
+                )
+            except Exception:
+                adk_instrumentation.logger.exception(
+                    "Failed to record tool execution duration for tool %s",
+                    getattr(tool, "name", "unknown"),
+                )
 
 
 adk_instrumentation.record_agent_invocation = patched_record_agent_invocation
@@ -2730,8 +2830,10 @@ def create_agent():
     """
     # Load environment variables from .env file
     load_dotenv(Path(".env"), override=True)
-    # Disable buggy OpenTelemetry span tracing in cloud container to prevent contextvar detachment crashes
-    os.environ["GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY"] = "False"
+    os.environ.setdefault("GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY", "TRUE")
+    os.environ.setdefault(
+        "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT", "TRUE"
+    )
 
     # Model Configuration
     ORCHESTRATOR_MODEL = os.environ.get("ORCHESTRATOR_MODEL", "gemini-3.1-pro-preview")
@@ -2840,8 +2942,12 @@ def create_agent():
             "GTI_CACHE_DOMAIN_TTL": os.environ.get("GTI_CACHE_DOMAIN_TTL", "1800"),
             "GTI_CACHE_URL_TTL": os.environ.get("GTI_CACHE_URL_TTL", "1800"),
             "GTI_CACHE_MAX_SIZE": os.environ.get("GTI_CACHE_MAX_SIZE", "1000"),
-            "GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY": "False",
-            "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT": "False",
+            "GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY": os.environ.get(
+                "GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY", "TRUE"
+            ),
+            "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT": os.environ.get(
+                "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT", "TRUE"
+            ),
             "OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT": "32768",  # Truncate large tool payloads to prevent 64KB GCP Trace limit crash
             "OTEL_SPAN_ATTRIBUTE_VALUE_LENGTH_LIMIT": "32768",
         }

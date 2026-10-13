@@ -1,6 +1,18 @@
+---
+type: "Documentation"
+title: "SOC Agent Evaluation Sets"
+description: "Index and schema documentation for inner-loop and outer-loop (AQuA) evaluation sets in the Agentic SOC platform."
+resource: "evalsets/README.md"
+timestamp: "2026-10-13T17:28:00Z"
+provenance:
+  source_type: "manual"
+  source_tool: "manage_eval.py"
+  timestamp: "2026-10-13T17:28:00Z"
+---
+
 # SOC Agent Evaluation Sets
 
-This directory contains evaluation sets (evalsets) for validating the Agentic SOC Gemini Enterprise Agent Platform agent quality.
+This directory contains evaluation sets (evalsets) for validating the Agentic SOC Gemini Enterprise Agent Platform agent quality across both the inner-loop evaluation suite and the Ambient Quality Agent (AQuA) outer-loop regression bridge (`HYP-007`).
 
 ## Evalset Files
 
@@ -10,6 +22,8 @@ This directory contains evaluation sets (evalsets) for validating the Agentic SO
 | `cti_research.evalset.json` | Threat intelligence research workflows using GTI | 5 |
 | `tier1_triage.evalset.json` | Alert triage, basic investigation, escalation | 5 |
 | `multi_specialist.evalset.json` | Complex multi-specialist workflows | 5 |
+| `multi_turn_pivots.evalset.json` | Multi-turn pivot scenarios across 5 categories (`entity_pivot`, `timerange_expansion`, `soar_phase2_fallback_pivot`, `adversarial_hitl_bypass_pivot`, `cross_specialist_a2a_handoff_pivot`) with train/holdout splits | 25 |
+| `aqua_regressions.evalset.json` | Production failure trajectories promoted from AQuA outer-loop insights with hermetic mock tool stubs | 1+ |
 
 **Total:** 20 evaluation cases
 
