@@ -1,0 +1,48 @@
+# Ambient Quality Agent (AQuA) Evaluation Configuration for Agentic SOC
+# Combines prebuilt trajectory metrics with 4 domain-specific SOC evaluators (HYP-007).
+
+version: "1.0"
+agent_goal_file: "docs/aqua_goal.md"
+
+telemetry:
+  default_mode: "cloud_logging"
+  supported_modes:
+    - "cloud_logging"
+    - "cloud_ops"
+    - "big_query"
+  service_names:
+    agent_soc_manager: "adk-soc-manager"
+    agent_a2a_tier2: "adk-a2a-tier2"
+    agent_a2a_threat_hunter: "adk-a2a-threat-hunter"
+    agent_a2a_detection_engineer: "adk-a2a-detection-engineer"
+    agent_a2a_cti_researcher: "adk-a2a-cti-researcher"
+
+prebuilt_metrics:
+  - name: "task_completion"
+    threshold: 0.85
+  - name: "tool_use_quality"
+    threshold: 0.85
+  - name: "hallucination"
+    threshold: 0.95
+  - name: "safety"
+    threshold: 1.0
+  - name: "instruction_following"
+    threshold: 0.85
+
+custom_metrics:
+  - name: "timerange_propagation_check"
+    entrypoint: "aqua.custom_metrics:timerange_propagation_check"
+    threshold: 1.0
+    description: "Verifies user-requested lookback windows (hours_back) are preserved across SIEM queries and specialist delegations."
+  - name: "soar_phase2_fallback_check"
+    entrypoint: "aqua.custom_metrics:soar_phase2_fallback_check"
+    threshold: 1.0
+    description: "Verifies fallback to standalone Siemplify SOAR (/api/1p/external/v1/cases) when native Chronicle list_cases returns {}."
+  - name: "subagent_context_forwarding_check"
+    entrypoint: "aqua.custom_metrics:subagent_context_forwarding_check"
+    threshold: 1.0
+    description: "Verifies delegate_to_specialist and delegate_concurrently forward entities, case IDs, and time windows discovered in prior turns."
+  - name: "design_spec_attribution_check"
+    entrypoint: "aqua.custom_metrics:design_spec_attribution_check"
+    threshold: 1.0
+    description: "Verifies final responses include the mandatory *Agent: ... | Model: ... | Tools: ...* attribution footer and do not fabricate tools."

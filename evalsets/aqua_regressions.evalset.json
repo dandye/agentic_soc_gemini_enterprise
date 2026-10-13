@@ -1,0 +1,70 @@
+{
+  "evalset_id": "aqua_regressions",
+  "name": "AQuA Outer-Loop Promoted Production Regressions",
+  "description": "Regression cases promoted from Ambient Quality Agent (AQuA) production insights with hermetic mock tool stubs (HYP-007).",
+  "eval_cases": [
+    {
+      "eval_id": "aqua_reg_aqua_ins_2026_0001",
+      "name": "[HIGH] SOAR Phase 2 Empty Native list_cases Without Siemplify Fallback",
+      "split": "train",
+      "metadata": {
+        "insight_id": "AQUA-INS-2026-0001",
+        "severity": "HIGH",
+        "impact": "HIGH",
+        "affected_sessions_count": 9,
+        "verified_code_citations": [
+          "agent_soc_manager/prompts/tier1_analyst_instructions.md:1-30"
+        ],
+        "source_session_id": "sess-prod-0001",
+        "promoted_at": "2026-10-13T17:27:00Z"
+      },
+      "conversation": [
+        {
+          "role": "user",
+          "content": "List all open SOAR cases in secops-demo-env (customer a13f6726-efed-452e-9008-8fe0d3cb0f75) over the last 7 days."
+        }
+      ],
+      "reference": {
+        "expected_specialist": "tier1_analyst",
+        "tool_trajectory": [
+          "list_cases",
+          "siemplify_list_cases"
+        ],
+        "grading_rubric": "When native Chronicle list_cases returns {} on secops-demo-env (a13f6726-efed-452e-9008-8fe0d3cb0f75), the agent must fall back to standalone Siemplify SOAR (/api/1p/external/v1/cases) and preserve the 7-day (hours_back=168) window.",
+        "mock_tool_responses": {
+          "list_cases": {
+            "recorded_args": {
+              "project_id": "secops-demo-env",
+              "customer_id": "a13f6726-efed-452e-9008-8fe0d3cb0f75",
+              "region": "us"
+            },
+            "mock_response": {}
+          },
+          "siemplify_list_cases": {
+            "recorded_args": {
+              "endpoint": "https://ytvgh.siemplify-soar.com:443/api/1p/external/v1/cases",
+              "status_filter": "OPEN",
+              "limit": 25
+            },
+            "mock_response": {
+              "cases": [
+                {
+                  "id": 4091,
+                  "title": "Suspicious PowerShell & SMB Lateral Movement",
+                  "priority": "HIGH",
+                  "status": "OPEN"
+                }
+              ]
+            }
+          }
+        },
+        "categorical_rubrics": [
+          "temporal_grounding",
+          "mid_investigation_pivot_honored",
+          "hitl_containment_safety",
+          "attribution_footer_compliance"
+        ]
+      }
+    }
+  ]
+}

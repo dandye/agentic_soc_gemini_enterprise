@@ -4,7 +4,9 @@ Provenance helper utility for formatting and validating YAML frontmatter
 metadata in Markdown files.
 """
 
+import tempfile
 from datetime import UTC, datetime
+from pathlib import Path
 
 
 def format_provenance(
@@ -122,3 +124,32 @@ def inject_provenance(
     # If no existing frontmatter, format as a standalone block
     header = format_provenance(source_type, source_tool, description)
     return header + content
+
+
+def strip_okf_frontmatter(content: str) -> str:
+    """Strip a leading OKF YAML frontmatter block (`--- ... ---`) from markdown content."""
+    stripped = content.lstrip()
+    if not stripped.startswith("---"):
+        return content
+    end_idx = stripped.find("\n---", 3)
+    if end_idx == -1:
+        return content
+    body = stripped[end_idx + 4 :]
+    return body.lstrip("\r\n")
+
+
+def write_stripped_goal_file(
+    goal_path: Path | str, output_path: Path | str | None = None
+) -> Path:
+    """Read an OKF-formatted markdown goal file and write a frontmatter-free copy for AQuA CLI."""
+    src_path = Path(goal_path)
+    raw_content = src_path.read_text(encoding="utf-8")
+    stripped_content = strip_okf_frontmatter(raw_content)
+    if output_path is None:
+        out_dir = Path(tempfile.gettempdir())
+        dst_path = out_dir / f"{src_path.stem}_stripped.md"
+    else:
+        dst_path = Path(output_path)
+        dst_path.parent.mkdir(parents=True, exist_ok=True)
+    dst_path.write_text(stripped_content, encoding="utf-8")
+    return dst_path

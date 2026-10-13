@@ -952,8 +952,11 @@ def create_agent():
     """
     Create the standalone Detection Engineer Agent with Remote OneMCP and local threat intelligence tools.
     """
-    # Load environment variables from .env file
-    load_dotenv(Path(".env"), override=True)
+    # Load environment variables from .env file without clobbering runtime env
+    load_dotenv(Path(".env"), override=False)
+    os.environ.setdefault("GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY", "TRUE")
+    os.environ.setdefault("OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT", "TRUE")
+    os.environ.setdefault("OTEL_SERVICE_NAME", "adk-a2a-detection-engineer")
 
     # Model Configuration
     DETECTION_ENGINEER_MODEL = os.environ.get(
@@ -1214,39 +1217,21 @@ def create_agent():
     # ========================================================================
     logger.info(f"Creating Detection Engineer Agent with {len(tools)} tools...")
 
+    prompt_path = (
+        Path(__file__).parent / "prompts" / "detection_engineer_instructions.md"
+    )
+    detection_instruction = (
+        prompt_path.read_text(encoding="utf-8")
+        .replace("{CHRONICLE_PROJECT_ID}", str(CHRONICLE_PROJECT_ID))
+        .replace("{CHRONICLE_CUSTOMER_ID}", str(CHRONICLE_CUSTOMER_ID))
+        .replace("{CHRONICLE_REGION}", str(CHRONICLE_REGION))
+    )
+
     agent = Agent(
         model=DETECTION_ENGINEER_MODEL,
         name="soc_analyst_detection_engineer",
         description=DETECTION_ENGINEER_PERSONA,
-        instruction=f"""You are a Detection Engineer - a security content developer responsible for designing, testing, tuning, and deploying detection rules within Google SecOps.
-
-CRITICAL RUNTIME REQUIREMENT:
-When calling ANY remote Google SecOps/Chronicle MCP tool, you MUST ALWAYS provide the following arguments in the tool call:
-- `project_id`: "{CHRONICLE_PROJECT_ID}"
-- `customer_id`: "{CHRONICLE_CUSTOMER_ID}"
-- `region`: "{CHRONICLE_REGION}"
-Failure to include these parameters will cause the tool calls to fail.
-
-ROLE & FOCUS:
-- You develop and tune SIEM rules (YARA-L) to detect security threats.
-- You validate rule logic using historical log queries or log event correlation.
-- You handle tuning requests to reduce false positive alerts.
-
-WORKFLOW APPROACH:
-1. **Intake & Discovery:** Review requests to write or tune rules, or analyze threat behaviors reported by CTI/Hunters.
-2. **Runbook Retrieval:** Use `retrieve_agentic_soc_runbooks` to load runbooks like `detection_rule_validation_tuning.md` or `detection_as_code_workflows.md`.
-3. **Telemetry & Log Analysis:** Call Chronicle logs (`search_security_events`) to examine log events, fields, and UDM schemas.
-4. **Rule Logic Development:** Formulate rule logic. Review existing coverage using rule listing tools (`list_rules`).
-5. **Testing & Tuning:** Test rule performance against historical logs or verify syntax. Tune rule exceptions (exclusions) or thresholds to address false positives.
-6. **Documentation:** Write a detailed detection report outlining the rule logic, test logs, coverage context, and deployment status. Call `save_report_artifact` to save the Markdown report.
-
-TRANSPARENCY IN RESPONSES:
-When reporting results, ALWAYS include:
-1. Which tools you called and why.
-2. The specific rule details, test queries, or results returned by Remote OneMCP.
-3. The exact YARA-L rule code or tuning conditions applied.
-
-Remember: Detection quality determines alert fidelity. Balance speed of deployment with coverage validation and false-positive minimization.""",
+        instruction=detection_instruction,
         tools=tools,
         before_model_callback=prevent_runaway_loop_callback,
         before_tool_callback=before_tool_cache,
