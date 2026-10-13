@@ -16,6 +16,7 @@ import json
 import re
 from typing import Any
 
+
 # Regex patterns for extracting requested lookback windows from user prompts
 _DAYS_PATTERN = re.compile(
     r"\b(?:last|past|previous|over\s+the\s+last)\s+(\d+)\s*days?\b", re.IGNORECASE
@@ -81,17 +82,13 @@ _NON_PHASE2_TENANTS = {
 
 def _is_delegation_tool(name: str) -> bool:
     """Return True if the tool name represents an in-process or A2A sub-agent handoff."""
-    return (
-        name
-        in (
-            "delegate_to_specialist",
-            "delegate_concurrently",
-            "transfer_to_agent",
-            "tier1_analyst",
-            "cti_researcher",
-        )
-        or name.startswith("delegate_to_")
-    )
+    return name in (
+        "delegate_to_specialist",
+        "delegate_concurrently",
+        "transfer_to_agent",
+        "tier1_analyst",
+        "cti_researcher",
+    ) or name.startswith("delegate_to_")
 
 
 def _normalize_trace_info(trace_info: Any) -> dict[str, Any]:
@@ -136,7 +133,9 @@ def _normalize_trace_info(trace_info: Any) -> dict[str, Any]:
     # Extract tool_calls from OpenTelemetry spans if tool_calls was not pre-populated
     if not normalized_calls and raw.get("spans"):
         for span in raw.get("spans") or []:
-            span_dict = span if isinstance(span, dict) else getattr(span, "__dict__", {})
+            span_dict = (
+                span if isinstance(span, dict) else getattr(span, "__dict__", {})
+            )
             span_name = str(span_dict.get("name") or "")
             attrs = span_dict.get("attributes") or {}
             if span_name.startswith("execute_tool "):
@@ -406,9 +405,7 @@ def design_spec_attribution_check(trace_info: Any) -> dict[str, Any]:
     final_response = str(trace.get("final_response") or "").strip()
     final_lower = final_response.lower()
     tool_calls = trace.get("tool_calls") or []
-    executed_tools = {
-        str(c.get("name")).strip() for c in tool_calls if c.get("name")
-    }
+    executed_tools = {str(c.get("name")).strip() for c in tool_calls if c.get("name")}
 
     match = _ATTRIBUTION_FOOTER_PATTERN.search(final_response)
     if not match:
@@ -428,9 +425,7 @@ def design_spec_attribution_check(trace_info: Any) -> dict[str, Any]:
     if claimed_raw.lower() in ("none", "n/a", ""):
         claimed_tools: set[str] = set()
     else:
-        claimed_tools = {
-            t.strip() for t in claimed_raw.split(",") if t.strip()
-        }
+        claimed_tools = {t.strip() for t in claimed_raw.split(",") if t.strip()}
 
     # 1. Verify no fabricated tools and all executed tools are attributed
     if executed_tools and claimed_tools:
@@ -487,9 +482,7 @@ def design_spec_attribution_check(trace_info: Any) -> dict[str, Any]:
             }
 
     # 3. Verify grounding citation when RAG retrieval tools were invoked
-    rag_calls = [
-        c for c in tool_calls if str(c.get("name") or "") in _RAG_TOOLS
-    ]
+    rag_calls = [c for c in tool_calls if str(c.get("name") or "") in _RAG_TOOLS]
     has_grounding_citation = True
     if rag_calls and trace.get("require_grounding_citation", False):
         has_grounding_citation = any(
@@ -528,9 +521,7 @@ _METRIC_DISPATCH = {
 }
 
 
-def evaluate(
-    trace_info: Any, metric_name: str | None = None
-) -> dict[str, Any]:
+def evaluate(trace_info: Any, metric_name: str | None = None) -> dict[str, Any]:
     """Unified AQuA custom evaluator entrypoint (`evaluate(trace_info) -> EvaluationResult`)."""
     trace = _normalize_trace_info(trace_info)
     target_metric = metric_name or trace.get("metric_name")

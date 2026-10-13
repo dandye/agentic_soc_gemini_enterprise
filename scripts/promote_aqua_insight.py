@@ -13,27 +13,26 @@ and `agents-cli aqua traces get` as well as local exported JSON files.
 from __future__ import annotations
 
 import argparse
-from datetime import UTC, datetime
 import json
-from pathlib import Path
 import re
 import subprocess
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
+
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_EVALSET_PATH = REPO_ROOT / "evalsets" / "aqua_regressions.evalset.json"
 DEFAULT_INSIGHTS_PATH = REPO_ROOT / "aqua" / "insights.json"
 DEFAULT_SNAPSHOT_ROOT = REPO_ROOT / "aqua" / "snapshots"
 
-_CITATION_PATTERN = re.compile(
-    r"^(?P<path>[^:]+):(?P<start>\d+)(?:-(?P<end>\d+))?$"
-)
+_CITATION_PATTERN = re.compile(r"^(?P<path>[^:]+):(?P<start>\d+)(?:-(?P<end>\d+))?$")
 
 
 def fetch_aqua_insight_via_cli(insight_id: str) -> dict[str, Any]:
     """Fetch a single AQuA insight via `agents-cli aqua insights get <ID> --format json`."""
     cmd = ["agents-cli", "aqua", "insights", "get", insight_id, "--format", "json"]
-    res = subprocess.run(cmd, capture_output=True, text=True, check=True)
+    res = subprocess.run(cmd, capture_output=True, text=True, check=True)  # noqa: S603
     insight_data = json.loads(res.stdout)
     session_id = insight_data.get("session_id") or (
         (insight_data.get("failing_trajectory") or {}).get("session_id")
@@ -42,7 +41,7 @@ def fetch_aqua_insight_via_cli(insight_id: str) -> dict[str, Any]:
         try:
             trace_data = fetch_aqua_trace_via_cli(str(session_id))
             insight_data["failing_trajectory"] = trace_data
-        except Exception:
+        except Exception:  # noqa: S110
             pass
     return insight_data
 
@@ -50,7 +49,7 @@ def fetch_aqua_insight_via_cli(insight_id: str) -> dict[str, Any]:
 def fetch_aqua_trace_via_cli(session_id: str) -> dict[str, Any]:
     """Fetch a production session trace via `agents-cli aqua traces get <SESSION_ID> --format json`."""
     cmd = ["agents-cli", "aqua", "traces", "get", session_id, "--format", "json"]
-    res = subprocess.run(cmd, capture_output=True, text=True, check=True)
+    res = subprocess.run(cmd, capture_output=True, text=True, check=True)  # noqa: S603
     return json.loads(res.stdout)
 
 
@@ -161,12 +160,15 @@ def _build_hermetic_tool_stubs(tool_calls: list[dict[str, Any]]) -> dict[str, An
             stubs[name] = entry
         else:
             existing = stubs[name]
-            history = list(existing.get("call_history") or [
-                {
-                    "recorded_args": existing["recorded_args"],
-                    "mock_response": existing["mock_response"],
-                }
-            ])
+            history = list(
+                existing.get("call_history")
+                or [
+                    {
+                        "recorded_args": existing["recorded_args"],
+                        "mock_response": existing["mock_response"],
+                    }
+                ]
+            )
             history.append(entry)
             stubs[name] = {
                 "recorded_args": entry["recorded_args"],
@@ -229,9 +231,7 @@ def promote_insight_to_evalset(
             "insight_id": insight_id,
             "severity": str(insight.get("severity") or "HIGH").upper(),
             "impact": str(insight.get("impact") or "HIGH").upper(),
-            "affected_sessions_count": int(
-                insight.get("affected_sessions_count") or 1
-            ),
+            "affected_sessions_count": int(insight.get("affected_sessions_count") or 1),
             "verified_code_citations": citation_check["valid_citations"],
             "source_session_id": str(trajectory.get("session_id") or "unknown"),
             "promoted_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -279,9 +279,7 @@ def promote_insight_to_evalset(
         cases.append(promoted_case)
 
     evalset_data["eval_cases"] = cases
-    target_path.write_text(
-        json.dumps(evalset_data, indent=2) + "\n", encoding="utf-8"
-    )
+    target_path.write_text(json.dumps(evalset_data, indent=2) + "\n", encoding="utf-8")
     return promoted_case
 
 

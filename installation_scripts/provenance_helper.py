@@ -4,9 +4,9 @@ Provenance helper utility for formatting and validating YAML frontmatter
 metadata in Markdown files.
 """
 
+import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
-import tempfile
 
 
 def format_provenance(

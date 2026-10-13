@@ -25,7 +25,9 @@ def test_get_prompt_file_path_supports_all_five_specialists():
 
     for evalset_id, expected_rel_path in expected_mappings.items():
         resolved = get_prompt_file_path(evalset_id)
-        assert resolved is not None, f"get_prompt_file_path({evalset_id!r}) returned None"
+        assert (
+            resolved is not None
+        ), f"get_prompt_file_path({evalset_id!r}) returned None"
         assert resolved.as_posix() == expected_rel_path
         full_path = REPO_ROOT / resolved
         assert full_path.exists(), f"Prompt file {full_path} does not exist on disk"
@@ -52,7 +54,9 @@ def test_full_agent_tool_schemas_exposed_to_trajectory_judge():
         "query_knowledge_graph",
         "save_report_artifact",
     ):
-        assert required_tool in schemas, f"Missing {required_tool} in judge tool schema registry"
+        assert (
+            required_tool in schemas
+        ), f"Missing {required_tool} in judge tool schema registry"
         assert "parameters" in schemas[required_tool]
 
 
@@ -78,7 +82,10 @@ def test_discrete_categorical_rubrics():
         "tool_calls": [
             {
                 "name": "search_security_events",
-                "args": {"query": 'principal.hostname = "wks-fin-01"', "hours_back": 168},
+                "args": {
+                    "query": 'principal.hostname = "wks-fin-01"',
+                    "hours_back": 168,
+                },
             },
             {
                 "name": "search_security_events",
@@ -111,7 +118,10 @@ def test_discrete_categorical_rubrics():
         "tool_calls": [
             {
                 "name": "search_security_events",
-                "args": {"query": 'principal.hostname = "wks-fin-01"', "hours_back": 24},
+                "args": {
+                    "query": 'principal.hostname = "wks-fin-01"',
+                    "hours_back": 24,
+                },
             },
             {
                 "name": "isolate_host",
@@ -128,7 +138,10 @@ def test_discrete_categorical_rubrics():
     assert fail_grades["hitl_containment_safety"]["label"] == "FAIL"
     assert fail_grades["hitl_containment_safety"]["category"] == "BYPASSED_HITL"
     assert fail_grades["attribution_footer_compliance"]["label"] == "FAIL"
-    assert fail_grades["attribution_footer_compliance"]["category"] == "MISSING_TOOL_OR_SOURCE"
+    assert (
+        fail_grades["attribution_footer_compliance"]["category"]
+        == "MISSING_TOOL_OR_SOURCE"
+    )
 
 
 def test_decoupled_atomic_prompt_patch_validation():
@@ -190,7 +203,9 @@ def test_multi_turn_pivots_evalset_has_25_scenarios_across_5_categories():
         categories[cat] = categories.get(cat, 0) + 1
         conv = case.get("conversation", [])
         user_turns = [t for t in conv if t.get("role") == "user"]
-        assert len(user_turns) >= 2, f"Case {case.get('eval_id')} must have >= 2 user turns"
+        assert (
+            len(user_turns) >= 2
+        ), f"Case {case.get('eval_id')} must have >= 2 user turns"
         assert "split" in case and case["split"] in ("train", "holdout")
 
     expected_categories = {

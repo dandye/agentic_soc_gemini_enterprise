@@ -10,18 +10,19 @@ the exact deployed codebase snapshot.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
 import json
 import os
-from pathlib import Path
 import shutil
 import subprocess
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Annotated, Any
 
-from dotenv import load_dotenv
 import typer
+from dotenv import load_dotenv
 
 from installation_scripts.provenance_helper import write_stripped_goal_file
+
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_GOAL_PATH = REPO_ROOT / "docs" / "aqua_goal.md"
@@ -221,7 +222,9 @@ def create_source_snapshot(
 def cli_init(
     monitored_agent_id: Annotated[
         str | None,
-        typer.Option("--monitored-agent-id", help="Reasoning Engine ID or resource name."),
+        typer.Option(
+            "--monitored-agent-id", help="Reasoning Engine ID or resource name."
+        ),
     ] = None,
     agent_source_dir: Annotated[
         str,
@@ -274,7 +277,9 @@ def cli_init(
 def cli_deploy(
     agent_module: Annotated[
         str,
-        typer.Option("--agent-module", help="Agent module to snapshot before deploying AQuA."),
+        typer.Option(
+            "--agent-module", help="Agent module to snapshot before deploying AQuA."
+        ),
     ] = "agent_soc_manager",
     goal_file: Annotated[
         Path,
@@ -286,7 +291,9 @@ def cli_deploy(
     ] = Path(".env"),
     dry_run: Annotated[
         bool,
-        typer.Option("--dry-run", help="Record snapshot and print command without executing."),
+        typer.Option(
+            "--dry-run", help="Record snapshot and print command without executing."
+        ),
     ] = False,
 ) -> None:
     """Create a versioned source snapshot and deploy AQuA to Vertex AI Agent Engine."""

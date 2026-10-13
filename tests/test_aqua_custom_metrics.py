@@ -1,6 +1,7 @@
 """Unit tests for Phase 3: Custom domain-specific SOC metrics in aqua/custom_metrics.py and aqua/eval_config.yaml."""
 
 from pathlib import Path
+
 import yaml
 
 
@@ -34,7 +35,10 @@ def test_timerange_propagation_check():
         "tool_calls": [
             {
                 "name": "search_security_events",
-                "args": {"query": 'principal.hostname = "wks-finance-04"', "hours_back": 168},
+                "args": {
+                    "query": 'principal.hostname = "wks-finance-04"',
+                    "hours_back": 168,
+                },
             }
         ],
     }
@@ -48,7 +52,10 @@ def test_timerange_propagation_check():
         "tool_calls": [
             {
                 "name": "udm_search",
-                "args": {"query": 'principal.hostname = "wks-finance-04"', "hours_back": 24},
+                "args": {
+                    "query": 'principal.hostname = "wks-finance-04"',
+                    "hours_back": 24,
+                },
             }
         ],
     }
@@ -91,7 +98,10 @@ def test_soar_phase2_fallback_check():
     res_fail = soar_phase2_fallback_check(failing_trace)
     assert res_fail["score"] == 0.0
     assert res_fail["passed"] is False
-    assert "Siemplify" in res_fail["explanation"] or "/api/1p/external/v1/cases" in res_fail["explanation"]
+    assert (
+        "Siemplify" in res_fail["explanation"]
+        or "/api/1p/external/v1/cases" in res_fail["explanation"]
+    )
 
     # Case 2: list_cases returns {} and agent falls back to Siemplify SOAR endpoint/tool -> PASS (1.0)
     passing_trace = {
@@ -104,7 +114,9 @@ def test_soar_phase2_fallback_check():
             },
             {
                 "name": "siemplify_list_cases",
-                "args": {"endpoint": "https://ytvgh.siemplify-soar.com:443/api/1p/external/v1/cases"},
+                "args": {
+                    "endpoint": "https://ytvgh.siemplify-soar.com:443/api/1p/external/v1/cases"
+                },
                 "response": {"cases": [{"id": 4091, "title": "Ransomware Alert"}]},
             },
         ],
@@ -160,7 +172,10 @@ def test_design_spec_attribution_check():
     from aqua.custom_metrics import design_spec_attribution_check
 
     passing_trace = {
-        "tool_calls": [{"name": "udm_search", "args": {}}, {"name": "get_ioc_match", "args": {}}],
+        "tool_calls": [
+            {"name": "udm_search", "args": {}},
+            {"name": "get_ioc_match", "args": {}},
+        ],
         "final_response": (
             "Investigation complete. No lateral movement detected.\n\n"
             "*Agent: agent_soc_manager | Model: gemini-3.1-pro-preview | Tools: udm_search, get_ioc_match*"

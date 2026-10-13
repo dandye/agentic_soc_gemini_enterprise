@@ -14,6 +14,8 @@ import google.auth
 import requests
 import typer
 from dotenv import load_dotenv
+
+
 try:
     from installation_scripts.env_migration import (
         apply_legacy_env_aliases,

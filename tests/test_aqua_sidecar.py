@@ -43,7 +43,7 @@ def test_aqua_goal_document_has_okf_frontmatter_and_five_invariants():
 def test_strip_okf_frontmatter_helper(tmp_path: Path):
     """Verify strip_okf_frontmatter removes OKF YAML header for --agent-goal-file consumption."""
     from installation_scripts.provenance_helper import (
-         strip_okf_frontmatter,
+        strip_okf_frontmatter,
         write_stripped_goal_file,
     )
 

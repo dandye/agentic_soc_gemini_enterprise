@@ -1133,4 +1133,3 @@ aqua-ui:
 # Promote a failing AQuA production insight into evalsets/aqua_regressions.evalset.json
 aqua-promote-insight insight_id insights_file="aqua/insights.json":
     {{ python }} scripts/promote_aqua_insight.py --insight-id {{ quote(insight_id) }} --insights-file {{ insights_file }}
-

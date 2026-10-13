@@ -889,6 +889,7 @@ from opentelemetry.context.contextvars_context import (  # noqa: E402
     ContextVarsRuntimeContext,
 )
 
+
 _orig_otel_context_detach = ContextVarsRuntimeContext.detach
 
 
@@ -915,10 +916,8 @@ def _build_telemetry_context(adk_instrumentation, span):
         tel_ctx = adk_instrumentation.TelemetryContext(
             otel_context=otel_ctx,
         )
-        try:
+        with contextlib.suppress(Exception):
             tel_ctx.span = span
-        except Exception:
-            pass
     return tel_ctx
 
 
@@ -944,12 +943,10 @@ async def patched_record_agent_invocation(
         try:
             span.end()
         finally:
-            try:
+            with contextlib.suppress(Exception):
                 _safe_otel_context_detach(
                     adk_instrumentation.context_api._RUNTIME_CONTEXT, token
                 )
-            except Exception:
-                pass
             elapsed_ms = adk_instrumentation._get_elapsed_ms(span, start_time)
             adk_instrumentation._record_agent_metrics(
                 getattr(agent, "name", "unknown"),
@@ -1017,12 +1014,10 @@ async def patched_record_tool_execution(
         try:
             span.end()
         finally:
-            try:
+            with contextlib.suppress(Exception):
                 _safe_otel_context_detach(
                     adk_instrumentation.context_api._RUNTIME_CONTEXT, token
                 )
-            except Exception:
-                pass
             try:
                 adk_instrumentation._metrics.record_tool_execution_duration(
                     tool_name=getattr(tool, "name", "unknown"),
@@ -2875,9 +2870,7 @@ def create_agent():
     load_dotenv(Path(".env"), override=False)
     install_otel_telemetry_patches()
     os.environ.setdefault("GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY", "TRUE")
-    os.environ.setdefault(
-        "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT", "TRUE"
-    )
+    os.environ.setdefault("OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT", "TRUE")
 
     # Model Configuration
     ORCHESTRATOR_MODEL = os.environ.get("ORCHESTRATOR_MODEL", "gemini-3.1-pro-preview")

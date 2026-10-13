@@ -96,7 +96,10 @@ def test_aqua_regressions_evalset_and_hyp_007_registered():
     hyp_text = hyp_path.read_text(encoding="utf-8")
     assert hyp_text.startswith("---\n")
     assert "HYP-007" in hyp_text
-    assert "Two-Loop Agent Quality Flywheel" in hyp_text or "Ambient Quality Agent" in hyp_text
+    assert (
+        "Two-Loop Agent Quality Flywheel" in hyp_text
+        or "Ambient Quality Agent" in hyp_text
+    )
     assert "Falsification Criteria" in hyp_text
 
     readme_path = REPO_ROOT / "evalsets" / "README.md"

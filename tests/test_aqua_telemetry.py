@@ -3,7 +3,7 @@
 import contextvars
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -29,10 +29,13 @@ def test_agent_soc_manager_no_hardcoded_telemetry_false():
 @pytest.mark.asyncio
 async def test_patched_record_agent_invocation_records_spans_and_handles_context_switch():
     """Verify patched_record_agent_invocation creates a real span and suppresses cross-context detach ValueError."""
-    import agent_soc_manager.agent as soc_agent
     import google.adk.telemetry._instrumentation as adk_inst
 
-    dummy_agent = SimpleNamespace(name="tier1_analyst", description="Tier 1", model="gemini-2.5-flash")
+    import agent_soc_manager.agent as soc_agent
+
+    dummy_agent = SimpleNamespace(
+        name="tier1_analyst", description="Tier 1", model="gemini-2.5-flash"
+    )
     dummy_session = SimpleNamespace(id="sess-123", events=[])
     dummy_ctx = SimpleNamespace(
         session=dummy_session,
@@ -71,7 +74,10 @@ async def test_patched_record_tool_execution_records_spans_and_handles_context_s
         is_long_running=False,
     )
     dummy_agent = SimpleNamespace(name="tier1_analyst")
-    func_args = {"query": 'principal.hostname = "wks-01"', "project_id": "secops-demo-env"}
+    func_args = {
+        "query": 'principal.hostname = "wks-01"',
+        "project_id": "secops-demo-env",
+    }
 
     with patch.object(adk_inst.tracing, "trace_tool_call") as mock_trace_tool:
         cm = adk_inst.record_tool_execution(dummy_tool, dummy_agent, func_args)
@@ -99,9 +105,7 @@ def test_per_agent_otel_service_name_mapping():
         get_otel_service_name("agent_a2a_detection_engineer")
         == "adk-a2a-detection-engineer"
     )
-    assert (
-        get_otel_service_name("agent_a2a_cti_researcher") == "adk-a2a-cti-researcher"
-    )
+    assert get_otel_service_name("agent_a2a_cti_researcher") == "adk-a2a-cti-researcher"
 
 
 def test_aqua_telemetry_ingestion_modes():
@@ -117,10 +121,7 @@ def test_aqua_telemetry_ingestion_modes():
     assert cfg_logging["AQUA_TELEMETRY_SOURCE"] == "cloud_logging"
     assert cfg_logging["AQUA_TELEMETRY_DATASET"] == "telemetry"
     assert cfg_logging["AQUA_TELEMETRY_TABLE"] == "agent_telemetry_data"
-    assert (
-        cfg_logging["AQUA_LOG_FILTER"]
-        == "gen_ai_client_inference_operation_details"
-    )
+    assert cfg_logging["AQUA_LOG_FILTER"] == "gen_ai_client_inference_operation_details"
     assert cfg_logging["OTEL_SERVICE_NAME"] == "adk-soc-manager"
 
     cfg_ops = build_aqua_telemetry_config(
