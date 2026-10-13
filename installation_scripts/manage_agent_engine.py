@@ -1191,6 +1191,29 @@ class AgentEngineManager:
                     raise ValueError(
                         "update_resource_name must be provided for updates"
                     )
+                local_py_ver = f"{sys.version_info.major}.{sys.version_info.minor}"
+                try:
+                    check_client = vertexai.Client(
+                        project=self.project, location=self.location
+                    )
+                    existing_re = check_client.agent_engines.get(
+                        name=update_resource_name
+                    )
+                    remote_py_ver = getattr(
+                        getattr(existing_re.api_resource, "spec", None),
+                        "package_spec",
+                        None,
+                    )
+                    remote_py_ver = getattr(remote_py_ver, "python_version", None)
+                except Exception:
+                    remote_py_ver = None
+                if remote_py_ver and remote_py_ver != local_py_ver:
+                    raise RuntimeError(
+                        f"Python bytecode version mismatch: local interpreter is Python {local_py_ver} "
+                        f"({sys.executable}), but target Reasoning Engine '{update_resource_name}' "
+                        f"runs Python {remote_py_ver}. cloudpickle bytecode from Python {local_py_ver} "
+                        f"will segfault in Python {remote_py_ver}. Activate a Python {remote_py_ver} .venv before updating."
+                    )
                 remote_app = agent_engines.update(
                     resource_name=update_resource_name,
                     agent_engine=app,

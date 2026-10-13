@@ -903,6 +903,25 @@ def _safe_otel_context_detach(self, token) -> None:
 ContextVarsRuntimeContext.detach = _safe_otel_context_detach
 
 
+def _build_telemetry_context(adk_instrumentation, span):
+    """Build ADK TelemetryContext across ADK 2.2 (no span kwarg) and ADK 2.9+ (span kwarg)."""
+    otel_ctx = adk_instrumentation.context_api.get_current()
+    try:
+        tel_ctx = adk_instrumentation.TelemetryContext(
+            otel_context=otel_ctx,
+            span=span,
+        )
+    except TypeError:
+        tel_ctx = adk_instrumentation.TelemetryContext(
+            otel_context=otel_ctx,
+        )
+        try:
+            tel_ctx.span = span
+        except Exception:
+            pass
+    return tel_ctx
+
+
 @contextlib.asynccontextmanager
 async def patched_record_agent_invocation(
     ctx, agent
@@ -916,10 +935,7 @@ async def patched_record_agent_invocation(
     )
     try:
         adk_instrumentation.tracing.trace_agent_invocation(span, agent, ctx)
-        tel_ctx = adk_instrumentation.TelemetryContext(
-            otel_context=adk_instrumentation.context_api.get_current(),
-            span=span,
-        )
+        tel_ctx = _build_telemetry_context(adk_instrumentation, span)
         yield tel_ctx
     except Exception as exc:
         caught_error = exc
@@ -955,10 +971,7 @@ async def patched_record_tool_execution(
     token = adk_instrumentation.context_api.attach(
         adk_instrumentation.trace.set_span_in_context(span)
     )
-    tel_ctx = adk_instrumentation.TelemetryContext(
-        otel_context=adk_instrumentation.context_api.get_current(),
-        span=span,
-    )
+    tel_ctx = _build_telemetry_context(adk_instrumentation, span)
     try:
         try:
             yield tel_ctx
@@ -969,6 +982,7 @@ async def patched_record_tool_execution(
             response_event = (
                 tel_ctx.function_response_event if caught_error is None else None
             )
+            error_type = getattr(tel_ctx, "error_type", None)
             try:
                 adk_instrumentation.tracing.trace_tool_call(
                     tool=tool,
@@ -976,16 +990,24 @@ async def patched_record_tool_execution(
                     function_response_event=response_event,
                     error=caught_error,
                     span=span,
-                    error_type=tel_ctx.error_type,
+                    error_type=error_type,
                 )
             except TypeError:
-                adk_instrumentation.tracing.trace_tool_call(
-                    tool=tool,
-                    args=function_args,
-                    function_response_event=response_event,
-                    error=caught_error,
-                    error_type=tel_ctx.error_type,
-                )
+                try:
+                    adk_instrumentation.tracing.trace_tool_call(
+                        tool=tool,
+                        args=function_args,
+                        function_response_event=response_event,
+                        error=caught_error,
+                        error_type=error_type,
+                    )
+                except TypeError:
+                    adk_instrumentation.tracing.trace_tool_call(
+                        tool=tool,
+                        args=function_args,
+                        function_response_event=response_event,
+                        error=caught_error,
+                    )
             except Exception:
                 adk_instrumentation.logger.exception(
                     "Failed to trace tool call for tool %s",
