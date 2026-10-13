@@ -916,7 +916,7 @@ def create_agent():
     os.environ.setdefault("OTEL_SERVICE_NAME", "adk-a2a-cti-researcher")
 
     # Model Configuration
-    CTI_RESEARCHER_MODEL = os.environ.get("CTI_RESEARCHER_MODEL", "gemini-2.5-flash")
+    CTI_RESEARCHER_MODEL = os.environ.get("CTI_RESEARCHER_MODEL", "gemini-3.5-flash")
 
     # Get all required environment variables
     GCP_PROJECT_ID = os.environ.get("GCP_PROJECT_ID")

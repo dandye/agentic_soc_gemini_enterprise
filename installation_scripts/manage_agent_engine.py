@@ -1029,6 +1029,9 @@ class AgentEngineManager:
                 "ORCHESTRATOR_MODEL": os.environ.get("ORCHESTRATOR_MODEL"),
                 "CTI_RESEARCHER_MODEL": os.environ.get("CTI_RESEARCHER_MODEL"),
                 "TIER1_ANALYST_MODEL": os.environ.get("TIER1_ANALYST_MODEL"),
+                "TIER2_RESPONDER_MODEL": os.environ.get("TIER2_RESPONDER_MODEL"),
+                "THREAT_HUNTER_MODEL": os.environ.get("THREAT_HUNTER_MODEL"),
+                "DETECTION_ENGINEER_MODEL": os.environ.get("DETECTION_ENGINEER_MODEL"),
                 # Elasticsearch Grounding
                 "ELASTICSEARCH_GROUNDING_ENABLED": os.environ.get(
                     "ELASTICSEARCH_GROUNDING_ENABLED"
@@ -1137,6 +1140,7 @@ class AgentEngineManager:
             deploy_kwargs = {
                 "display_name": display_name,
                 "description": description,
+                "gcs_dir_name": f"agent_engine_{agent_module}",
                 "requirements": [
                     "cloudpickle",
                     "google-adk~=2.2.0",

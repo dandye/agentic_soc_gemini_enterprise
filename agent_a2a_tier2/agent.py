@@ -1151,7 +1151,9 @@ def create_agent():
     os.environ.setdefault("OTEL_SERVICE_NAME", "adk-a2a-tier2")
 
     # Model Configuration
-    TIER2_RESPONDER_MODEL = os.environ.get("TIER2_RESPONDER_MODEL", "gemini-2.5-pro")
+    TIER2_RESPONDER_MODEL = os.environ.get(
+        "TIER2_RESPONDER_MODEL", "gemini-3.1-pro-preview"
+    )
 
     # Get all required environment variables
     GCP_PROJECT_ID = os.environ.get("GCP_PROJECT_ID")
