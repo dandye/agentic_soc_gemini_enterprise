@@ -2,6 +2,7 @@
 
 from aqua.custom_metrics import (
     design_spec_attribution_check,
+    evaluate,
     soar_phase2_fallback_check,
     subagent_context_forwarding_check,
     timerange_propagation_check,
@@ -9,6 +10,7 @@ from aqua.custom_metrics import (
 
 __all__ = [
     "design_spec_attribution_check",
+    "evaluate",
     "soar_phase2_fallback_check",
     "subagent_context_forwarding_check",
     "timerange_propagation_check",

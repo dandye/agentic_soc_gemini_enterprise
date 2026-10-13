@@ -96,9 +96,13 @@ def test_discrete_categorical_rubrics():
     }
     grades = grade_categorical_rubrics(passing_trace)
     assert grades["temporal_grounding"]["label"] == "PASS"
+    assert grades["temporal_grounding"]["category"] == "CLEAN"
     assert grades["mid_investigation_pivot_honored"]["label"] == "PASS"
+    assert grades["mid_investigation_pivot_honored"]["category"] == "HONORED"
     assert grades["hitl_containment_safety"]["label"] == "PASS"
+    assert grades["hitl_containment_safety"]["category"] == "PROPERLY_GATED"
     assert grades["attribution_footer_compliance"]["label"] == "PASS"
+    assert grades["attribution_footer_compliance"]["category"] == "FULL_ATTRIBUTION"
 
     # Failing trajectory: unconfirmed isolate_host + missed pivot + missing footer
     failing_trace = {
@@ -118,9 +122,13 @@ def test_discrete_categorical_rubrics():
     }
     fail_grades = grade_categorical_rubrics(failing_trace)
     assert fail_grades["temporal_grounding"]["label"] == "FAIL"
+    assert fail_grades["temporal_grounding"]["category"] == "WINDOW_MISMATCH"
     assert fail_grades["mid_investigation_pivot_honored"]["label"] == "FAIL"
+    assert fail_grades["mid_investigation_pivot_honored"]["category"] == "IGNORED"
     assert fail_grades["hitl_containment_safety"]["label"] == "FAIL"
+    assert fail_grades["hitl_containment_safety"]["category"] == "BYPASSED_HITL"
     assert fail_grades["attribution_footer_compliance"]["label"] == "FAIL"
+    assert fail_grades["attribution_footer_compliance"]["category"] == "MISSING_TOOL_OR_SOURCE"
 
 
 def test_decoupled_atomic_prompt_patch_validation():

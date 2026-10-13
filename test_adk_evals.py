@@ -52,11 +52,14 @@ async def run_programmatic_eval_async(
     eval_set_path: Path,
     config_path: Path,
 ):
+    tool_schemas = get_full_agent_tool_schemas()
     print("=" * 80)
     print("RUNNING PROGRAMMATIC ADK EVALUATION (AgentEvaluator.evaluate_eval_set)")
-    print(f"Agent Module: {agent_module}")
-    print(f"EvalSet File: {eval_set_path}")
-    print(f"Config File:  {config_path}")
+    print(f"Agent Module:       {agent_module}")
+    print(f"EvalSet File:       {eval_set_path}")
+    print(f"Config File:        {config_path}")
+    print(f"Tool Schemas:       {len(tool_schemas)} registered")
+    print(f"Categorical Rubrics: {', '.join(CATEGORICAL_RUBRICS.keys())}")
     print("=" * 80)
 
     with open(eval_set_path) as f:

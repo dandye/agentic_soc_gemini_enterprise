@@ -6,6 +6,8 @@ Validates `<path>:<start>-<end>` file-and-line citations against the versioned
 source snapshot (or repository root), strips uncalibrated LLM `confidence`
 scores (per Melnyk et al., 2026), and compiles failing production trajectories
 into `evalsets/aqua_regressions.evalset.json` with hermetic mock tool stubs.
+Supports fetching live insights and traces via `agents-cli aqua insights get`
+and `agents-cli aqua traces get` as well as local exported JSON files.
 """
 
 from __future__ import annotations
@@ -15,15 +17,58 @@ from datetime import UTC, datetime
 import json
 from pathlib import Path
 import re
+import subprocess
 from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_EVALSET_PATH = REPO_ROOT / "evalsets" / "aqua_regressions.evalset.json"
 DEFAULT_INSIGHTS_PATH = REPO_ROOT / "aqua" / "insights.json"
+DEFAULT_SNAPSHOT_ROOT = REPO_ROOT / "aqua" / "snapshots"
 
 _CITATION_PATTERN = re.compile(
     r"^(?P<path>[^:]+):(?P<start>\d+)(?:-(?P<end>\d+))?$"
 )
+
+
+def fetch_aqua_insight_via_cli(insight_id: str) -> dict[str, Any]:
+    """Fetch a single AQuA insight via `agents-cli aqua insights get <ID> --format json`."""
+    cmd = ["agents-cli", "aqua", "insights", "get", insight_id, "--format", "json"]
+    res = subprocess.run(cmd, capture_output=True, text=True, check=True)
+    insight_data = json.loads(res.stdout)
+    session_id = insight_data.get("session_id") or (
+        (insight_data.get("failing_trajectory") or {}).get("session_id")
+    )
+    if session_id and not insight_data.get("failing_trajectory"):
+        try:
+            trace_data = fetch_aqua_trace_via_cli(str(session_id))
+            insight_data["failing_trajectory"] = trace_data
+        except Exception:
+            pass
+    return insight_data
+
+
+def fetch_aqua_trace_via_cli(session_id: str) -> dict[str, Any]:
+    """Fetch a production session trace via `agents-cli aqua traces get <SESSION_ID> --format json`."""
+    cmd = ["agents-cli", "aqua", "traces", "get", session_id, "--format", "json"]
+    res = subprocess.run(cmd, capture_output=True, text=True, check=True)
+    return json.loads(res.stdout)
+
+
+def _resolve_snapshot_base(
+    insight: dict[str, Any],
+    root_dir: Path | str = REPO_ROOT,
+) -> Path:
+    """Resolve the versioned snapshot directory (`aqua/snapshots/rev_N`) if available."""
+    base = Path(root_dir)
+    rev = insight.get("agent_revision") or insight.get("revision")
+    if rev is not None:
+        rev_str = str(rev).strip()
+        m = re.search(r"(\d+)", rev_str)
+        if m:
+            candidate = base / "aqua" / "snapshots" / f"rev_{m.group(1)}"
+            if candidate.exists() and candidate.is_dir():
+                return candidate
+    return base
 
 
 def validate_snapshot_citations(
@@ -108,11 +153,48 @@ def _build_hermetic_tool_stubs(tool_calls: list[dict[str, Any]]) -> dict[str, An
         name = str(call.get("name") or "").strip()
         if not name:
             continue
-        stubs[name] = {
+        entry = {
             "recorded_args": call.get("args", {}),
             "mock_response": call.get("response", {"status": "stubbed"}),
         }
+        if name not in stubs:
+            stubs[name] = entry
+        else:
+            existing = stubs[name]
+            history = list(existing.get("call_history") or [
+                {
+                    "recorded_args": existing["recorded_args"],
+                    "mock_response": existing["mock_response"],
+                }
+            ])
+            history.append(entry)
+            stubs[name] = {
+                "recorded_args": entry["recorded_args"],
+                "mock_response": entry["mock_response"],
+                "call_history": history,
+            }
     return stubs
+
+
+def _extract_conversation_turns(
+    insight: dict[str, Any], trajectory: dict[str, Any]
+) -> list[dict[str, str]]:
+    """Extract multi-turn conversation list from trajectory or insight payload."""
+    raw_conv = trajectory.get("conversation") or insight.get("conversation")
+    if isinstance(raw_conv, list) and raw_conv:
+        turns = [
+            {
+                "role": str(t.get("role") or "user"),
+                "content": str(t.get("content") or ""),
+            }
+            for t in raw_conv
+            if isinstance(t, dict) and t.get("content")
+        ]
+        if turns:
+            return turns
+
+    user_prompt = str(trajectory.get("user_prompt") or "")
+    return [{"role": "user", "content": user_prompt}]
 
 
 def promote_insight_to_evalset(
@@ -123,19 +205,20 @@ def promote_insight_to_evalset(
     """Validate an AQuA insight and promote its failing trajectory into aqua_regressions.evalset.json."""
     insight_id = str(insight.get("insight_id") or "AQUA-INS-UNKNOWN")
     citations = list(insight.get("code_citations") or [])
-    citation_check = validate_snapshot_citations(citations, root_dir=root_dir)
+    snapshot_base = _resolve_snapshot_base(insight, root_dir=root_dir)
+    citation_check = validate_snapshot_citations(citations, root_dir=snapshot_base)
     if not citation_check["valid"]:
         raise ValueError(
             f"Insight {insight_id} contains invalid code citations: {citation_check['invalid_citations']}"
         )
 
     trajectory = insight.get("failing_trajectory") or {}
-    user_prompt = str(trajectory.get("user_prompt") or "")
     tool_calls = list(trajectory.get("tool_calls") or [])
     expected_tools = list(
         insight.get("expected_tools")
         or [c.get("name") for c in tool_calls if c.get("name")]
     )
+    conversation_turns = _extract_conversation_turns(insight, trajectory)
 
     # Note: Uncalibrated 'confidence' is intentionally excluded per Melnyk et al. (2026)
     promoted_case = {
@@ -153,12 +236,7 @@ def promote_insight_to_evalset(
             "source_session_id": str(trajectory.get("session_id") or "unknown"),
             "promoted_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
         },
-        "conversation": [
-            {
-                "role": "user",
-                "content": user_prompt,
-            }
-        ],
+        "conversation": conversation_turns,
         "reference": {
             "expected_specialist": insight.get(
                 "expected_specialist", "orchestrator_direct"
@@ -230,27 +308,28 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    if not args.insights_file.exists():
-        raise SystemExit(
-            f"[FAIL] Insights file not found: {args.insights_file}"
+    matched: dict[str, Any] | None = None
+    if args.insights_file.exists():
+        raw_data = json.loads(args.insights_file.read_text(encoding="utf-8"))
+        insights_list = (
+            raw_data.get("insights", []) if isinstance(raw_data, dict) else raw_data
+        )
+        matched = next(
+            (
+                item
+                for item in insights_list
+                if item.get("insight_id") == args.insight_id
+            ),
+            None,
         )
 
-    raw_data = json.loads(args.insights_file.read_text(encoding="utf-8"))
-    insights_list = (
-        raw_data.get("insights", []) if isinstance(raw_data, dict) else raw_data
-    )
-    matched = next(
-        (
-            item
-            for item in insights_list
-            if item.get("insight_id") == args.insight_id
-        ),
-        None,
-    )
     if matched is None:
-        raise SystemExit(
-            f"[FAIL] Insight ID '{args.insight_id}' not found in {args.insights_file}"
-        )
+        try:
+            matched = fetch_aqua_insight_via_cli(args.insight_id)
+        except Exception as exc:
+            raise SystemExit(
+                f"[FAIL] Insight ID '{args.insight_id}' not found in {args.insights_file} and CLI lookup failed ({exc})"
+            )
 
     promoted = promote_insight_to_evalset(
         insight=matched,

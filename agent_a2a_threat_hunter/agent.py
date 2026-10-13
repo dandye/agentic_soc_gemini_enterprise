@@ -967,6 +967,11 @@ def create_agent():
     env_file = os.environ.get("ENV_FILE", ".env")
     if Path(env_file).exists():
         load_dotenv(Path(env_file), override=False)
+    os.environ.setdefault("GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY", "TRUE")
+    os.environ.setdefault(
+        "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT", "TRUE"
+    )
+    os.environ.setdefault("OTEL_SERVICE_NAME", "adk-a2a-threat-hunter")
 
     # Model Configuration
     THREAT_HUNTER_MODEL = os.environ.get("THREAT_HUNTER_MODEL", "gemini-2.5-flash")

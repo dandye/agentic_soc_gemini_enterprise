@@ -1144,8 +1144,13 @@ def create_agent():
     """
     Create the standalone Tier 2 Incident Responder Agent with MCP and containment tools.
     """
-    # Load environment variables from .env file
-    load_dotenv(Path(".env"), override=True)
+    # Load environment variables from .env file without clobbering runtime env
+    load_dotenv(Path(".env"), override=False)
+    os.environ.setdefault("GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY", "TRUE")
+    os.environ.setdefault(
+        "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT", "TRUE"
+    )
+    os.environ.setdefault("OTEL_SERVICE_NAME", "adk-a2a-tier2")
 
     # Model Configuration
     TIER2_RESPONDER_MODEL = os.environ.get("TIER2_RESPONDER_MODEL", "gemini-2.5-pro")

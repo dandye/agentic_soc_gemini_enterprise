@@ -79,7 +79,7 @@ def test_manage_aqua_commands_and_versioned_snapshots(tmp_path: Path):
         agent_source_dir="./agent_soc_manager",
         agent_goal_file=str(stripped_goal),
     )
-    assert init_cmd[:2] == ["aqua", "init"]
+    assert init_cmd[:3] == ["agents-cli", "aqua", "init"]
     assert "--monitored-agent-id" in init_cmd
     assert "projects/123/locations/us-central1/reasoningEngines/456" in init_cmd
     assert "--agent-source-dir" in init_cmd
@@ -88,21 +88,22 @@ def test_manage_aqua_commands_and_versioned_snapshots(tmp_path: Path):
     assert str(stripped_goal) in init_cmd
 
     deploy_cmd = build_aqua_deploy_command()
-    assert deploy_cmd[:2] == ["aqua", "deploy"]
+    assert deploy_cmd[:3] == ["agents-cli", "aqua", "deploy"]
 
     run_cmd = build_aqua_run_command(
         start_time="-24h", eval_config="aqua/eval_config.yaml"
     )
-    assert run_cmd[:2] == ["aqua", "run"]
+    assert run_cmd[:3] == ["agents-cli", "aqua", "run"]
     assert "--start-time" in run_cmd
     assert "-24h" in run_cmd
+    assert "--trace-lookup-hours" in run_cmd
     assert "--eval-config" in run_cmd
     assert "aqua/eval_config.yaml" in run_cmd
 
     ui_cmd = build_aqua_ui_command()
-    assert ui_cmd == ["aqua", "ui"]
+    assert ui_cmd[:3] == ["agents-cli", "aqua", "ui-proxy"]
 
-    # Test versioned snapshot generation (Revision 1, Revision 2)
+    # Test versioned snapshot generation (Revision 1, Revision 2) across all 5 agent modules
     snap1 = create_source_snapshot(
         agent_module="agent_soc_manager",
         snapshot_root=tmp_path / "snapshots",
@@ -110,6 +111,8 @@ def test_manage_aqua_commands_and_versioned_snapshots(tmp_path: Path):
     assert snap1["revision"] == 1
     assert snap1["revision_label"] == "Revision 1"
     assert "agent_soc_manager/agent.py" in snap1["files"]
+    assert "agent_a2a_tier2/agent.py" in snap1["files"]
+    assert "agent_a2a_threat_hunter/agent.py" in snap1["files"]
     assert (tmp_path / "snapshots" / "rev_1" / "manifest.json").exists()
 
     snap2 = create_source_snapshot(

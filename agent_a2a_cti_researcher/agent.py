@@ -909,8 +909,13 @@ def create_agent():
     """
     Create the standalone CTI Researcher Agent with GTI and threat intelligence tools.
     """
-    # Load environment variables from .env file
-    load_dotenv(Path(".env"), override=True)
+    # Load environment variables from .env file without clobbering runtime env
+    load_dotenv(Path(".env"), override=False)
+    os.environ.setdefault("GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY", "TRUE")
+    os.environ.setdefault(
+        "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT", "TRUE"
+    )
+    os.environ.setdefault("OTEL_SERVICE_NAME", "adk-a2a-cti-researcher")
 
     # Model Configuration
     CTI_RESEARCHER_MODEL = os.environ.get("CTI_RESEARCHER_MODEL", "gemini-2.5-flash")

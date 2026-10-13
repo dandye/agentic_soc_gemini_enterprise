@@ -969,13 +969,28 @@ async def patched_record_tool_execution(
             response_event = (
                 tel_ctx.function_response_event if caught_error is None else None
             )
-            adk_instrumentation.tracing.trace_tool_call(
-                tool=tool,
-                args=function_args,
-                function_response_event=response_event,
-                error=caught_error,
-                error_type=tel_ctx.error_type,
-            )
+            try:
+                adk_instrumentation.tracing.trace_tool_call(
+                    tool=tool,
+                    args=function_args,
+                    function_response_event=response_event,
+                    error=caught_error,
+                    span=span,
+                    error_type=tel_ctx.error_type,
+                )
+            except TypeError:
+                adk_instrumentation.tracing.trace_tool_call(
+                    tool=tool,
+                    args=function_args,
+                    function_response_event=response_event,
+                    error=caught_error,
+                    error_type=tel_ctx.error_type,
+                )
+            except Exception:
+                adk_instrumentation.logger.exception(
+                    "Failed to trace tool call for tool %s",
+                    getattr(tool, "name", "unknown"),
+                )
     finally:
         try:
             span.end()
@@ -1000,8 +1015,14 @@ async def patched_record_tool_execution(
                 )
 
 
-adk_instrumentation.record_agent_invocation = patched_record_agent_invocation
-adk_instrumentation.record_tool_execution = patched_record_tool_execution
+def install_otel_telemetry_patches() -> None:
+    """Idempotently install safe OpenTelemetry context detach and ADK span wrappers."""
+    ContextVarsRuntimeContext.detach = _safe_otel_context_detach
+    adk_instrumentation.record_agent_invocation = patched_record_agent_invocation
+    adk_instrumentation.record_tool_execution = patched_record_tool_execution
+
+
+install_otel_telemetry_patches()
 
 
 # -------------------------------------------------------------------------
@@ -2828,8 +2849,9 @@ def create_agent():
     Returns:
         Configured Agent instance (orchestrator)
     """
-    # Load environment variables from .env file
-    load_dotenv(Path(".env"), override=True)
+    # Load environment variables from .env file without clobbering container runtime env
+    load_dotenv(Path(".env"), override=False)
+    install_otel_telemetry_patches()
     os.environ.setdefault("GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY", "TRUE")
     os.environ.setdefault(
         "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT", "TRUE"

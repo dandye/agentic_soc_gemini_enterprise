@@ -43,3 +43,7 @@ htmlcov/
 # direnv and isolated gcloud state
 .gcloud/
 .envrc
+
+# Local AQuA source snapshots and stripped goal artifacts
+aqua/snapshots/
+docs/.aqua_goal_stripped.md

@@ -90,11 +90,15 @@ This registry serves as the central scientific ledger for the Agentic SOC projec
 ---
 
 ### `HYP-007`: Two-Loop Agent Quality Flywheel & Ambient Quality Agent (AQuA) Outer-Loop Diagnosis
-*   **Hypothesis Statement:** If we pair our offline inner-loop evaluation and atomic prompt optimization pipeline (`manage_eval.py`, `test_adk_evals.py`, `multi_turn_pivots.evalset.json`) with an Ambient Quality Agent (AQuA) outer-loop diagnostic sidecar (`manage_aqua.py`, `aqua/eval_config.yaml`, `aqua/custom_metrics.py`) that correlates full OpenTelemetry spans and versioned source code snapshots (`Revision N`), and promote discovered production failure clusters into hermetic inner-loop regression tests (`scripts/promote_aqua_insight.py` -> `evalsets/aqua_regressions.evalset.json`), then we will achieve **100% citation grounding accuracy** on promoted insights, eliminate silent cross-boundary context loss and SOAR Phase 2 empty-response false negatives, and guarantee **zero holdout split regressions** across iterative prompt optimization cycles.
+*   **Hypothesis Statement:** If we pair an Ambient Quality Agent (AQuA) outer-loop pipeline (5-stage asynchronous BigQuery span evaluation + Gemini 3.7 Flash cluster verification + Gemini 3.8 Flash snapshot-anchored `<path>:<start>-<end>` root-cause diagnosis + 4 deterministic custom SOC metrics) with an upgraded inner-loop flywheel (`manage_eval.py` across all 5 specialists + 4 discrete categorical rubrics + 25 multi-turn pivot scenarios + `just aqua-promote-insight`), then we will:
+    1. Surface silent multi-agent failures (temporal conflation, sub-agent context dropping, SOAR Phase 2 empty-response mishandling, and mid-investigation pivot blindness) that pass 1-turn static evals,
+    2. Anchor `>= 85%` of verified production failure clusters to exact `<path>:<start>-<end>` lines in `agent_soc_manager` or `agent_a2a_*` at `< $0.15/session` sweep cost, and
+    3. Convert discovered production failures into permanent regression tests that drive measurable inner-loop score improvements without holdout regression.
 *   **Falsification Criteria:**
     1. OpenTelemetry context detachment (`ValueError: <Token ...> was created in a different Context`) crashes parallel specialist runs (`delegate_concurrently`) or drops span telemetry.
-    2. Promoted AQuA insights contain unverified `<path>:<start>-<end>` citations or rely on uncalibrated LLM confidence scores rather than severity/impact and session prevalence.
-    3. Inner-loop atomic prompt patches improve training cases while regressing holdout split cases in `evalsets/multi_turn_pivots.evalset.json`.
+    2. AQuA outer-loop diagnosis fails to produce valid file-and-line citations (`< 70%` valid `<path>:<start>-<end>` references) or exceeds `$0.25/session` in evaluation token cost.
+    3. Promoted regression cases fail to reproduce the production failure mode in inner-loop replay or fail to reduce the failure cluster's occurrence rate (`mid_investigation_pivot_honored: IGNORED` remaining `>= 10%`) on post-patch Revision 2 replay.
+    4. Inner-loop atomic prompt patches improve training cases while regressing holdout split cases in `evalsets/multi_turn_pivots.evalset.json`.
 *   **Status:** [ACTIVE]
 *   **Linked Experiments & Artifacts:**
     *   `docs/aqua_goal.md` (5 Core SOC Behavioral Invariants)

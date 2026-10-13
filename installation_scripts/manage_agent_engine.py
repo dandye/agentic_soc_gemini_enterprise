@@ -763,7 +763,12 @@ class AgentEngineManager:
                 "SOAR_APP_KEY",
                 "GTI_API_KEY",
             ]
-            if agent_module == "agent_soc_manager":
+            if agent_module == "agent_soc_manager" and not (
+                os.environ.get("ELASTICSEARCH_GROUNDING_ENABLED", "False").lower()
+                == "true"
+                or os.environ.get("ALLOYDB_GROUNDING_ENABLED", "False").lower()
+                == "true"
+            ):
                 required_vars.append("RAG_CORPUS_ID")
 
             # Check for missing or placeholder values
