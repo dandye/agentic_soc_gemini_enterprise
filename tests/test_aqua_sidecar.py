@@ -138,3 +138,83 @@ def test_justfile_and_manage_py_expose_aqua_targets():
     manage_text = (REPO_ROOT / "manage.py").read_text(encoding="utf-8")
     assert "manage_aqua" in manage_text
     assert 'name="aqua"' in manage_text
+
+
+def test_merge_telemetry_sources_combines_session_cloud_trace_and_logging():
+    """Verify _merge_telemetry_sources correlates Vertex Session Service, Cloud Trace spans, and Cloud Logging OTel events by session_id."""
+    from installation_scripts.manage_aqua import _merge_telemetry_sources
+
+    session_traces = [
+        {
+            "session_id": "sess-100",
+            "source": "vertex_session_service",
+            "agent_key": "agent_soc_manager",
+            "engine_id": "7232703485987258368",
+            "user_prompt": "Check wks-fin-01 over the last 7 days.",
+            "conversation": [
+                {"role": "user", "content": "Check wks-fin-01 over the last 7 days."}
+            ],
+            "tool_calls": [
+                {
+                    "turn": 1,
+                    "name": "udm_search",
+                    "args": {"query": "wks-fin-01", "hours_back": 168},
+                }
+            ],
+            "final_response": "Done.\n\n*Agent: agent_soc_manager | Model: gemini-3.1-pro-preview | Tools: udm_search*",
+        }
+    ]
+    cloud_trace_spans = [
+        {
+            "session_id": "sess-100",
+            "source": "cloud_trace_otel",
+            "trace_ids": ["trace-abc"],
+            "spans": [
+                {
+                    "name": "call_llm",
+                    "trace_id": "trace-abc",
+                    "span_id": "span-1",
+                    "attributes": {
+                        "gen_ai.request.model": "gemini-3.1-pro-preview",
+                        "gen_ai.usage.input_tokens": "5000",
+                        "gen_ai.usage.output_tokens": "200",
+                        "service.name": "adk-soc-manager",
+                    },
+                }
+            ],
+            "otel_summary": {
+                "span_count": 1,
+                "trace_ids": ["trace-abc"],
+                "services": ["adk-soc-manager"],
+                "models": ["gemini-3.1-pro-preview"],
+                "total_input_tokens": 5000,
+                "total_output_tokens": 200,
+                "total_reasoning_tokens": 0,
+            },
+        }
+    ]
+    cloud_log_traces = [
+        {
+            "session_id": "sess-100",
+            "source": "cloud_logging",
+            "otel_events_count": 4,
+            "conversation": [
+                {"role": "user", "content": "Check wks-fin-01 over the last 7 days."}
+            ],
+            "tool_calls": [],
+            "final_response": "",
+        }
+    ]
+
+    merged = _merge_telemetry_sources(
+        session_traces, [], cloud_trace_spans, cloud_log_traces
+    )
+    assert len(merged) == 1
+    rec = merged[0]
+    assert rec["session_id"] == "sess-100"
+    assert "vertex_session_service" in rec["source"]
+    assert "cloud_trace" in rec["source"]
+    assert "cloud_logging" in rec["source"]
+    assert len(rec["spans"]) == 1
+    assert rec["otel_summary"]["total_input_tokens"] == 5000
+    assert rec["otel_events_count"] == 4

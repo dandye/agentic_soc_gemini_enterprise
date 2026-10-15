@@ -2254,6 +2254,44 @@ def prevent_runaway_loop_callback(
     return None
 
 
+def _emit_a2a_delegation_span(
+    specialist_name: str,
+    target_resource: str,
+    query: str,
+    tool_context: Context,
+    child_tool_calls: list[dict],
+    final_text: str,
+) -> None:
+    """Emit an OpenTelemetry span linking parent session_id and remote A2A child tool calls."""
+    try:
+        from opentelemetry import trace as otel_trace
+
+        parent_sid = ""
+        if (
+            hasattr(tool_context, "_invocation_context")
+            and tool_context._invocation_context
+        ):
+            root_ctx = tool_context._invocation_context
+            sess = getattr(root_ctx, "session", None)
+            if sess and getattr(sess, "id", None):
+                parent_sid = str(sess.id)
+
+        tracer = otel_trace.get_tracer("adk-soc-manager")
+        with tracer.start_as_current_span(f"a2a.delegate.{specialist_name}") as span:
+            if parent_sid:
+                span.set_attribute("gen_ai.conversation.id", parent_sid)
+                span.set_attribute("gcp.vertex.agent.session_id", parent_sid)
+            span.set_attribute("a2a.target_agent", specialist_name)
+            span.set_attribute("a2a.target_resource_name", str(target_resource))
+            span.set_attribute("a2a.request", str(query)[:16000])
+            span.set_attribute(
+                "a2a.child_tool_calls", json.dumps(child_tool_calls, default=str)[:16000]
+            )
+            span.set_attribute("a2a.response_preview", str(final_text)[:4000])
+    except Exception:
+        pass
+
+
 async def delegate_to_tier2_responder(query: str, tool_context: Context) -> str:
     """
     Delegates threat containment, host isolation, container teardown, or active mitigation
@@ -2309,6 +2347,7 @@ async def delegate_to_tier2_responder(query: str, tool_context: Context) -> str:
 
         # Invoke the remote engine client dynamically accumulating streaming events
         response_parts = []
+        child_tool_calls = []
         async for event in remote_engine.async_stream_query(
             user_id=user_id, session_id=session_id, message=query
         ):
@@ -2334,9 +2373,14 @@ async def delegate_to_tier2_responder(query: str, tool_context: Context) -> str:
                             response_parts.append(text)
 
                         # 2. Extract tool/function calls for real-time status updates
-                        function_call = get_field(part, "function_call")
+                        function_call = get_field(part, "function_call") or get_field(
+                            part, "functionCall"
+                        )
                         if function_call:
                             name = get_field(function_call, "name")
+                            args = get_field(function_call, "args") or {}
+                            if name:
+                                child_tool_calls.append({"name": name, "args": args})
                             if name in [
                                 "request_human_confirmation",
                                 "request_triage_approval",
@@ -2357,6 +2401,14 @@ async def delegate_to_tier2_responder(query: str, tool_context: Context) -> str:
         if not final_text:
             final_text = "The Tier 2 specialist completed the request without generating a text response."
 
+        _emit_a2a_delegation_span(
+            "tier2_responder",
+            tier2_engine_name,
+            query,
+            tool_context,
+            child_tool_calls,
+            final_text,
+        )
         logger.info("A2A_DELEGATION_SUCCESS: Successfully completed remote A2A call.")
         return (
             f"--- Response from Tier 2 Incident Responder Specialist ---\n{final_text}"
@@ -2419,6 +2471,7 @@ async def delegate_to_threat_hunter(query: str, tool_context: Context) -> str:
         )
 
         response_parts = []
+        child_tool_calls = []
         async for event in remote_engine.async_stream_query(
             user_id=user_id, session_id=session_id, message=query
         ):
@@ -2439,9 +2492,14 @@ async def delegate_to_threat_hunter(query: str, tool_context: Context) -> str:
                         if text:
                             response_parts.append(text)
 
-                        function_call = get_field(part, "function_call")
+                        function_call = get_field(part, "function_call") or get_field(
+                            part, "functionCall"
+                        )
                         if function_call:
                             name = get_field(function_call, "name")
+                            args = get_field(function_call, "args") or {}
+                            if name:
+                                child_tool_calls.append({"name": name, "args": args})
                             response_parts.append(
                                 f"[Specialist Action] Invoking hunting/intelligence tool: {name}"
                             )
@@ -2450,6 +2508,14 @@ async def delegate_to_threat_hunter(query: str, tool_context: Context) -> str:
         if not final_text:
             final_text = "The Threat Hunter specialist completed the request without generating a text response."
 
+        _emit_a2a_delegation_span(
+            "threat_hunter",
+            engine_name,
+            query,
+            tool_context,
+            child_tool_calls,
+            final_text,
+        )
         logger.info(
             "A2A_DELEGATION_SUCCESS: Successfully completed remote A2A call to Threat Hunter."
         )
@@ -2516,6 +2582,7 @@ async def delegate_to_cti_researcher(query: str, tool_context: Context) -> str:
         )
 
         response_parts = []
+        child_tool_calls = []
         async for event in remote_engine.async_stream_query(
             user_id=user_id, session_id=session_id, message=query
         ):
@@ -2536,9 +2603,14 @@ async def delegate_to_cti_researcher(query: str, tool_context: Context) -> str:
                         if text:
                             response_parts.append(text)
 
-                        function_call = get_field(part, "function_call")
+                        function_call = get_field(part, "function_call") or get_field(
+                            part, "functionCall"
+                        )
                         if function_call:
                             name = get_field(function_call, "name")
+                            args = get_field(function_call, "args") or {}
+                            if name:
+                                child_tool_calls.append({"name": name, "args": args})
                             response_parts.append(
                                 f"[Specialist Action] Invoking threat intelligence tool: {name}"
                             )
@@ -2547,6 +2619,14 @@ async def delegate_to_cti_researcher(query: str, tool_context: Context) -> str:
         if not final_text:
             final_text = "The CTI Researcher specialist completed the request without generating a text response."
 
+        _emit_a2a_delegation_span(
+            "cti_researcher",
+            engine_name,
+            query,
+            tool_context,
+            child_tool_calls,
+            final_text,
+        )
         logger.info(
             "A2A_DELEGATION_SUCCESS: Successfully completed remote A2A call to CTI Researcher."
         )
@@ -2651,6 +2731,7 @@ async def delegate_to_detection_engineer(query: str, tool_context: Context) -> s
         )
 
         response_parts = []
+        child_tool_calls = []
         async for event in remote_engine.async_stream_query(
             user_id=user_id, session_id=session_id, message=query
         ):
@@ -2671,9 +2752,14 @@ async def delegate_to_detection_engineer(query: str, tool_context: Context) -> s
                         if text:
                             response_parts.append(text)
 
-                        function_call = get_field(part, "function_call")
+                        function_call = get_field(part, "function_call") or get_field(
+                            part, "functionCall"
+                        )
                         if function_call:
                             name = get_field(function_call, "name")
+                            args = get_field(function_call, "args") or {}
+                            if name:
+                                child_tool_calls.append({"name": name, "args": args})
                             response_parts.append(
                                 f"[Specialist Action] Invoking detection engineering tool: {name}"
                             )
@@ -2682,6 +2768,14 @@ async def delegate_to_detection_engineer(query: str, tool_context: Context) -> s
         if not final_text:
             final_text = "The Detection Engineer specialist completed the request without generating a text response."
 
+        _emit_a2a_delegation_span(
+            "detection_engineer",
+            engine_name,
+            query,
+            tool_context,
+            child_tool_calls,
+            final_text,
+        )
         logger.info(
             "A2A_DELEGATION_SUCCESS: Successfully completed remote A2A call to Detection Engineer."
         )

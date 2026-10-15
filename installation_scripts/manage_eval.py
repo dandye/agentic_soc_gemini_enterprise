@@ -15,6 +15,7 @@ import hashlib
 import json
 import os
 import subprocess
+import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Any
@@ -26,6 +27,10 @@ from dotenv import load_dotenv
 from google import genai
 from google.genai import types
 from vertexai import agent_engines
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 from aqua.custom_metrics import (
     design_spec_attribution_check,
@@ -484,12 +489,17 @@ class EvaluationRunner:
         self.location = self.env_vars.get("GCP_LOCATION", "us-central1")
         self._client_lock = None
 
-        # Enforce GOOGLE_APPLICATION_CREDENTIALS to use Service Account to prevent gcloud fork conflicts
-        sa_path = self.env_vars.get("SECOPS_SA_PATH") or self.env_vars.get(
-            "CHRONICLE_SERVICE_ACCOUNT_PATH"
-        )
-        if sa_path and Path(sa_path).exists():
-            os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = str(sa_path)
+        # Only fallback to SECOPS_SA_PATH when neither GOOGLE_APPLICATION_CREDENTIALS nor CLOUDSDK_CONFIG is active
+        if not os.environ.get("GOOGLE_APPLICATION_CREDENTIALS") and not os.environ.get(
+            "CLOUDSDK_CONFIG"
+        ):
+            sa_path = self.env_vars.get("SECOPS_SA_PATH")
+            if (
+                sa_path
+                and Path(sa_path).exists()
+                and "customer_" not in Path(sa_path).name
+            ):
+                os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = str(sa_path)
 
         if self.project_id:
             vertexai.init(project=self.project_id, location=self.location)
@@ -650,11 +660,19 @@ class EvaluationRunner:
                     event = await asyncio.wait_for(generator.__anext__(), timeout=300.0)
                     events.append(event)
 
-                    if "content" in event and "parts" in event["content"]:
-                        for part in event["content"]["parts"]:
-                            if "function_call" in part:
-                                fc = part["function_call"]
-                                tool_name = fc["name"]
+                    content = event.get("content") if isinstance(event, dict) else None
+                    parts = (
+                        (content.get("parts") or [])
+                        if isinstance(content, dict)
+                        else []
+                    )
+                    if parts:
+                        for part in parts:
+                            if not isinstance(part, dict):
+                                continue
+                            fc = part.get("function_call") or part.get("functionCall")
+                            if isinstance(fc, dict):
+                                tool_name = fc.get("name", "")
                                 tool_args = fc.get("args", {})
                                 tool_calls.append(tool_name)
                                 detailed_tool_calls.append(
@@ -665,12 +683,15 @@ class EvaluationRunner:
                                         f"    [Tool Call] {tool_name}",
                                         fg=typer.colors.YELLOW,
                                     )
-                            elif "text" in part and verbose and not quiet:
+                            elif part.get("text") and verbose and not quiet:
                                 typer.echo(f"    [Thought] {part['text']}")
 
-                    if event.get("role") == "model" and "content" in event:
-                        for part in event["content"].get("parts", []):
-                            if "text" in part:
+                    if isinstance(content, dict) and (
+                        event.get("role") == "model"
+                        or content.get("role") in (None, "model")
+                    ):
+                        for part in parts:
+                            if isinstance(part, dict) and part.get("text"):
                                 turn_text += part["text"]
             except StopAsyncIteration:
                 pass
@@ -702,13 +723,18 @@ class EvaluationRunner:
                     else turn_text
                 )
 
-        # If final_response is still empty, look in the last few event payloads
+        # If final_response is still empty, look in the event payloads in chronological order
         if not final_response and events:
-            for event in reversed(events):
-                if "content" in event and "parts" in event["content"]:
-                    for part in event["content"]["parts"]:
-                        if "text" in part:
-                            final_response += part["text"]
+            for event in events:
+                content = event.get("content") if isinstance(event, dict) else None
+                parts = (
+                    (content.get("parts") or [])
+                    if isinstance(content, dict)
+                    else []
+                )
+                for part in parts:
+                    if isinstance(part, dict) and part.get("text"):
+                        final_response += part["text"]
 
         # Evaluate assertions
         expected_specialist = reference.get("expected_specialist")
@@ -726,9 +752,12 @@ class EvaluationRunner:
                 playground_url = f"https://console.cloud.google.com/agent-platform/runtimes/locations/{location}/agent-engines/{engine_id}/playground?session={session_id}&project={self.project_id}&userId={user_id}"
 
         results = {
+            "session_id": session_id,
             "query": query,
+            "conversation": [{"role": "user", "content": t} for t in turns_to_run],
             "response": final_response,
             "tool_calls": tool_calls,
+            "detailed_tool_calls": detailed_tool_calls,
             "playground_url": playground_url,
             "assertions": {},
             "score": 0.0,
@@ -803,14 +832,21 @@ class EvaluationRunner:
         results["assertions"]["success_criteria"] = criteria_results
 
         # Compute discrete categorical rubrics (HYP-007 Phase 4.3)
-        results["categorical_rubrics"] = grade_categorical_rubrics(
-            {
-                "user_prompt": " ".join(turns_to_run) if turns_to_run else query,
-                "tool_calls": detailed_tool_calls or tool_calls,
-                "final_response": final_response,
-                "pivot_entity": reference.get("pivot_entity"),
-            }
-        )
+        trace_payload = {
+            "session_id": session_id,
+            "user_prompt": " ".join(turns_to_run) if turns_to_run else query,
+            "conversation": [{"role": "user", "content": t} for t in turns_to_run],
+            "tool_calls": detailed_tool_calls or tool_calls,
+            "final_response": final_response,
+            "pivot_entity": reference.get("pivot_entity"),
+        }
+        results["categorical_rubrics"] = grade_categorical_rubrics(trace_payload)
+        try:
+            from aqua.custom_metrics import evaluate as evaluate_aqua_metrics
+
+            results["aqua_custom_metrics"] = evaluate_aqua_metrics(trace_payload)
+        except Exception:
+            pass
         results["turn_responses"] = turn_responses
 
         # Integrate LLM Semantic Grade if Rubric is defined
@@ -1097,7 +1133,15 @@ class EvaluationRunner:
             run_data["cases"][eval_id] = {
                 "name": case_name,
                 "score": res["score"],
+                "session_id": res.get("session_id"),
+                "query": res.get("query", ""),
+                "conversation": res.get("conversation", []),
                 "tool_calls": res["tool_calls"],
+                "detailed_tool_calls": res.get("detailed_tool_calls", []),
+                "turn_responses": res.get("turn_responses", []),
+                "response": res.get("response", ""),
+                "categorical_rubrics": res.get("categorical_rubrics", {}),
+                "aqua_custom_metrics": res.get("aqua_custom_metrics", {}),
                 "assertions_passed": [
                     k for k, v in res["assertions"].items() if isinstance(v, bool) and v
                 ],
@@ -1965,6 +2009,64 @@ def optimize(
 ) -> None:
     """Autonomous closed-loop prompt optimizer that semantically critiques failures and auto-tunes instructions."""
     asyncio.run(async_optimize(evalset_file, max_iterations))
+
+
+@app.command("simulate")
+def simulate(
+    duration_minutes: Annotated[
+        float,
+        typer.Option("--duration-minutes", "-d", help="Maximum simulation wall time in minutes."),
+    ] = 60.0,
+    max_turns: Annotated[
+        int,
+        typer.Option("--max-turns", "-t", help="Maximum number of conversational turns."),
+    ] = 10,
+    persona: Annotated[
+        str,
+        typer.Option(
+            "--persona",
+            "-p",
+            help="Simulator persona: soc_incident_commander, enterprise_cloud_security, or red_team_adversarial.",
+        ),
+    ] = "soc_incident_commander",
+    target_agent: Annotated[
+        str,
+        typer.Option(
+            "--target-agent",
+            "-a",
+            help="Target deployed agent: orchestrator, tier2, threat_hunter, cti_researcher, or detection_engineer.",
+        ),
+    ] = "orchestrator",
+    resource_id: Annotated[
+        str | None,
+        typer.Option("--resource", help="Explicit Reasoning Engine resource name or ID."),
+    ] = None,
+    opening_prompt: Annotated[
+        str | None,
+        typer.Option("--opening-prompt", help="Custom opening user prompt for Turn 1."),
+    ] = None,
+    simulator_model: Annotated[
+        str,
+        typer.Option("--simulator-model", help="Gemini model used for the User Simulator."),
+    ] = "gemini-2.5-flash",
+    turn_delay_seconds: Annotated[
+        float,
+        typer.Option("--turn-delay", help="Delay in seconds between turns."),
+    ] = 2.0,
+) -> None:
+    """Run an open-ended dynamic multi-turn user simulation against a deployed Reasoning Engine."""
+    from installation_scripts.simulate_multi_turn import run_simulation
+
+    run_simulation(
+        duration_minutes=duration_minutes,
+        max_turns=max_turns,
+        persona=persona,
+        target_agent=target_agent,
+        resource_id=resource_id,
+        opening_prompt=opening_prompt,
+        simulator_model=simulator_model,
+        turn_delay_seconds=turn_delay_seconds,
+    )
 
 
 if __name__ == "__main__":

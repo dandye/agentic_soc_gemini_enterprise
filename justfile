@@ -1133,3 +1133,7 @@ aqua-ui:
 # Promote a failing AQuA production insight into evalsets/aqua_regressions.evalset.json
 aqua-promote-insight insight_id insights_file="aqua/insights.json":
     {{ python }} scripts/promote_aqua_insight.py --insight-id {{ quote(insight_id) }} --insights-file {{ insights_file }}
+
+# Run an open-ended dynamic multi-turn user simulation against a deployed Reasoning Engine
+eval-simulate max_turns="10" duration_minutes="60" persona="soc_incident_commander" target_agent="orchestrator":
+    {{ python }} installation_scripts/simulate_multi_turn.py --max-turns {{ max_turns }} --duration-minutes {{ duration_minutes }} --persona {{ quote(persona) }} --target-agent {{ quote(target_agent) }} --env-file {{ env_file }}
