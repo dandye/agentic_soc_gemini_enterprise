@@ -151,3 +151,223 @@ def test_aqua_telemetry_ingestion_modes():
         {"AQUA_TELEMETRY_MODE": "big_query", "GCP_PROJECT_ID": "secops-demo-env"},
     )
     assert plugin is None or hasattr(plugin, "name")
+
+
+@pytest.mark.asyncio
+async def test_http_response_stream_parser_handles_unbalanced_braces_in_json_strings():
+    """Verify Monkeypatch #9 parses NDJSON lines containing unbalanced '{' inside JSON string literals."""
+    import json
+    import httpx
+    from google.genai import _api_client as genai_api_client
+    import agent_soc_manager.agent as soc_agent
+
+    assert hasattr(soc_agent, "_drain_complete_json_chunks")
+
+    # Simulate a truncated list_cases tool response containing unbalanced '{' inside a JSON string literal
+    truncated_cases_str = (
+        '{"cases": [{"id": "758", "displayName": "Case_test", '
+        + '{"nested": ' * 18
+        + "\n... [TRUNCATED due to large size] ..."
+    )
+    event1 = {
+        "content": {
+            "role": "user",
+            "parts": [
+                {
+                    "function_response": {
+                        "id": "adk-1",
+                        "name": "list_cases",
+                        "response": {
+                            "content": [{"type": "text", "text": truncated_cases_str}]
+                        },
+                    }
+                }
+            ],
+        },
+        "author": "threat_hunter_specialist",
+    }
+    event2 = {
+        "content": {
+            "role": "model",
+            "parts": [
+                {
+                    "function_call": {
+                        "name": "get_case_full_details",
+                        "args": {"case_id": "758"},
+                    },
+                    "thought_signature": "base64_thought_sig_" * 50,
+                }
+            ],
+        },
+        "author": "threat_hunter_specialist",
+    }
+    event3 = {
+        "content": {
+            "role": "model",
+            "parts": [{"text": "Case 758 involves host WKSTN-FIN-042 and PsExec."}],
+        },
+        "author": "threat_hunter_specialist",
+    }
+
+    ndjson_payload = (
+        json.dumps(event1) + "\n" + json.dumps(event2) + "\n" + json.dumps(event3) + "\n"
+    )
+
+    httpx_resp = httpx.Response(200, content=ndjson_payload.encode("utf-8"))
+    http_response = genai_api_client.HttpResponse(headers={}, response_stream=httpx_resp)
+
+    parsed_events = []
+    async for raw_chunk in http_response._aiter_response_stream():
+        parsed_events.append(
+            genai_api_client.HttpResponse._load_json_from_response(raw_chunk)
+        )
+
+    assert len(parsed_events) == 3
+    assert (
+        parsed_events[2]["content"]["parts"][0]["text"]
+        == "Case 758 involves host WKSTN-FIN-042 and PsExec."
+    )
+
+    # Also verify synchronous _iter_response_stream()
+    httpx_resp_sync = httpx.Response(200, content=ndjson_payload.encode("utf-8"))
+    http_response_sync = genai_api_client.HttpResponse(
+        headers={}, response_stream=httpx_resp_sync
+    )
+    sync_events = [
+        genai_api_client.HttpResponse._load_json_from_response(c)
+        for c in http_response_sync._iter_response_stream()
+    ]
+    assert len(sync_events) == 3
+
+    # Also verify _load_json_from_response handles concatenated JSON objects
+    concatenated = json.dumps(event1) + json.dumps(event2) + json.dumps(event3)
+    merged = genai_api_client.HttpResponse._load_json_from_response(concatenated)
+    assert isinstance(merged, dict)
+    merged_str = json.dumps(merged)
+    assert "Case 758 involves host WKSTN-FIN-042 and PsExec." in merged_str
+    assert "function_response" not in merged_str
+    assert "thought_signature" not in merged_str
+
+
+def test_summarize_telemetry_compresses_list_cases_wrapped_in_cases_key():
+    """Verify summarize_telemetry recognizes {'cases': [...]} from list_cases and summarizes it."""
+    import json
+    import agent_soc_manager.agent as soc_agent
+
+    cases_payload = {
+        "cases": [
+            {
+                "id": str(758 - i),
+                "displayName": f"Suspicious Lateral Movement Case {758 - i}",
+                "priority": "PRIORITY_HIGH",
+                "status": "OPENED",
+                "createTime": "2026-04-12T22:55:21.258Z",
+                "extraPadding": "X" * 900,
+            }
+            for i in range(25)
+        ]
+    }
+    raw_text = json.dumps(cases_payload)
+    assert len(raw_text) > 15000
+
+    summarized = soc_agent.summarize_telemetry(raw_text, "list_cases")
+    assert len(summarized) < 2500
+    assert "### [SEMANTIC SUMMARY] SOAR Cases (Source: list_cases)" in summarized
+    assert "**Total Cases Found:** 25" in summarized
+    assert "Suspicious Lateral Movement Case 758" in summarized
+    assert "PRIORITY_HIGH" in summarized
+
+
+@pytest.mark.asyncio
+async def test_consume_remote_a2a_stream_salvage_and_deduplication(monkeypatch):
+    """Verify _consume_remote_a2a_stream salvages Raw response events, strips thought_signature/function_response, and caches per session."""
+    import json
+    import agent_soc_manager.agent as soc_agent
+
+    monkeypatch.setattr(
+        soc_agent,
+        "get_secret",
+        lambda key: "projects/secops-demo-env/locations/us-central1/reasoningEngines/999",
+    )
+
+    event_fr = {
+        "content": {
+            "role": "user",
+            "parts": [
+                {
+                    "function_response": {
+                        "name": "list_cases",
+                        "response": {"result": "huge_raw_tool_dump_" * 500},
+                    }
+                }
+            ],
+        }
+    }
+    event_fc = {
+        "content": {
+            "role": "model",
+            "parts": [
+                {
+                    "function_call": {
+                        "name": "get_case_full_details",
+                        "args": {"case_id": "758"},
+                    },
+                    "thought_signature": "secret_thought_sig_" * 200,
+                }
+            ],
+        }
+    }
+    event_txt = {
+        "content": {
+            "role": "model",
+            "parts": [
+                {
+                    "text": "Completed investigation of Case 758: Lateral movement confirmed."
+                }
+            ],
+        }
+    }
+    raw_concat = json.dumps(event_fr) + "\n" + json.dumps(event_fc) + "\n" + json.dumps(event_txt)
+
+    call_counter = {"count": 0}
+
+    class FakeRemoteEngine:
+        async def async_stream_query(self, **kwargs):
+            call_counter["count"] += 1
+            if False:
+                yield {}
+            raise RuntimeError(
+                f"Failed to parse response as JSON. Raw response: {raw_concat}"
+            )
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            self.agent_engines = SimpleNamespace(get=lambda name: FakeRemoteEngine())
+
+    monkeypatch.setattr(soc_agent.vertexai, "Client", FakeClient)
+
+    dummy_ctx = SimpleNamespace(
+        state={},
+        _invocation_context=SimpleNamespace(
+            user_id="sim-user",
+            session=SimpleNamespace(id="sess-salvage-1"),
+        ),
+    )
+
+    # First call should salvage the stream from the exception without leaking function_response or thought_signature
+    res1 = await soc_agent.delegate_to_threat_hunter(
+        "Retrieve full details for Case 758", dummy_ctx
+    )
+    assert "Completed investigation of Case 758: Lateral movement confirmed." in res1
+    assert "get_case_full_details" in res1
+    assert "huge_raw_tool_dump_" not in res1
+    assert "secret_thought_sig_" not in res1
+    assert call_counter["count"] == 1
+
+    # Second identical call in the same session should hit the per-session cache without invoking remote_engine again
+    res2 = await soc_agent.delegate_to_threat_hunter(
+        "Retrieve full details for Case 758", dummy_ctx
+    )
+    assert res2 == res1
+    assert call_counter["count"] == 1
+

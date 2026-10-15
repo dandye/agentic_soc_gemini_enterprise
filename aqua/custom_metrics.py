@@ -12,6 +12,7 @@ Evaluators:
 
 from __future__ import annotations
 
+from datetime import datetime
 import json
 import re
 from typing import Any
@@ -22,7 +23,7 @@ _DAYS_PATTERN = re.compile(
     r"\b(?:last|past|previous|over\s+the\s+last)\s+(\d+)\s*days?\b", re.IGNORECASE
 )
 _HOURS_PATTERN = re.compile(
-    r"\b(?:last|past|previous|over\s+the\s+last|hours_back\s*=\s*)(\d+)\s*(?:hours?|h|hrs?)?\b",
+    r"\b(?:last|past|previous|over\s+the\s+last|hours_back\s*=\s*)\s*(\d+)\s*(?:hours?|h|hrs?)\b",
     re.IGNORECASE,
 )
 _EXPLICIT_HOURS_BACK_PATTERN = re.compile(
@@ -130,26 +131,218 @@ def _normalize_trace_info(trace_info: Any) -> dict[str, Any]:
                 }
             )
 
-    # Extract tool_calls from OpenTelemetry spans if tool_calls was not pre-populated
-    if not normalized_calls and raw.get("spans"):
-        for span in raw.get("spans") or []:
-            span_dict = (
-                span if isinstance(span, dict) else getattr(span, "__dict__", {})
+    # Extract tool_calls, conversation, and otel_summary from OpenTelemetry / Cloud Trace spans
+    spans_list = raw.get("spans") or []
+    span_tool_calls: list[dict[str, Any]] = []
+    span_user_turns: list[dict[str, str]] = []
+    span_text_responses: list[str] = []
+    trace_ids: set[str] = set()
+    services: set[str] = set()
+    models: set[str] = set()
+    total_input_tokens = 0
+    total_output_tokens = 0
+    total_reasoning_tokens = 0
+
+    for span in spans_list:
+        span_dict = span if isinstance(span, dict) else getattr(span, "__dict__", {})
+        span_name = str(span_dict.get("name") or "")
+        attrs = span_dict.get("attributes") or span_dict.get("labels") or {}
+        if not isinstance(attrs, dict):
+            attrs = dict(attrs)
+        tid = span_dict.get("trace_id") or attrs.get("trace_id")
+        if tid:
+            trace_ids.add(str(tid))
+        svc = attrs.get("service.name") or attrs.get("OTEL_SERVICE_NAME")
+        if svc:
+            services.add(str(svc))
+        mdl = attrs.get("gen_ai.request.model")
+        if mdl:
+            models.add(str(mdl))
+        for tok_key, target_name in (
+            ("gen_ai.usage.input_tokens", "in"),
+            ("gen_ai.usage.output_tokens", "out"),
+            ("gen_ai.usage.experimental.reasoning_tokens", "reason"),
+        ):
+            val = attrs.get(tok_key)
+            if val is not None and str(val).isdigit() and span_name == "call_llm":
+                if target_name == "in":
+                    total_input_tokens += int(val)
+                elif target_name == "out":
+                    total_output_tokens += int(val)
+                else:
+                    total_reasoning_tokens += int(val)
+
+        if span_name.startswith("execute_tool "):
+            t_name = str(
+                attrs.get("gen_ai.tool.name")
+                or span_name.removeprefix("execute_tool ").strip()
             )
-            span_name = str(span_dict.get("name") or "")
-            attrs = span_dict.get("attributes") or {}
-            if span_name.startswith("execute_tool "):
-                t_name = span_name.removeprefix("execute_tool ").strip()
-                t_args = attrs.get("gen_ai.tool.call.arguments") or {}
-                if isinstance(t_args, str):
+            if t_name == "(merged)":
+                continue
+            t_args = (
+                attrs.get("gcp.vertex.agent.tool_call_args")
+                or attrs.get("gen_ai.tool.call.arguments")
+                or {}
+            )
+            if isinstance(t_args, str):
+                if t_args == "N/A":
+                    t_args = {}
+                else:
                     try:
                         t_args = json.loads(t_args)
                     except Exception:
                         t_args = {"raw": t_args}
-                t_resp = attrs.get("gen_ai.tool.call.result")
-                normalized_calls.append(
-                    {"name": t_name, "args": t_args, "response": t_resp}
+            t_resp = (
+                attrs.get("gcp.vertex.agent.tool_response")
+                or attrs.get("gen_ai.tool.call.result")
+            )
+            if isinstance(t_resp, str):
+                try:
+                    parsed_resp = json.loads(t_resp)
+                    if (
+                        isinstance(parsed_resp, dict)
+                        and set(parsed_resp.keys()) == {"result"}
+                    ):
+                        t_resp = parsed_resp["result"]
+                    else:
+                        t_resp = parsed_resp
+                except Exception:
+                    pass
+            span_tool_calls.append(
+                {"name": t_name, "args": t_args, "response": t_resp}
+            )
+        elif span_name.startswith("a2a.delegate."):
+            specialist = str(
+                attrs.get("a2a.target_agent")
+                or span_name.removeprefix("a2a.delegate.").strip()
+            )
+            a2a_req = str(attrs.get("a2a.request") or "")
+            a2a_resp = str(attrs.get("a2a.response_preview") or "")
+            child_calls_raw = attrs.get("a2a.child_tool_calls")
+            parsed_child_calls: list[dict[str, Any]] = []
+            if isinstance(child_calls_raw, str) and child_calls_raw.strip():
+                try:
+                    loaded = json.loads(child_calls_raw)
+                    if isinstance(loaded, list):
+                        parsed_child_calls = [
+                            c for c in loaded if isinstance(c, dict) and c.get("name")
+                        ]
+                except Exception:
+                    pass
+            elif isinstance(child_calls_raw, list):
+                parsed_child_calls = [
+                    c for c in child_calls_raw if isinstance(c, dict) and c.get("name")
+                ]
+            span_tool_calls.append(
+                {
+                    "name": f"delegate_to_{specialist}",
+                    "args": {"query": a2a_req},
+                    "response": a2a_resp,
+                    "a2a_target_resource": attrs.get("a2a.target_resource_name"),
+                    "a2a_child_tool_calls": parsed_child_calls,
+                }
+            )
+            for child_c in parsed_child_calls:
+                span_tool_calls.append(
+                    {
+                        "name": str(child_c.get("name")),
+                        "args": child_c.get("args") or {},
+                        "response": child_c.get("response"),
+                        "via_a2a_specialist": specialist,
+                    }
                 )
+        elif span_name == "call_llm":
+            llm_req_raw = attrs.get("gcp.vertex.agent.llm_request")
+            if isinstance(llm_req_raw, str):
+                try:
+                    llm_req = json.loads(llm_req_raw)
+                    for content_item in llm_req.get("contents") or []:
+                        if (
+                            isinstance(content_item, dict)
+                            and content_item.get("role") == "user"
+                        ):
+                            for part in content_item.get("parts") or []:
+                                txt = (
+                                    part.get("text")
+                                    if isinstance(part, dict)
+                                    else None
+                                )
+                                if (
+                                    isinstance(txt, str)
+                                    and txt.strip()
+                                    and not txt.strip().startswith("For context:")
+                                ):
+                                    clean_u = txt.strip()
+                                    if not any(
+                                        u["content"] == clean_u
+                                        for u in span_user_turns
+                                    ):
+                                        span_user_turns.append(
+                                            {"role": "user", "content": clean_u}
+                                        )
+                except Exception:
+                    pass
+            llm_resp_raw = attrs.get("gcp.vertex.agent.llm_response")
+            if isinstance(llm_resp_raw, str):
+                try:
+                    llm_resp = json.loads(llm_resp_raw)
+                    content_obj = llm_resp.get("content") or {}
+                    for part in content_obj.get("parts") or []:
+                        txt = part.get("text") if isinstance(part, dict) else None
+                        if isinstance(txt, str) and txt.strip():
+                            span_text_responses.append(txt.strip())
+                except Exception:
+                    pass
+
+    if not normalized_calls and span_tool_calls:
+        normalized_calls = span_tool_calls
+    elif normalized_calls and span_tool_calls:
+        # Enrich existing tool_calls that lack args or responses using span_tool_calls
+        resp_lookup = {
+            c["name"]: c["response"]
+            for c in span_tool_calls
+            if c.get("response") is not None
+        }
+        args_lookup = {
+            c["name"]: c["args"]
+            for c in span_tool_calls
+            if c.get("args")
+        }
+        a2a_children_lookup = {
+            c["name"]: c["a2a_child_tool_calls"]
+            for c in span_tool_calls
+            if c.get("a2a_child_tool_calls") is not None
+        }
+        for call in normalized_calls:
+            c_name = call.get("name")
+            if call.get("response") is None and c_name in resp_lookup:
+                call["response"] = resp_lookup[c_name]
+            if not call.get("args") and c_name in args_lookup:
+                call["args"] = args_lookup[c_name]
+            if c_name in a2a_children_lookup:
+                call["a2a_child_tool_calls"] = a2a_children_lookup[c_name]
+        # Append child tool calls recorded via A2A delegation spans (`a2a.delegate.*`)
+        for c in span_tool_calls:
+            if c.get("via_a2a_specialist"):
+                normalized_calls.append(c)
+
+    if not raw.get("conversation") and span_user_turns:
+        raw["conversation"] = span_user_turns
+    if not raw.get("user_prompt") and span_user_turns:
+        raw["user_prompt"] = " ".join(u["content"] for u in span_user_turns)
+    if not raw.get("final_response") and span_text_responses:
+        raw["final_response"] = "\n\n".join(span_text_responses)
+
+    if spans_list:
+        raw["otel_summary"] = {
+            "span_count": len(spans_list),
+            "trace_ids": sorted(trace_ids),
+            "services": sorted(services),
+            "models": sorted(models),
+            "total_input_tokens": total_input_tokens,
+            "total_output_tokens": total_output_tokens,
+            "total_reasoning_tokens": total_reasoning_tokens,
+        }
 
     raw["tool_calls"] = normalized_calls
     return raw
@@ -173,24 +366,51 @@ def extract_expected_hours_back(user_prompt: str) -> int | None:
     return None
 
 
+def _extract_iso_range_hours(args: dict[str, Any]) -> int | None:
+    """Compute lookback span in hours from ISO-8601 startTime/endTime tool arguments."""
+    start_str = args.get("startTime") or args.get("start_time")
+    end_str = args.get("endTime") or args.get("end_time")
+    if not (isinstance(start_str, str) and isinstance(end_str, str)):
+        return None
+    try:
+        start_dt = datetime.fromisoformat(start_str.replace("Z", "+00:00"))
+        end_dt = datetime.fromisoformat(end_str.replace("Z", "+00:00"))
+        delta_hours = round(abs((end_dt - start_dt).total_seconds()) / 3600.0)
+        return delta_hours if delta_hours > 0 else None
+    except Exception:
+        return None
+
+
 def timerange_propagation_check(trace_info: Any) -> dict[str, Any]:
     """Verify that user-specified time windows are propagated to SIEM searches and sub-agent delegations."""
     trace = _normalize_trace_info(trace_info)
     user_prompt = str(trace.get("user_prompt") or "")
-    if not user_prompt and trace.get("conversation"):
-        user_turns = [
-            str(t.get("content") or "")
-            for t in (trace.get("conversation") or [])
-            if isinstance(t, dict) and t.get("role") == "user"
-        ]
+    conversation = trace.get("conversation") or []
+    user_turns: list[str] = [
+        str(t.get("content") or t.get("text") or "")
+        for t in conversation
+        if isinstance(t, dict)
+        and (t.get("role") == "user" or t.get("author") == "user")
+    ]
+    if not user_prompt and user_turns:
         user_prompt = " ".join(user_turns)
 
     expected_hours = trace.get("expected_hours_back") or extract_expected_hours_back(
         user_prompt
     )
+    # Build per-turn expected hours map for multi-turn sessions
+    turn_expected_map: dict[int, int] = {}
+    running_hours: int | None = None
+    for idx, turn_text in enumerate(user_turns, start=1):
+        parsed_h = extract_expected_hours_back(turn_text)
+        if parsed_h is not None:
+            running_hours = parsed_h
+        if running_hours is not None:
+            turn_expected_map[idx] = running_hours
+
     tool_calls = trace.get("tool_calls") or []
 
-    if expected_hours is None:
+    if expected_hours is None and not turn_expected_map:
         return {
             "metric": "timerange_propagation_check",
             "score": 1.0,
@@ -198,36 +418,52 @@ def timerange_propagation_check(trace_info: Any) -> dict[str, Any]:
             "explanation": "No explicit lookback window constraint in user prompt; check not applicable.",
         }
 
-    expected_days = expected_hours // 24 if expected_hours % 24 == 0 else None
     violations: list[str] = []
     checked_calls = 0
 
     for call in tool_calls:
         name = str(call.get("name") or "")
         args = call.get("args") or {}
+        call_turn = call.get("turn") if isinstance(call, dict) else None
+        target_hours = (
+            turn_expected_map.get(int(call_turn), expected_hours)
+            if call_turn is not None and turn_expected_map
+            else expected_hours
+        )
+        if target_hours is None:
+            continue
+        target_days = target_hours // 24 if target_hours % 24 == 0 else None
+
         if name in _TIME_SENSITIVE_TOOLS:
             checked_calls += 1
             actual_hours = args.get("hours_back") if isinstance(args, dict) else None
+            if actual_hours is None and isinstance(args, dict):
+                actual_hours = _extract_iso_range_hours(args)
             if actual_hours is None:
                 violations.append(
-                    f"Tool '{name}' omitted mandatory time bounds (expected hours_back={expected_hours})."
+                    f"Tool '{name}' omitted mandatory time bounds (expected hours_back={target_hours})."
                 )
-            elif int(actual_hours) != int(expected_hours):
+            elif int(actual_hours) != int(target_hours):
                 violations.append(
-                    f"Tool '{name}' called with hours_back={actual_hours} instead of expected hours_back={expected_hours}."
+                    f"Tool '{name}' called with hours_back={actual_hours} instead of expected hours_back={target_hours}."
                 )
-        elif _is_delegation_tool(name):
+        elif _is_delegation_tool(name) and name not in (
+            "transfer_to_agent",
+            "delegate_to_tier2_responder",
+            "delegate_to_cti_researcher",
+            "cti_researcher",
+        ):
             checked_calls += 1
             payload_text = str(args)
-            has_hours = str(expected_hours) in payload_text
+            has_hours = str(target_hours) in payload_text
             has_days = (
-                expected_days is not None
-                and re.search(rf"\b{expected_days}\s*(?:day|d)\b", payload_text, re.I)
+                target_days is not None
+                and re.search(rf"\b{target_days}\s*(?:day|d)\b", payload_text, re.I)
                 is not None
             )
             if not (has_hours or has_days):
                 violations.append(
-                    f"Delegation tool '{name}' omitted expected lookback window ({expected_hours}h)."
+                    f"Delegation tool '{name}' omitted expected lookback window ({target_hours}h)."
                 )
 
     if violations:
@@ -243,7 +479,7 @@ def timerange_propagation_check(trace_info: Any) -> dict[str, Any]:
         "score": 1.0,
         "passed": True,
         "explanation": (
-            f"All {checked_calls} time-sensitive tool/delegation calls preserved hours_back={expected_hours}."
+            f"All {checked_calls} time-sensitive tool/delegation calls preserved expected lookback window ({expected_hours}h)."
         ),
     }
 

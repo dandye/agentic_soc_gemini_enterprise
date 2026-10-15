@@ -289,7 +289,12 @@ try:
 
         # Sort cases by creation time if present
         def get_ctime(x):
-            t = x.get("creationTime") or x.get("creation_time") or 0
+            t = (
+                x.get("createTime")
+                or x.get("creationTime")
+                or x.get("creation_time")
+                or 0
+            )
             return t if isinstance(t, (int, float)) else 0
 
         sorted_cases = sorted(cases, key=get_ctime, reverse=True)
@@ -303,11 +308,21 @@ try:
         for i in range(detail_count):
             c = sorted_cases[i]
             cid = c.get("id") or c.get("caseId") or "N/A"
-            title = c.get("title") or c.get("name") or "N/A"
+            title = (
+                c.get("displayName")
+                or c.get("title")
+                or c.get("name")
+                or "N/A"
+            )
             status = c.get("status") or "N/A"
-            sev = c.get("severity") or "N/A"
+            sev = c.get("priority") or c.get("severity") or "N/A"
 
-            ctime = c.get("creationTime") or c.get("creation_time") or "N/A"
+            ctime = (
+                c.get("createTime")
+                or c.get("creationTime")
+                or c.get("creation_time")
+                or "N/A"
+            )
             if isinstance(ctime, (int, float)) and ctime > 1000000000:
                 if ctime > 1000000000000:
                     ctime = ctime / 1000.0
@@ -322,7 +337,7 @@ try:
 
         for i in range(detail_count, total_cases):
             c = sorted_cases[i]
-            sev = c.get("severity") or "N/A"
+            sev = c.get("priority") or c.get("severity") or "N/A"
             status = c.get("status") or "N/A"
             severities[sev] = severities.get(sev, 0) + 1
             statuses[status] = statuses.get(status, 0) + 1
@@ -415,18 +430,19 @@ try:
             ):
                 return _summarize_udm_events(data, tool_name)
 
-            # 2. SOAR Cases (list or wrapped)
-            if (
-                isinstance(data, dict)
-                and "result" in data
-                and isinstance(data["result"], list)
-            ):
-                return _summarize_soar_cases(data["result"], tool_name)
+            # 2. SOAR Cases (list or wrapped in 'cases' or 'result')
+            if isinstance(data, dict):
+                for cases_key in ("cases", "result"):
+                    if isinstance(data.get(cases_key), list):
+                        return _summarize_soar_cases(data[cases_key], tool_name)
             if (
                 isinstance(data, list)
                 and len(data) > 0
                 and isinstance(data[0], dict)
-                and ("title" in data[0] or "severity" in data[0])
+                and any(
+                    k in data[0]
+                    for k in ("title", "displayName", "severity", "priority")
+                )
             ):
                 return _summarize_soar_cases(data, tool_name)
 
@@ -447,12 +463,13 @@ try:
         result = await original_run_async_impl(self, *args, **kwargs)
         try:
             if isinstance(result, dict) and "content" in result:
+                result.pop("structuredContent", None)
                 content_list = result["content"]
                 if isinstance(content_list, list):
                     for item in content_list:
                         if isinstance(item, dict) and item.get("type") == "text":
                             text = item.get("text")
-                            if isinstance(text, str) and len(text) > 15000:
+                            if isinstance(text, str) and len(text) >= 10000:
                                 # 1. Try to run semantic aggregation first
                                 aggregated_text = summarize_telemetry(text, self.name)
                                 if len(aggregated_text) < len(text):
