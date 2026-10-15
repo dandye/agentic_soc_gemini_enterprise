@@ -90,6 +90,50 @@ from mcp import StdioServerParameters  # noqa: E402
 _runtime_patches_applied = False
 
 
+def _drain_complete_json_chunks(buf: str) -> tuple[list[str], str]:
+    """Extract complete RFC 8259 JSON values from the start of a stream buffer."""
+    decoder = json.JSONDecoder()
+    extracted: list[str] = []
+    s = buf.lstrip()
+    while s:
+        try:
+            _, end_idx = decoder.raw_decode(s)
+            extracted.append(s[:end_idx])
+            s = s[end_idx:].lstrip()
+        except json.JSONDecodeError:
+            break
+    return extracted, s
+
+
+def _merge_concatenated_events(objs: list) -> dict:
+    """Merge multiple Reasoning Engine stream events into one sanitized event dict."""
+    if not objs:
+        return {}
+    if len(objs) == 1 and isinstance(objs[0], dict):
+        return objs[0]
+    merged = dict(objs[-1]) if isinstance(objs[-1], dict) else {}
+    combined_parts: list = []
+    for obj in objs:
+        if not isinstance(obj, dict):
+            continue
+        content = obj.get("content")
+        if isinstance(content, dict) and isinstance(content.get("parts"), list):
+            for part in content["parts"]:
+                if isinstance(part, dict):
+                    if "function_response" in part or "functionResponse" in part:
+                        continue
+                    if "thought_signature" in part or "thoughtSignature" in part:
+                        part = {
+                            k: v
+                            for k, v in part.items()
+                            if k not in ("thought_signature", "thoughtSignature")
+                        }
+                combined_parts.append(part)
+    if combined_parts:
+        merged["content"] = {"role": "model", "parts": combined_parts}
+    return merged
+
+
 def _apply_runtime_patches():
     global _runtime_patches_applied
     if _runtime_patches_applied:
@@ -514,7 +558,12 @@ def _apply_runtime_patches():
 
             # Sort cases by creation time if present
             def get_ctime(x):
-                t = x.get("creationTime") or x.get("creation_time") or 0
+                t = (
+                    x.get("createTime")
+                    or x.get("creationTime")
+                    or x.get("creation_time")
+                    or 0
+                )
                 return t if isinstance(t, (int, float)) else 0
 
             sorted_cases = sorted(cases, key=get_ctime, reverse=True)
@@ -528,11 +577,21 @@ def _apply_runtime_patches():
             for i in range(detail_count):
                 c = sorted_cases[i]
                 cid = c.get("id") or c.get("caseId") or "N/A"
-                title = c.get("title") or c.get("name") or "N/A"
+                title = (
+                    c.get("displayName")
+                    or c.get("title")
+                    or c.get("name")
+                    or "N/A"
+                )
                 status = c.get("status") or "N/A"
-                sev = c.get("severity") or "N/A"
+                sev = c.get("priority") or c.get("severity") or "N/A"
 
-                ctime = c.get("creationTime") or c.get("creation_time") or "N/A"
+                ctime = (
+                    c.get("createTime")
+                    or c.get("creationTime")
+                    or c.get("creation_time")
+                    or "N/A"
+                )
                 if isinstance(ctime, (int, float)) and ctime > 1000000000:
                     if ctime > 1000000000000:
                         ctime = ctime / 1000.0
@@ -547,7 +606,7 @@ def _apply_runtime_patches():
 
             for i in range(detail_count, total_cases):
                 c = sorted_cases[i]
-                sev = c.get("severity") or "N/A"
+                sev = c.get("priority") or c.get("severity") or "N/A"
                 status = c.get("status") or "N/A"
                 severities[sev] = severities.get(sev, 0) + 1
                 statuses[status] = statuses.get(status, 0) + 1
@@ -642,18 +701,19 @@ def _apply_runtime_patches():
                 ):
                     return _summarize_udm_events(data, tool_name)
 
-                # 2. SOAR Cases (list or wrapped)
-                if (
-                    isinstance(data, dict)
-                    and "result" in data
-                    and isinstance(data["result"], list)
-                ):
-                    return _summarize_soar_cases(data["result"], tool_name)
+                # 2. SOAR Cases (list or wrapped in 'cases' or 'result')
+                if isinstance(data, dict):
+                    for cases_key in ("cases", "result"):
+                        if isinstance(data.get(cases_key), list):
+                            return _summarize_soar_cases(data[cases_key], tool_name)
                 if (
                     isinstance(data, list)
                     and len(data) > 0
                     and isinstance(data[0], dict)
-                    and ("title" in data[0] or "severity" in data[0])
+                    and any(
+                        k in data[0]
+                        for k in ("title", "displayName", "severity", "priority")
+                    )
                 ):
                     return _summarize_soar_cases(data, tool_name)
 
@@ -666,6 +726,8 @@ def _apply_runtime_patches():
                 pass
 
             return text
+
+        globals()["summarize_telemetry"] = summarize_telemetry
 
         # Define the patched run async wrapper
         original_run_async_impl = McpTool._run_async_impl
@@ -715,6 +777,159 @@ def _apply_runtime_patches():
     except Exception as e:
         logger.warning(
             f"[RUNTIME_PATCH_DEBUG] Failed to patch McpTool._run_async_impl: {e}"
+        )
+
+    # 9. Monkeypatch google.genai._api_client.HttpResponse streaming JSON parser
+    # to use RFC 8259 raw_decode instead of naive character brace counting, which
+    # breaks whenever a JSON string literal (e.g. truncated list_cases or Cypher/UDM)
+    # contains unbalanced '{' or '}' characters and concatenates subsequent events.
+    try:
+        from google.genai import _api_client as genai_api_client
+
+        def _patched_iter_response_stream(self):
+            import httpx
+            import requests
+
+            if not (
+                isinstance(self.response_stream, httpx.Response)
+                or isinstance(self.response_stream, requests.Response)
+            ):
+                raise TypeError(
+                    "Expected self.response_stream to be an httpx.Response object, "
+                    f"but got {type(self.response_stream).__name__}."
+                )
+            chunk = ""
+            data_buffer: list[str] = []
+            if isinstance(self.response_stream, httpx.Response):
+                response_stream = self.response_stream.iter_lines()
+            else:
+                response_stream = self.response_stream.iter_lines(decode_unicode=True)
+            for line in response_stream:
+                if not line:
+                    if data_buffer:
+                        yield "\n".join(data_buffer)
+                        data_buffer = []
+                    continue
+                if line.startswith("data: "):
+                    data_buffer.append(line[len("data: ") :])
+                    continue
+                chunk = f"{chunk}\n{line}" if chunk else line
+                extracted, chunk = _drain_complete_json_chunks(chunk)
+                for item in extracted:
+                    yield item
+            if chunk:
+                extracted, chunk = _drain_complete_json_chunks(chunk)
+                for item in extracted:
+                    yield item
+                if chunk and not extracted:
+                    yield chunk
+            if data_buffer:
+                yield "\n".join(data_buffer)
+
+        async def _patched_aiter_response_stream(self):
+            import httpx
+
+            has_aiohttp = getattr(genai_api_client, "has_aiohttp", False)
+            aiohttp_mod = getattr(genai_api_client, "aiohttp", None)
+            is_valid_response = isinstance(self.response_stream, httpx.Response) or (
+                has_aiohttp
+                and aiohttp_mod is not None
+                and isinstance(self.response_stream, aiohttp_mod.ClientResponse)
+            )
+            if not is_valid_response:
+                raise TypeError(
+                    "Expected self.response_stream to be an httpx.Response or"
+                    " aiohttp.ClientResponse object, but got"
+                    f" {type(self.response_stream).__name__}."
+                )
+            chunk = ""
+            data_buffer: list[str] = []
+            if isinstance(self.response_stream, httpx.Response):
+                try:
+                    async for line in self.response_stream.aiter_lines():
+                        if not line:
+                            if data_buffer:
+                                yield "\n".join(data_buffer)
+                                data_buffer = []
+                            continue
+                        if line.startswith("data: "):
+                            data_buffer.append(line[len("data: ") :])
+                            continue
+                        chunk = f"{chunk}\n{line}" if chunk else line
+                        extracted, chunk = _drain_complete_json_chunks(chunk)
+                        for item in extracted:
+                            yield item
+                    if chunk:
+                        extracted, chunk = _drain_complete_json_chunks(chunk)
+                        for item in extracted:
+                            yield item
+                        if chunk and not extracted:
+                            yield chunk
+                    if data_buffer:
+                        yield "\n".join(data_buffer)
+                finally:
+                    await self.response_stream.aclose()
+            else:
+                try:
+                    while True:
+                        line_bytes = await self.response_stream.content.readline()
+                        if not line_bytes:
+                            break
+                        line = line_bytes.decode("utf-8").rstrip()
+                        if not line:
+                            if data_buffer:
+                                yield "\n".join(data_buffer)
+                                data_buffer = []
+                            continue
+                        if line.startswith("data: "):
+                            data_buffer.append(line[len("data: ") :])
+                            continue
+                        chunk = f"{chunk}\n{line}" if chunk else line
+                        extracted, chunk = _drain_complete_json_chunks(chunk)
+                        for item in extracted:
+                            yield item
+                    if chunk:
+                        extracted, chunk = _drain_complete_json_chunks(chunk)
+                        for item in extracted:
+                            yield item
+                        if chunk and not extracted:
+                            yield chunk
+                    if data_buffer:
+                        yield "\n".join(data_buffer)
+                finally:
+                    self.response_stream.release()
+
+        orig_load_json = genai_api_client.HttpResponse._load_json_from_response
+
+        @classmethod
+        def _patched_load_json_from_response(cls, response):
+            try:
+                return json.loads(response)
+            except json.JSONDecodeError:
+                if isinstance(response, str):
+                    extracted, _ = _drain_complete_json_chunks(response)
+                    if extracted:
+                        parsed_objs = [json.loads(c) for c in extracted]
+                        if len(parsed_objs) == 1:
+                            return parsed_objs[0]
+                        return _merge_concatenated_events(parsed_objs)
+                return orig_load_json(response)
+
+        genai_api_client.HttpResponse._iter_response_stream = (
+            _patched_iter_response_stream
+        )
+        genai_api_client.HttpResponse._aiter_response_stream = (
+            _patched_aiter_response_stream
+        )
+        genai_api_client.HttpResponse._load_json_from_response = (
+            _patched_load_json_from_response
+        )
+        logger.warning(
+            "[RUNTIME_PATCH_DEBUG] Successfully patched google.genai._api_client.HttpResponse stream parser"
+        )
+    except Exception as e:
+        logger.warning(
+            f"[RUNTIME_PATCH_DEBUG] Failed to patch google.genai._api_client.HttpResponse: {e}"
         )
 
     _runtime_patches_applied = True
@@ -2292,47 +2507,148 @@ def _emit_a2a_delegation_span(
         pass
 
 
-async def delegate_to_tier2_responder(query: str, tool_context: Context) -> str:
-    """
-    Delegates threat containment, host isolation, container teardown, or active mitigation
-    to the standalone Tier 2 Incident Responder agent remotely via Agent-to-Agent (A2A) call.
-    Use this tool ONLY when a threat is confirmed and active containment/mitigation is required.
+def _extract_a2a_event_parts(
+    event: object,
+    specialist_name: str,
+    response_parts: list[str],
+    child_tool_calls: list[dict],
+) -> None:
+    """Extract text and function_call parts from a remote A2A event, ignoring bulky function_response and thought_signature."""
 
-    Args:
-        query: The specific containment task or mitigation request (e.g., 'Isolate host MALWARETEST-WIN' or 'Suspend compromised user credentials').
-    """
+    def get_field(obj, field_name):
+        if obj is None:
+            return None
+        if isinstance(obj, dict):
+            return obj.get(field_name)
+        return getattr(obj, field_name, None)
+
+    content = get_field(event, "content")
+    if not content:
+        return
+    parts = get_field(content, "parts")
+    if not parts or not isinstance(parts, list):
+        return
+    for part in parts:
+        text = get_field(part, "text")
+        if text:
+            response_parts.append(text)
+
+        function_call = get_field(part, "function_call") or get_field(
+            part, "functionCall"
+        )
+        if function_call:
+            name = get_field(function_call, "name")
+            args = get_field(function_call, "args") or {}
+            if name:
+                child_tool_calls.append({"name": name, "args": args})
+            if specialist_name == "tier2_responder":
+                if name in [
+                    "request_human_confirmation",
+                    "request_triage_approval",
+                ]:
+                    response_parts.append(
+                        "[Specialist Action] Dispatched a high-priority ChatOps confirmation card to the security operations channel requesting human analyst approval before executing containment."
+                    )
+                elif name == "deliver_report":
+                    response_parts.append(
+                        "[Specialist Action] Saved and delivered the incident containment report to the security operations channel."
+                    )
+                else:
+                    response_parts.append(
+                        f"[Specialist Action] Invoking containment tool: {name}"
+                    )
+            elif specialist_name == "threat_hunter":
+                response_parts.append(
+                    f"[Specialist Action] Invoking hunting/intelligence tool: {name}"
+                )
+            elif specialist_name == "cti_researcher":
+                response_parts.append(
+                    f"[Specialist Action] Invoking threat intelligence tool: {name}"
+                )
+            elif specialist_name == "detection_engineer":
+                response_parts.append(
+                    f"[Specialist Action] Invoking detection engineering tool: {name}"
+                )
+
+
+def _salvage_a2a_events_from_raw_response(
+    error_text: str,
+    specialist_name: str,
+    response_parts: list[str],
+    child_tool_calls: list[dict],
+) -> int:
+    """Salvage complete JSON events from an UnknownApiResponseError 'Raw response:' dump."""
+    marker = "Raw response:"
+    if marker not in error_text:
+        return 0
+    raw_payload = error_text.split(marker, 1)[1].strip()
+    extracted_chunks, _ = _drain_complete_json_chunks(raw_payload)
+    salvaged_count = 0
+    for chunk_str in extracted_chunks:
+        try:
+            obj = json.loads(chunk_str)
+            _extract_a2a_event_parts(
+                obj, specialist_name, response_parts, child_tool_calls
+            )
+            salvaged_count += 1
+        except Exception:
+            continue
+    return salvaged_count
+
+
+async def _consume_remote_a2a_stream(
+    specialist_name: str,
+    display_label: str,
+    secret_env_key: str,
+    default_location: str,
+    not_configured_msg: str,
+    empty_fallback_msg: str,
+    query: str,
+    tool_context: Context,
+) -> str:
+    """Execute a remote A2A streaming call with session deduplication, RFC 8259 stream salvage, and bounded errors."""
     logger.info(
-        f"A2A_DELEGATION: Attempting to delegate to Tier 2 Incident Responder for: {query}"
+        f"A2A_DELEGATION: Attempting to delegate to {display_label} for: {query}"
     )
+
+    # 1. Check per-session A2A delegation cache to prevent duplicate specialist calls
+    cache_key = f"{specialist_name}:{query.strip()}"
     try:
-        # Retrieve Tier 2 Agent Engine resource name from environment variables
-        tier2_engine_name = get_secret("TIER2_AGENT_RESOURCE_NAME")
-        if not tier2_engine_name:
-            logger.error("A2A_DELEGATION_ERROR: TIER2_AGENT_RESOURCE_NAME not set.")
-            return "Error: Tier 2 Incident Responder is not currently configured in the environment."
-        # Parse the location from the resource name dynamically
-        import re
+        if tool_context is not None and hasattr(tool_context, "state") and tool_context.state is not None:
+            state_dict = (
+                tool_context.state.to_dict()
+                if hasattr(tool_context.state, "to_dict")
+                else dict(tool_context.state)
+            )
+            a2a_cache = state_dict.get("a2a_delegation_cache") or {}
+            if isinstance(a2a_cache, dict) and cache_key in a2a_cache:
+                logger.info(
+                    f"A2A_DELEGATION_CACHE_HIT: Returning cached response for {specialist_name} on identical query."
+                )
+                return a2a_cache[cache_key]
+    except Exception:
+        pass
 
-        m = re.search(r"locations/([^/]+)/", tier2_engine_name)
-        target_location = m.group(1) if m else "us-east4"
+    engine_name = get_secret(secret_env_key)
+    if not engine_name:
+        logger.error(f"A2A_DELEGATION_ERROR: {secret_env_key} not set.")
+        return not_configured_msg
 
-        # Clean Regional Routing:
-        # Instead of using the global 'vertexai.agent_engines.get' shortcut (which
-        # is bound to the global client pool and impacted by the GOOGLE_CLOUD_LOCATION="global"
-        # LLM workaround), we explicitly construct a regional 'vertexai.Client' instance.
-        # This guarantees an isolated, correct regional gRPC pathway for A2A.
-        import vertexai
+    response_parts: list[str] = []
+    child_tool_calls: list[dict] = []
+    final_text = ""
+
+    try:
+        m = re.search(r"locations/([^/]+)/", engine_name)
+        target_location = m.group(1) if m else default_location
 
         client = vertexai.Client(
             project=os.environ.get("GCP_PROJECT_ID"), location=target_location
         )
-        remote_engine = client.agent_engines.get(name=tier2_engine_name)
-
-        # Retrieve session context parameters
-        session_id = None  # Let remote specialist auto-create its own session to prevent SessionNotFoundError
+        remote_engine = client.agent_engines.get(name=engine_name)
+        session_id = None
         user_id = "secops_assistant"
 
-        # Map parent context to child session if available
         if (
             hasattr(tool_context, "_invocation_context")
             and tool_context._invocation_context
@@ -2342,84 +2658,91 @@ async def delegate_to_tier2_responder(query: str, tool_context: Context) -> str:
                 user_id = root_ctx.user_id
 
         logger.info(
-            f"A2A_DELEGATION: Calling remote Tier 2 agent ({tier2_engine_name}) with User: {user_id}"
+            f"A2A_DELEGATION: Calling remote {display_label} agent ({engine_name}) with User: {user_id}"
         )
 
-        # Invoke the remote engine client dynamically accumulating streaming events
-        response_parts = []
-        child_tool_calls = []
         async for event in remote_engine.async_stream_query(
             user_id=user_id, session_id=session_id, message=query
         ):
             logger.debug(f"A2A_DELEGATION_EVENT: {event}")
+            _extract_a2a_event_parts(
+                event, specialist_name, response_parts, child_tool_calls
+            )
 
-            # Safe lookup helper supporting both dict and object structures interchangeably
-            def get_field(obj, field_name):
-                if obj is None:
-                    return None
-                if isinstance(obj, dict):
-                    return obj.get(field_name)
-                return getattr(obj, field_name, None)
-
-            # Extract text content and tool invocations safely
-            content = get_field(event, "content")
-            if content:
-                parts = get_field(content, "parts")
-                if parts and isinstance(parts, list):
-                    for part in parts:
-                        # 1. Extract conversational text
-                        text = get_field(part, "text")
-                        if text:
-                            response_parts.append(text)
-
-                        # 2. Extract tool/function calls for real-time status updates
-                        function_call = get_field(part, "function_call") or get_field(
-                            part, "functionCall"
-                        )
-                        if function_call:
-                            name = get_field(function_call, "name")
-                            args = get_field(function_call, "args") or {}
-                            if name:
-                                child_tool_calls.append({"name": name, "args": args})
-                            if name in [
-                                "request_human_confirmation",
-                                "request_triage_approval",
-                            ]:
-                                response_parts.append(
-                                    "[Specialist Action] Dispatched a high-priority ChatOps confirmation card to the security operations channel requesting human analyst approval before executing containment."
-                                )
-                            elif name == "deliver_report":
-                                response_parts.append(
-                                    "[Specialist Action] Saved and delivered the incident containment report to the security operations channel."
-                                )
-                            else:
-                                response_parts.append(
-                                    f"[Specialist Action] Invoking containment tool: {name}"
-                                )
-
-        final_text = "".join(response_parts).strip()
+    except Exception as e:
+        err_str = str(e)
+        salvaged = _salvage_a2a_events_from_raw_response(
+            err_str, specialist_name, response_parts, child_tool_calls
+        )
+        if salvaged > 0 or response_parts:
+            logger.warning(
+                f"A2A_DELEGATION_SALVAGED: Recovered {salvaged} event(s) and {len(response_parts)} response part(s) "
+                f"from {display_label} stream after parser exception."
+            )
+        else:
+            concise_err = err_str.split("Raw response:", 1)[0].strip()[:400]
+            logger.error(
+                f"A2A_DELEGATION_ERROR: Failed to delegate to {display_label}: {concise_err}",
+                exc_info=True,
+            )
+            final_text = f"Failed to communicate with the remote {display_label} specialist agent: {concise_err}"
+            return final_text
+    finally:
         if not final_text:
-            final_text = "The Tier 2 specialist completed the request without generating a text response."
-
+            final_text = "".join(response_parts).strip() or empty_fallback_msg
         _emit_a2a_delegation_span(
-            "tier2_responder",
-            tier2_engine_name,
+            specialist_name,
+            engine_name,
             query,
             tool_context,
             child_tool_calls,
             final_text,
         )
-        logger.info("A2A_DELEGATION_SUCCESS: Successfully completed remote A2A call.")
-        return (
-            f"--- Response from Tier 2 Incident Responder Specialist ---\n{final_text}"
-        )
 
-    except Exception as e:
-        logger.error(
-            f"A2A_DELEGATION_ERROR: Failed to delegate task to Tier 2 agent: {e}",
-            exc_info=True,
-        )
-        return f"Failed to communicate with the remote Tier 2 Incident Responder specialist agent: {e}"
+    logger.info(
+        f"A2A_DELEGATION_SUCCESS: Successfully completed remote A2A call to {display_label}."
+    )
+    formatted_output = f"--- Response from {display_label} Specialist ---\n{final_text}"
+
+    # Cache successful response in session state
+    try:
+        if tool_context is not None and hasattr(tool_context, "state") and tool_context.state is not None:
+            state_dict = (
+                tool_context.state.to_dict()
+                if hasattr(tool_context.state, "to_dict")
+                else dict(tool_context.state)
+            )
+            a2a_cache = dict(state_dict.get("a2a_delegation_cache") or {})
+            a2a_cache[cache_key] = formatted_output
+            if hasattr(tool_context.state, "update"):
+                tool_context.state.update({"a2a_delegation_cache": a2a_cache})
+            elif isinstance(tool_context.state, dict):
+                tool_context.state["a2a_delegation_cache"] = a2a_cache
+    except Exception:
+        pass
+
+    return formatted_output
+
+
+async def delegate_to_tier2_responder(query: str, tool_context: Context) -> str:
+    """
+    Delegates threat containment, host isolation, container teardown, or active mitigation
+    to the standalone Tier 2 Incident Responder agent remotely via Agent-to-Agent (A2A) call.
+    Use this tool ONLY when a threat is confirmed and active containment/mitigation is required.
+
+    Args:
+        query: The specific containment task or mitigation request (e.g., 'Isolate host MALWARETEST-WIN' or 'Suspend compromised user credentials').
+    """
+    return await _consume_remote_a2a_stream(
+        specialist_name="tier2_responder",
+        display_label="Tier 2 Incident Responder",
+        secret_env_key="TIER2_AGENT_RESOURCE_NAME",
+        default_location="us-east4",
+        not_configured_msg="Error: Tier 2 Incident Responder is not currently configured in the environment.",
+        empty_fallback_msg="The Tier 2 specialist completed the request without generating a text response.",
+        query=query,
+        tool_context=tool_context,
+    )
 
 
 async def delegate_to_threat_hunter(query: str, tool_context: Context) -> str:
@@ -2430,105 +2753,16 @@ async def delegate_to_threat_hunter(query: str, tool_context: Context) -> str:
     Args:
         query: The specific threat hunt request or hypothesis to validate (e.g., 'Check for potential malicious beaconing to superstarts.top').
     """
-    logger.info(f"A2A_DELEGATION: Attempting to delegate to Threat Hunter for: {query}")
-    try:
-        engine_name = get_secret("THREAT_HUNTER_AGENT_RESOURCE_NAME")
-        if not engine_name:
-            logger.error(
-                "A2A_DELEGATION_ERROR: THREAT_HUNTER_AGENT_RESOURCE_NAME not set."
-            )
-            return "Error: Threat Hunter agent is not configured in the environment."
-
-        # Parse the location from the resource name dynamically
-        import re
-
-        m = re.search(r"locations/([^/]+)/", engine_name)
-        target_location = m.group(1) if m else "us-central1"
-
-        # Clean Regional Routing:
-        # Instead of using the global 'vertexai.agent_engines.get' shortcut,
-        # we explicitly construct a regional 'vertexai.Client' instance.
-        # This guarantees an isolated, correct regional gRPC pathway for A2A.
-        import vertexai
-
-        client = vertexai.Client(
-            project=os.environ.get("GCP_PROJECT_ID"), location=target_location
-        )
-        remote_engine = client.agent_engines.get(name=engine_name)
-        session_id = None
-        user_id = "secops_assistant"
-
-        if (
-            hasattr(tool_context, "_invocation_context")
-            and tool_context._invocation_context
-        ):
-            root_ctx = tool_context._invocation_context
-            if hasattr(root_ctx, "user_id"):
-                user_id = root_ctx.user_id
-
-        logger.info(
-            f"A2A_DELEGATION: Calling remote Threat Hunter agent ({engine_name}) with User: {user_id}"
-        )
-
-        response_parts = []
-        child_tool_calls = []
-        async for event in remote_engine.async_stream_query(
-            user_id=user_id, session_id=session_id, message=query
-        ):
-
-            def get_field(obj, field_name):
-                if obj is None:
-                    return None
-                if isinstance(obj, dict):
-                    return obj.get(field_name)
-                return getattr(obj, field_name, None)
-
-            content = get_field(event, "content")
-            if content:
-                parts = get_field(content, "parts")
-                if parts and isinstance(parts, list):
-                    for part in parts:
-                        text = get_field(part, "text")
-                        if text:
-                            response_parts.append(text)
-
-                        function_call = get_field(part, "function_call") or get_field(
-                            part, "functionCall"
-                        )
-                        if function_call:
-                            name = get_field(function_call, "name")
-                            args = get_field(function_call, "args") or {}
-                            if name:
-                                child_tool_calls.append({"name": name, "args": args})
-                            response_parts.append(
-                                f"[Specialist Action] Invoking hunting/intelligence tool: {name}"
-                            )
-
-        final_text = "".join(response_parts).strip()
-        if not final_text:
-            final_text = "The Threat Hunter specialist completed the request without generating a text response."
-
-        _emit_a2a_delegation_span(
-            "threat_hunter",
-            engine_name,
-            query,
-            tool_context,
-            child_tool_calls,
-            final_text,
-        )
-        logger.info(
-            "A2A_DELEGATION_SUCCESS: Successfully completed remote A2A call to Threat Hunter."
-        )
-        return f"--- Response from Threat Hunter Specialist ---\n{final_text}"
-
-    except Exception as e:
-        logger.error(
-            f"A2A_DELEGATION_ERROR: Failed to delegate to Threat Hunter: {e}",
-            exc_info=True,
-        )
-        return (
-            f"Failed to communicate with the remote Threat Hunter specialist agent: {e}"
-        )
+    return await _consume_remote_a2a_stream(
+        specialist_name="threat_hunter",
+        display_label="Threat Hunter",
+        secret_env_key="THREAT_HUNTER_AGENT_RESOURCE_NAME",
+        default_location="us-central1",
+        not_configured_msg="Error: Threat Hunter agent is not configured in the environment.",
+        empty_fallback_msg="The Threat Hunter specialist completed the request without generating a text response.",
+        query=query,
+        tool_context=tool_context,
+    )
 
 
 async def delegate_to_cti_researcher(query: str, tool_context: Context) -> str:
@@ -2539,105 +2773,16 @@ async def delegate_to_cti_researcher(query: str, tool_context: Context) -> str:
     Args:
         query: The threat intelligence research query (e.g., 'Research actor APT28 and list related hashes').
     """
-    logger.info(
-        f"A2A_DELEGATION: Attempting to delegate to CTI Researcher for: {query}"
+    return await _consume_remote_a2a_stream(
+        specialist_name="cti_researcher",
+        display_label="CTI Researcher",
+        secret_env_key="CTI_RESEARCHER_AGENT_RESOURCE_NAME",
+        default_location="us-central1",
+        not_configured_msg="Error: CTI Researcher agent is not configured in the environment.",
+        empty_fallback_msg="The CTI Researcher specialist completed the request without generating a text response.",
+        query=query,
+        tool_context=tool_context,
     )
-    try:
-        engine_name = get_secret("CTI_RESEARCHER_AGENT_RESOURCE_NAME")
-        if not engine_name:
-            logger.error(
-                "A2A_DELEGATION_ERROR: CTI_RESEARCHER_AGENT_RESOURCE_NAME not set."
-            )
-            return "Error: CTI Researcher agent is not configured in the environment."
-
-        # Parse the location from the resource name dynamically
-        import re
-
-        m = re.search(r"locations/([^/]+)/", engine_name)
-        target_location = m.group(1) if m else "us-central1"
-
-        # Clean Regional Routing:
-        # Instead of using the global 'vertexai.agent_engines.get' shortcut,
-        # we explicitly construct a regional 'vertexai.Client' instance.
-        # This guarantees an isolated, correct regional gRPC pathway for A2A.
-        import vertexai
-
-        client = vertexai.Client(
-            project=os.environ.get("GCP_PROJECT_ID"), location=target_location
-        )
-        remote_engine = client.agent_engines.get(name=engine_name)
-        session_id = None
-        user_id = "secops_assistant"
-
-        if (
-            hasattr(tool_context, "_invocation_context")
-            and tool_context._invocation_context
-        ):
-            root_ctx = tool_context._invocation_context
-            if hasattr(root_ctx, "user_id"):
-                user_id = root_ctx.user_id
-
-        logger.info(
-            f"A2A_DELEGATION: Calling remote CTI Researcher agent ({engine_name}) with User: {user_id}"
-        )
-
-        response_parts = []
-        child_tool_calls = []
-        async for event in remote_engine.async_stream_query(
-            user_id=user_id, session_id=session_id, message=query
-        ):
-
-            def get_field(obj, field_name):
-                if obj is None:
-                    return None
-                if isinstance(obj, dict):
-                    return obj.get(field_name)
-                return getattr(obj, field_name, None)
-
-            content = get_field(event, "content")
-            if content:
-                parts = get_field(content, "parts")
-                if parts and isinstance(parts, list):
-                    for part in parts:
-                        text = get_field(part, "text")
-                        if text:
-                            response_parts.append(text)
-
-                        function_call = get_field(part, "function_call") or get_field(
-                            part, "functionCall"
-                        )
-                        if function_call:
-                            name = get_field(function_call, "name")
-                            args = get_field(function_call, "args") or {}
-                            if name:
-                                child_tool_calls.append({"name": name, "args": args})
-                            response_parts.append(
-                                f"[Specialist Action] Invoking threat intelligence tool: {name}"
-                            )
-
-        final_text = "".join(response_parts).strip()
-        if not final_text:
-            final_text = "The CTI Researcher specialist completed the request without generating a text response."
-
-        _emit_a2a_delegation_span(
-            "cti_researcher",
-            engine_name,
-            query,
-            tool_context,
-            child_tool_calls,
-            final_text,
-        )
-        logger.info(
-            "A2A_DELEGATION_SUCCESS: Successfully completed remote A2A call to CTI Researcher."
-        )
-        return f"--- Response from CTI Researcher Specialist ---\n{final_text}"
-
-    except Exception as e:
-        logger.error(
-            f"A2A_DELEGATION_ERROR: Failed to delegate to CTI Researcher: {e}",
-            exc_info=True,
-        )
-        return f"Failed to communicate with the remote CTI Researcher specialist agent: {e}"
 
 
 async def delegate_concurrently(
@@ -2686,107 +2831,16 @@ async def delegate_to_detection_engineer(query: str, tool_context: Context) -> s
     Args:
         query: The specific detection engineering or rule tuning task (e.g., 'Write a rule to detect brute force on GCP console' or 'Tune rule X to exclude user Y').
     """
-    logger.info(
-        f"A2A_DELEGATION: Attempting to delegate to Detection Engineer for: {query}"
+    return await _consume_remote_a2a_stream(
+        specialist_name="detection_engineer",
+        display_label="Detection Engineer",
+        secret_env_key="DETECTION_ENGINEER_AGENT_RESOURCE_NAME",
+        default_location="us-central1",
+        not_configured_msg="Error: Detection Engineer agent is not configured in the environment.",
+        empty_fallback_msg="The Detection Engineer specialist completed the request without generating a text response.",
+        query=query,
+        tool_context=tool_context,
     )
-    try:
-        engine_name = get_secret("DETECTION_ENGINEER_AGENT_RESOURCE_NAME")
-        if not engine_name:
-            logger.error(
-                "A2A_DELEGATION_ERROR: DETECTION_ENGINEER_AGENT_RESOURCE_NAME not set."
-            )
-            return (
-                "Error: Detection Engineer agent is not configured in the environment."
-            )
-
-        # Parse the location from the resource name dynamically
-        import re
-
-        m = re.search(r"locations/([^/]+)/", engine_name)
-        target_location = m.group(1) if m else "us-central1"
-
-        # Clean Regional Routing:
-        # Instead of using the global 'vertexai.agent_engines.get' shortcut,
-        # we explicitly construct a regional 'vertexai.Client' instance.
-        # This guarantees an isolated, correct regional gRPC pathway for A2A.
-        import vertexai
-
-        client = vertexai.Client(
-            project=os.environ.get("GCP_PROJECT_ID"), location=target_location
-        )
-        remote_engine = client.agent_engines.get(name=engine_name)
-        session_id = None
-        user_id = "secops_assistant"
-
-        if (
-            hasattr(tool_context, "_invocation_context")
-            and tool_context._invocation_context
-        ):
-            root_ctx = tool_context._invocation_context
-            if hasattr(root_ctx, "user_id"):
-                user_id = root_ctx.user_id
-
-        logger.info(
-            f"A2A_DELEGATION: Calling remote Detection Engineer agent ({engine_name}) with User: {user_id}"
-        )
-
-        response_parts = []
-        child_tool_calls = []
-        async for event in remote_engine.async_stream_query(
-            user_id=user_id, session_id=session_id, message=query
-        ):
-
-            def get_field(obj, field_name):
-                if obj is None:
-                    return None
-                if isinstance(obj, dict):
-                    return obj.get(field_name)
-                return getattr(obj, field_name, None)
-
-            content = get_field(event, "content")
-            if content:
-                parts = get_field(content, "parts")
-                if parts and isinstance(parts, list):
-                    for part in parts:
-                        text = get_field(part, "text")
-                        if text:
-                            response_parts.append(text)
-
-                        function_call = get_field(part, "function_call") or get_field(
-                            part, "functionCall"
-                        )
-                        if function_call:
-                            name = get_field(function_call, "name")
-                            args = get_field(function_call, "args") or {}
-                            if name:
-                                child_tool_calls.append({"name": name, "args": args})
-                            response_parts.append(
-                                f"[Specialist Action] Invoking detection engineering tool: {name}"
-                            )
-
-        final_text = "".join(response_parts).strip()
-        if not final_text:
-            final_text = "The Detection Engineer specialist completed the request without generating a text response."
-
-        _emit_a2a_delegation_span(
-            "detection_engineer",
-            engine_name,
-            query,
-            tool_context,
-            child_tool_calls,
-            final_text,
-        )
-        logger.info(
-            "A2A_DELEGATION_SUCCESS: Successfully completed remote A2A call to Detection Engineer."
-        )
-        return f"--- Response from Detection Engineer Specialist ---\n{final_text}"
-
-    except Exception as e:
-        logger.error(
-            f"A2A_DELEGATION_ERROR: Failed to delegate to Detection Engineer: {e}",
-            exc_info=True,
-        )
-        return f"Failed to communicate with the remote Detection Engineer specialist agent: {e}"
 
 
 def _find_mcp_paths() -> list[str]:
