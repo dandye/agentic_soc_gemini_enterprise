@@ -478,12 +478,13 @@ try:
         result = await original_run_async_impl(self, *args, **kwargs)
         try:
             if isinstance(result, dict) and "content" in result:
+                result.pop("structuredContent", None)
                 content_list = result["content"]
                 if isinstance(content_list, list):
                     for item in content_list:
                         if isinstance(item, dict) and item.get("type") == "text":
                             text = item.get("text")
-                            if isinstance(text, str) and len(text) > 15000:
+                            if isinstance(text, str) and len(text) >= 10000:
                                 # 1. Try to run semantic aggregation first
                                 aggregated_text = summarize_telemetry(text, self.name)
                                 if len(aggregated_text) < len(text):

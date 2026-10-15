@@ -736,12 +736,15 @@ def _apply_runtime_patches():
             result = await original_run_async_impl(self, *args, **kwargs)
             try:
                 if isinstance(result, dict) and "content" in result:
+                    # Remove duplicate structuredContent payload so ADK does not serialize
+                    # a second unsummarized copy of the MCP JSON alongside content[].text
+                    result.pop("structuredContent", None)
                     content_list = result["content"]
                     if isinstance(content_list, list):
                         for item in content_list:
                             if isinstance(item, dict) and item.get("type") == "text":
                                 text = item.get("text")
-                                if isinstance(text, str) and len(text) > 15000:
+                                if isinstance(text, str) and len(text) >= 10000:
                                     # 1. Try to run semantic aggregation first
                                     aggregated_text = summarize_telemetry(
                                         text, self.name
@@ -2661,13 +2664,17 @@ async def _consume_remote_a2a_stream(
             f"A2A_DELEGATION: Calling remote {display_label} agent ({engine_name}) with User: {user_id}"
         )
 
-        async for event in remote_engine.async_stream_query(
-            user_id=user_id, session_id=session_id, message=query
-        ):
-            logger.debug(f"A2A_DELEGATION_EVENT: {event}")
-            _extract_a2a_event_parts(
-                event, specialist_name, response_parts, child_tool_calls
-            )
+        import asyncio
+
+        stream_timeout_s = int(os.environ.get("A2A_STREAM_TIMEOUT_SECONDS", "240"))
+        async with asyncio.timeout(stream_timeout_s):
+            async for event in remote_engine.async_stream_query(
+                user_id=user_id, session_id=session_id, message=query
+            ):
+                logger.debug(f"A2A_DELEGATION_EVENT: {event}")
+                _extract_a2a_event_parts(
+                    event, specialist_name, response_parts, child_tool_calls
+                )
 
     except Exception as e:
         err_str = str(e)
