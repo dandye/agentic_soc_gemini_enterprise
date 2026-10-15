@@ -211,6 +211,46 @@ def _normalize_trace_info(trace_info: Any) -> dict[str, Any]:
             span_tool_calls.append(
                 {"name": t_name, "args": t_args, "response": t_resp}
             )
+        elif span_name.startswith("a2a.delegate."):
+            specialist = str(
+                attrs.get("a2a.target_agent")
+                or span_name.removeprefix("a2a.delegate.").strip()
+            )
+            a2a_req = str(attrs.get("a2a.request") or "")
+            a2a_resp = str(attrs.get("a2a.response_preview") or "")
+            child_calls_raw = attrs.get("a2a.child_tool_calls")
+            parsed_child_calls: list[dict[str, Any]] = []
+            if isinstance(child_calls_raw, str) and child_calls_raw.strip():
+                try:
+                    loaded = json.loads(child_calls_raw)
+                    if isinstance(loaded, list):
+                        parsed_child_calls = [
+                            c for c in loaded if isinstance(c, dict) and c.get("name")
+                        ]
+                except Exception:
+                    pass
+            elif isinstance(child_calls_raw, list):
+                parsed_child_calls = [
+                    c for c in child_calls_raw if isinstance(c, dict) and c.get("name")
+                ]
+            span_tool_calls.append(
+                {
+                    "name": f"delegate_to_{specialist}",
+                    "args": {"query": a2a_req},
+                    "response": a2a_resp,
+                    "a2a_target_resource": attrs.get("a2a.target_resource_name"),
+                    "a2a_child_tool_calls": parsed_child_calls,
+                }
+            )
+            for child_c in parsed_child_calls:
+                span_tool_calls.append(
+                    {
+                        "name": str(child_c.get("name")),
+                        "args": child_c.get("args") or {},
+                        "response": child_c.get("response"),
+                        "via_a2a_specialist": specialist,
+                    }
+                )
         elif span_name == "call_llm":
             llm_req_raw = attrs.get("gcp.vertex.agent.llm_request")
             if isinstance(llm_req_raw, str):
@@ -257,15 +297,34 @@ def _normalize_trace_info(trace_info: Any) -> dict[str, Any]:
     if not normalized_calls and span_tool_calls:
         normalized_calls = span_tool_calls
     elif normalized_calls and span_tool_calls:
-        # Enrich existing tool_calls that lack responses using span_tool_calls
+        # Enrich existing tool_calls that lack args or responses using span_tool_calls
         resp_lookup = {
             c["name"]: c["response"]
             for c in span_tool_calls
             if c.get("response") is not None
         }
+        args_lookup = {
+            c["name"]: c["args"]
+            for c in span_tool_calls
+            if c.get("args")
+        }
+        a2a_children_lookup = {
+            c["name"]: c["a2a_child_tool_calls"]
+            for c in span_tool_calls
+            if c.get("a2a_child_tool_calls") is not None
+        }
         for call in normalized_calls:
-            if call.get("response") is None and call.get("name") in resp_lookup:
-                call["response"] = resp_lookup[call["name"]]
+            c_name = call.get("name")
+            if call.get("response") is None and c_name in resp_lookup:
+                call["response"] = resp_lookup[c_name]
+            if not call.get("args") and c_name in args_lookup:
+                call["args"] = args_lookup[c_name]
+            if c_name in a2a_children_lookup:
+                call["a2a_child_tool_calls"] = a2a_children_lookup[c_name]
+        # Append child tool calls recorded via A2A delegation spans (`a2a.delegate.*`)
+        for c in span_tool_calls:
+            if c.get("via_a2a_specialist"):
+                normalized_calls.append(c)
 
     if not raw.get("conversation") and span_user_turns:
         raw["conversation"] = span_user_turns
@@ -328,9 +387,10 @@ def timerange_propagation_check(trace_info: Any) -> dict[str, Any]:
     user_prompt = str(trace.get("user_prompt") or "")
     conversation = trace.get("conversation") or []
     user_turns: list[str] = [
-        str(t.get("content") or "")
+        str(t.get("content") or t.get("text") or "")
         for t in conversation
-        if isinstance(t, dict) and t.get("role") == "user"
+        if isinstance(t, dict)
+        and (t.get("role") == "user" or t.get("author") == "user")
     ]
     if not user_prompt and user_turns:
         user_prompt = " ".join(user_turns)
@@ -387,7 +447,12 @@ def timerange_propagation_check(trace_info: Any) -> dict[str, Any]:
                 violations.append(
                     f"Tool '{name}' called with hours_back={actual_hours} instead of expected hours_back={target_hours}."
                 )
-        elif _is_delegation_tool(name) and name != "transfer_to_agent":
+        elif _is_delegation_tool(name) and name not in (
+            "transfer_to_agent",
+            "delegate_to_tier2_responder",
+            "delegate_to_cti_researcher",
+            "cti_researcher",
+        ):
             checked_calls += 1
             payload_text = str(args)
             has_hours = str(target_hours) in payload_text

@@ -340,3 +340,81 @@ def test_normalize_trace_info_parses_vertex_adk_cloud_trace_spans():
     eval_res = evaluate(raw_cloud_trace_record)
     assert eval_res["passed"] is True
     assert eval_res["score"] == 1.0
+
+
+def test_normalize_trace_info_unpacks_a2a_delegation_spans_and_child_tool_calls():
+    """Verify _normalize_trace_info unpacks a2a.delegate.* spans and their a2a.child_tool_calls."""
+    import json
+    from aqua.custom_metrics import _normalize_trace_info, evaluate
+
+    raw_a2a_trace = {
+        "session_id": "7325253399786553344",
+        "spans": [
+            {
+                "name": "execute_tool delegate_concurrently",
+                "trace_id": "9be0c944c2b56782b432dafe7f26c182",
+                "span_id": "span-concurrent",
+                "attributes": {
+                    "gen_ai.tool.name": "delegate_concurrently",
+                    "gcp.vertex.agent.tool_call_args": json.dumps(
+                        {
+                            "cti_request": "Enrich 185.220.101.42",
+                            "threat_hunter_request": "Hunt wks-finance-04 over last 7 days",
+                        }
+                    ),
+                },
+            },
+            {
+                "name": "a2a.delegate.cti_researcher",
+                "trace_id": "9be0c944c2b56782b432dafe7f26c182",
+                "span_id": "span-a2a-cti",
+                "attributes": {
+                    "gcp.vertex.agent.session_id": "7325253399786553344",
+                    "a2a.specialist": "cti_researcher",
+                    "a2a.request": "Enrich 185.220.101.42",
+                    "a2a.child_tool_calls": json.dumps(
+                        [
+                            {
+                                "name": "get_domain_report",
+                                "args": {"domain": "update-service-auth.com"},
+                            }
+                        ]
+                    ),
+                },
+            },
+            {
+                "name": "a2a.delegate.threat_hunter",
+                "trace_id": "9be0c944c2b56782b432dafe7f26c182",
+                "span_id": "span-a2a-hunter",
+                "attributes": {
+                    "gcp.vertex.agent.session_id": "7325253399786553344",
+                    "a2a.specialist": "threat_hunter",
+                    "a2a.request": "Hunt wks-finance-04 over last 7 days",
+                    "a2a.child_tool_calls": json.dumps(
+                        [
+                            {
+                                "name": "search_security_events",
+                                "args": {
+                                    "text": "Events on wks-finance-04",
+                                    "hours_back": 168,
+                                },
+                            }
+                        ]
+                    ),
+                },
+            },
+        ],
+    }
+
+    norm = _normalize_trace_info(raw_a2a_trace)
+    tool_names = [tc["name"] for tc in norm["tool_calls"]]
+    assert "delegate_concurrently" in tool_names
+    assert "delegate_to_cti_researcher" in tool_names
+    assert "get_domain_report" in tool_names
+    assert "delegate_to_threat_hunter" in tool_names
+    assert "search_security_events" in tool_names
+
+    # Verify evaluate runs cleanly on unpacked A2A spans
+    eval_res = evaluate(raw_a2a_trace)
+    assert "metrics" in eval_res
+
