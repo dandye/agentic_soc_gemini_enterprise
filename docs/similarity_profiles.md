@@ -27,11 +27,13 @@ To address these distinct operational needs, the **AlloyDB Multi-Modal Similarit
 
 ## 2. Similarity Dimensions & Mathematical Formulation
 
-The composite similarity score $S_{total}(A, B) \in [0.0, 1.0]$ between target investigation $A$ and candidate report $B$ is computed as:
+The composite similarity score $S_{total}(A, B) \in [0.0, 1.0]$ between target investigation $A$ and candidate report $B$ is computed across six dimensions:
 
-$$S_{total}(A, B) = w_s \cdot S_{semantic}(A, B) + w_e \cdot S_{entity}(A, B) + w_t \cdot S_{ttp}(A, B) + w_f \cdot S_{flow}(A, B) + w_{time} \cdot S_{time}(A, B)$$
+$$S_{total}(A, B) = w_s \cdot S_{semantic}(A, B) + w_{bm25} \cdot S_{bm25}(A, B) + w_e \cdot S_{entity}(A, B) + w_t \cdot S_{ttp}(A, B) + w_f \cdot S_{flow}(A, B) + w_{time} \cdot S_{time}(A, B)$$
 
-Where $\sum w_i = 1.0$.
+Where $\sum w_i = 1.0$. Candidate generation and hybrid ranking also compute **Reciprocal Rank Fusion (RRF, $k=60$)** combining dense vector rank $r_{\text{vec}}$ and Okapi BM25 rank $r_{\text{bm25}}$:
+
+$$\text{RRF}(d) = \frac{1}{60 + r_{\text{vec}}(d)} + \frac{1}{60 + r_{\text{bm25}}(d)}$$
 
 ### Sub-Score Definitions
 
@@ -39,19 +41,23 @@ Where $\sum w_i = 1.0$.
    - Dense vector cosine similarity computed via `pgvector` on 768-dimensional `text-embedding-004` embeddings:
    $$S_{semantic}(A, B) = 1 - (embedding_A \Leftrightarrow embedding_B)$$
 
-2. **Weighted Entity Overlap ($S_{entity}$)**:
+2. **Okapi BM25 Lexical Similarity ($S_{bm25}$)**:
+   - Normalized Okapi BM25 ($k_1 = 1.5, b = 0.75$) with a $2\times$ boost on `title`/`display_name` and SecOps-aware tokenization (preserving MITRE ATT&CK technique IDs, CVEs, IP addresses, and hostnames):
+   $$S_{bm25}(A, B) = \frac{\text{BM25}(A, B)}{\max_{C} \text{BM25}(A, C)}$$
+
+3. **Weighted Entity Overlap ($S_{entity}$)**:
    - Inverse Document Frequency (IDF) weighted Jaccard similarity across shared entities (hosts, users, IPs, file paths, hashes):
    $$IDF(e) = \ln\left(\frac{N_{total} + 1}{N(e) + 1}\right) + 1$$
    $$S_{entity}(A, B) = \frac{\sum_{e \in E_A \cap E_B} IDF(e)}{\sum_{e \in E_A \cup E_B} IDF(e)}$$
 
-3. **Behavioral MITRE TTP Overlap ($S_{ttp}$)**:
+4. **Behavioral MITRE TTP Overlap ($S_{ttp}$)**:
    - Hierarchical Jaccard overlap on MITRE ATT&CK techniques and tactics:
    $$S_{ttp}(A, B) = 0.70 \cdot \frac{|Tech_A \cap Tech_B|}{|Tech_A \cup Tech_B|} + 0.30 \cdot \frac{|Tac_A \cap Tac_B|}{|Tac_A \cup Tac_B|}$$
 
-4. **Investigation Flow Similarity ($S_{flow}$)**:
+5. **Investigation Flow Similarity ($S_{flow}$)**:
    - Jaccard similarity over investigation step types and query fingerprints from `investigation_steps` JSONB.
 
-5. **Temporal Campaign Decay ($S_{time}$)**:
+6. **Temporal Campaign Decay ($S_{time}$)**:
    - Exponential time-decay function based on the elapsed time between reports ($\tau = 14 \text{ days}$):
    $$S_{time}(A, B) = \exp\left(-\frac{|\Delta t|}{14 \text{ days}}\right)$$
 
@@ -59,13 +65,15 @@ Where $\sum w_i = 1.0$.
 
 ## 3. Parameterized Scoring Profiles
 
-| Profile Key | Profile Name | Primary Objective | Semantic ($w_s$) | Entity ($w_e$) | TTP ($w_t$) | Flow ($w_f$) | Time ($w_{time}$) |
-| :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: |
-| `balanced` | **Balanced Alert Triage** | Standard multi-modal blend across all 5 dimensions for routine triage and verdict verification. | **35%** | **30%** | **20%** | **10%** | **5%** |
-| `threat-hunt` | **Threat Actor & Campaign Hunting** | Biases for shared MITRE TTPs and semantic attack tradecraft across multiple or disparate hosts. | **35%** | **5%** | **45%** | **10%** | **5%** |
-| `compromise-pivot` | **Compromise Blast Radius & Lateral Movement** | Biases heavily for compromised hosts/users/IPs and temporal proximity to detect lateral movement. | **15%** | **45%** | **5%** | **5%** | **30%** |
-| `false-positive` | **False Positive Triage & Precedent** | Biases for exact entity matches, binary hashes, and matching detection rules to identify recurring benign noise. | **20%** | **40%** | **25%** | **10%** | **5%** |
-| `semantic` | **Semantic & Behavioral Concept Discovery** | Biases for dense vector cosine similarity to discover conceptually related attacks regardless of specific entities. | **60%** | **5%** | **15%** | **15%** | **5%** |
+| Profile Key | Profile Name | Primary Objective | Semantic ($w_s$) | BM25 ($w_{bm25}$) | Entity ($w_e$) | TTP ($w_t$) | Flow ($w_f$) | Time ($w_{time}$) |
+| :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: |
+| `balanced` | **Balanced Alert Triage** | Standard multi-modal blend across all 6 dimensions for routine triage and verdict verification. | **30%** | **10%** | **25%** | **20%** | **10%** | **5%** |
+| `threat-hunt` | **Threat Actor & Campaign Hunting** | Biases for shared MITRE TTPs, BM25 tradecraft tokens, and semantic attack descriptions across hosts. | **30%** | **10%** | **5%** | **40%** | **10%** | **5%** |
+| `compromise-pivot` | **Compromise Blast Radius & Lateral Movement** | Biases heavily for compromised hosts/users/IPs and temporal proximity to detect lateral movement. | **15%** | **5%** | **45%** | **5%** | **5%** | **25%** |
+| `false-positive` | **False Positive Triage & Precedent** | Biases for exact entity matches, BM25 command-line/binary tokens, and detection rules to identify benign noise. | **15%** | **20%** | **35%** | **20%** | **5%** | **5%** |
+| `semantic` | **Semantic & Behavioral Concept Discovery** | Biases for dense vector cosine similarity to discover conceptually related attacks regardless of specific entities. | **55%** | **5%** | **5%** | **15%** | **15%** | **5%** |
+| `hybrid-rrf` | **Hybrid BM25 + Vector RRF** | Equal-weight fusion of dense `pgvector` embeddings and Okapi BM25 lexical matching with entity and TTP context. | **30%** | **30%** | **20%** | **10%** | **5%** | **5%** |
+| `lexical-bm25` | **Lexical Okapi BM25 Exact Token Matching** | Prioritizes Okapi BM25 keyword, command-line argument, CVE, and MITRE technique token matching. | **5%** | **55%** | **20%** | **15%** | **3%** | **2%** |
 
 ---
 

@@ -40,21 +40,23 @@ console = Console()
 SIMILARITY_PROFILES: dict[str, dict[str, Any]] = {
     "balanced": {
         "name": "Balanced Alert Triage",
-        "description": "Standard multi-modal blend across all 5 dimensions for routine triage and verdict checking.",
+        "description": "Standard multi-modal blend across all 6 dimensions for routine triage and verdict checking.",
         "weights": {
-            "semantic": 0.35,
-            "entity": 0.30,
+            "semantic": 0.30,
+            "entity": 0.25,
             "ttp": 0.20,
+            "bm25": 0.10,
             "flow": 0.10,
             "time": 0.05,
         },
     },
     "threat-hunt": {
         "name": "Threat Actor & Campaign Hunting",
-        "description": "Biases for shared MITRE TTPs and semantic attack tradecraft across multiple or disparate hosts.",
+        "description": "Biases for shared MITRE TTPs, BM25 tradecraft tokens, and semantic attack descriptions across hosts.",
         "weights": {
-            "ttp": 0.45,
-            "semantic": 0.35,
+            "ttp": 0.40,
+            "semantic": 0.30,
+            "bm25": 0.10,
             "flow": 0.10,
             "time": 0.05,
             "entity": 0.05,
@@ -65,20 +67,22 @@ SIMILARITY_PROFILES: dict[str, dict[str, Any]] = {
         "description": "Biases heavily for compromised hosts/users/IPs and temporal proximity to detect lateral movement.",
         "weights": {
             "entity": 0.45,
-            "time": 0.30,
+            "time": 0.25,
             "semantic": 0.15,
+            "bm25": 0.05,
             "flow": 0.05,
             "ttp": 0.05,
         },
     },
     "false-positive": {
         "name": "False Positive Triage & Precedent",
-        "description": "Biases for exact entity matches, binary hashes, and matching detection rules to identify recurring benign noise.",
+        "description": "Biases for exact entity matches, BM25 command-line/binary tokens, and detection rules to identify benign noise.",
         "weights": {
-            "entity": 0.40,
-            "ttp": 0.25,
-            "semantic": 0.20,
-            "flow": 0.10,
+            "entity": 0.35,
+            "ttp": 0.20,
+            "bm25": 0.20,
+            "semantic": 0.15,
+            "flow": 0.05,
             "time": 0.05,
         },
     },
@@ -86,11 +90,36 @@ SIMILARITY_PROFILES: dict[str, dict[str, Any]] = {
         "name": "Semantic & Behavioral Concept Discovery",
         "description": "Biases for dense vector cosine similarity to discover conceptually related attacks regardless of specific entities.",
         "weights": {
-            "semantic": 0.60,
+            "semantic": 0.55,
             "flow": 0.15,
             "ttp": 0.15,
+            "bm25": 0.05,
             "entity": 0.05,
             "time": 0.05,
+        },
+    },
+    "hybrid-rrf": {
+        "name": "Hybrid BM25 + Vector Reciprocal Rank Fusion",
+        "description": "Equal-weight fusion of dense pgvector embeddings and Okapi BM25 lexical matching with entity and TTP context.",
+        "weights": {
+            "semantic": 0.30,
+            "bm25": 0.30,
+            "entity": 0.20,
+            "ttp": 0.10,
+            "flow": 0.05,
+            "time": 0.05,
+        },
+    },
+    "lexical-bm25": {
+        "name": "Lexical Okapi BM25 Exact Token Matching",
+        "description": "Prioritizes Okapi BM25 keyword, command-line argument, CVE, and MITRE technique token matching.",
+        "weights": {
+            "bm25": 0.55,
+            "entity": 0.20,
+            "ttp": 0.15,
+            "semantic": 0.05,
+            "flow": 0.03,
+            "time": 0.02,
         },
     },
 }
@@ -861,8 +890,15 @@ class AlloyDBManager:
         entity: str | None = None,
         alert_id: str | None = None,
         limit: int = 5,
+        hybrid: bool = False,
+        bm25: bool = False,
     ) -> list[dict[str, Any]]:
-        """Search detection reports in AlloyDB using full-text or semantic vector similarity."""
+        """Search detection reports in AlloyDB using full-text, BM25, semantic vector, or hybrid RRF similarity."""
+        from agent_knowledge.tools.alloydb_tool import (
+            compute_bm25_scores,
+            reciprocal_rank_fusion,
+        )
+
         with self.get_connection() as conn:
             with conn.cursor(row_factory=dict_row) as cur:
                 where_clauses: list[str] = []
@@ -889,8 +925,8 @@ class AlloyDBManager:
                     )
                     params.append(f"%{entity}%")
 
-                # Semantic vector search mode
-                if query and semantic:
+                # Hybrid RRF (Vector + BM25) or Semantic vector search mode
+                if query and (semantic or hybrid):
                     query_emb = self.get_embedding(query, task_type="RETRIEVAL_QUERY")
                     where_clauses.append("embedding IS NOT NULL")
                     where_sql = (
@@ -898,6 +934,7 @@ class AlloyDBManager:
                         if where_clauses
                         else ""
                     )
+                    pool_limit = max(limit * 4, 25) if hybrid else limit
 
                     sql = f"""
                         SELECT
@@ -910,11 +947,14 @@ class AlloyDBManager:
                         ORDER BY embedding <=> %s::vector ASC
                         LIMIT %s;
                     """  # noqa: S608
-                    full_params = [query_emb] + params + [query_emb, limit]
+                    full_params = [query_emb] + params + [query_emb, pool_limit]
                     cur.execute(sql, tuple(full_params))
-                    return list(cur.fetchall())
+                    rows = list(cur.fetchall())
+                    if hybrid and rows:
+                        return reciprocal_rank_fusion(query=query, candidates=rows)[:limit]
+                    return rows
 
-                # Standard Full-Text Search
+                # Standard Full-Text / BM25 Search
                 if query:
                     where_clauses.append(
                         """(
@@ -931,6 +971,7 @@ class AlloyDBManager:
                 where_sql = (
                     ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
                 )
+                pool_limit = max(limit * 4, 25) if (bm25 and query) else limit
 
                 sql = f"""
                     SELECT
@@ -943,10 +984,18 @@ class AlloyDBManager:
                     ORDER BY publish_time DESC NULLS LAST
                     LIMIT %s;
                 """  # noqa: S608
-                params.append(limit)
+                params.append(pool_limit)
 
                 cur.execute(sql, tuple(params))
-                return list(cur.fetchall())
+                rows = list(cur.fetchall())
+                if bm25 and query and rows:
+                    scores = compute_bm25_scores(query=query, documents=rows)
+                    for r in rows:
+                        r["bm25_score"] = scores.get(str(r.get("id")), 0.0)
+                        r["similarity_score"] = r["bm25_score"]
+                    rows.sort(key=lambda x: x.get("bm25_score", 0.0), reverse=True)
+                    return rows[:limit]
+                return rows
 
     def find_similar(
         self,
@@ -1091,6 +1140,34 @@ class AlloyDBManager:
                     for r in cur.fetchall():
                         candidates_set.add(r["investigation_id"])
 
+                # Branch C: Top 25 Full-Text / BM25 Lexical Candidates
+                lexical_query_text = (
+                    f"{target.get('display_name') or ''} {target.get('summary') or ''}"
+                ).strip()
+                if lexical_query_text:
+                    try:
+                        cur.execute(
+                            """
+                            SELECT id
+                            FROM detection_reports
+                            WHERE id != %s
+                              AND to_tsvector('english', coalesce(display_name, '') || ' ' || coalesce(summary, ''))
+                                  @@ plainto_tsquery('english', %s)
+                            ORDER BY ts_rank_cd(
+                                to_tsvector('english', coalesce(display_name, '') || ' ' || coalesce(summary, '')),
+                                plainto_tsquery('english', %s)
+                            ) DESC
+                            LIMIT 25;
+                            """,
+                            (target_id, lexical_query_text, lexical_query_text),
+                        )
+                        for r in cur.fetchall():
+                            cid_val = r.get("id") or r.get("investigation_id")
+                            if cid_val:
+                                candidates_set.add(cid_val)
+                    except Exception as exc:
+                        console.print(f"[dim]FTS candidate branch skipped: {exc}[/dim]")
+
                 if not candidates_set:
                     cur.execute(
                         "SELECT id FROM detection_reports WHERE id != %s ORDER BY publish_time DESC LIMIT 25;",
@@ -1117,6 +1194,28 @@ class AlloyDBManager:
                     (target.get("embedding"), target.get("embedding"), candidate_ids),
                 )
                 candidate_rows = cur.fetchall()
+
+                # Compute Okapi BM25 (k1=1.5, b=0.75) & RRF (k=60) across candidate_rows
+                from agent_knowledge.tools.alloydb_tool import (
+                    compute_bm25_scores,
+                    reciprocal_rank_fusion,
+                )
+
+                bm25_scores_map = compute_bm25_scores(
+                    query=lexical_query_text,
+                    documents=list(candidate_rows),
+                    k1=1.5,
+                    b=0.75,
+                )
+                rrf_rows = reciprocal_rank_fusion(
+                    query=lexical_query_text,
+                    candidates=list(candidate_rows),
+                    rrf_k=60,
+                )
+                rrf_scores_map = {
+                    str(item.get("id")): float(item.get("rrf_score") or 0.0)
+                    for item in rrf_rows
+                }
 
                 # Fetch alerts & entities for all candidates in bulk
                 cur.execute(
@@ -1160,6 +1259,8 @@ class AlloyDBManager:
                     cid = cand["id"]
                     # 1. Semantic Similarity
                     s_semantic = max(0.0, float(cand.get("semantic_score") or 0.0))
+                    # 1b. Okapi BM25 Lexical Similarity
+                    s_bm25 = max(0.0, float(bm25_scores_map.get(str(cid), 0.0)))
 
                     # 2. Weighted Entity Overlap (IDF Jaccard)
                     cand_ents = cand_entities_by_inv.get(cid, [])
@@ -1232,13 +1333,14 @@ class AlloyDBManager:
                     else:
                         s_time = 0.5
 
-                    # Composite Score
+                    # Composite Score (6 dimensions including bm25)
                     composite = (
-                        w["semantic"] * s_semantic
-                        + w["entity"] * s_entity
-                        + w["ttp"] * s_ttp
-                        + w["flow"] * s_flow
-                        + w["time"] * s_time
+                        w.get("semantic", 0.0) * s_semantic
+                        + w.get("bm25", 0.0) * s_bm25
+                        + w.get("entity", 0.0) * s_entity
+                        + w.get("ttp", 0.0) * s_ttp
+                        + w.get("flow", 0.0) * s_flow
+                        + w.get("time", 0.0) * s_time
                     )
 
                     shared_entities_info = [
@@ -1260,8 +1362,10 @@ class AlloyDBManager:
                             "publish_time": cand["publish_time"],
                             "summary": cand["summary"],
                             "composite_score": round(composite, 4),
+                            "rrf_score": round(rrf_scores_map.get(str(cid), 0.0), 6),
                             "breakdown": {
                                 "semantic": round(s_semantic, 4),
+                                "bm25": round(s_bm25, 4),
                                 "entity": round(s_entity, 4),
                                 "ttp": round(s_ttp, 4),
                                 "flow": round(s_flow, 4),
@@ -1273,7 +1377,9 @@ class AlloyDBManager:
                         }
                     )
 
-                results.sort(key=lambda x: x["composite_score"], reverse=True)
+                results.sort(
+                    key=lambda x: (x["composite_score"], x["rrf_score"]), reverse=True
+                )
                 return results[:limit]
 
     def _synthesize_ai_narrative(

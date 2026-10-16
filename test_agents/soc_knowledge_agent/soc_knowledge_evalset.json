@@ -1,0 +1,303 @@
+{
+  "eval_set_id": "soc_knowledge_evalset",
+  "name": "SOC Knowledge Agent Evaluation Set",
+  "description": "Benchmark evaluation set for multi-modal KnowledgeAgent covering graph traversal, asset catalog, investigation memory, and composite RAG.",
+  "eval_cases": [
+    {
+      "evalId": "case_01_lateral_movement_graph",
+      "conversation": [
+        {
+          "invocationId": "turn_1",
+          "userContent": {
+            "parts": [
+              {
+                "mediaResolution": null,
+                "codeExecutionResult": null,
+                "executableCode": null,
+                "fileData": null,
+                "functionCall": null,
+                "functionResponse": null,
+                "inlineData": null,
+                "text": "Investigate potential lateral movement originating from compromised host 'workstation-corp-12'. Check its network neighbors and process ancestry in the graph.",
+                "thought": null,
+                "thoughtSignature": null,
+                "videoMetadata": null,
+                "toolCall": null,
+                "toolResponse": null,
+                "partMetadata": null
+              }
+            ],
+            "role": "user"
+          },
+          "finalResponse": {
+            "parts": [
+              {
+                "mediaResolution": null,
+                "codeExecutionResult": null,
+                "executableCode": null,
+                "fileData": null,
+                "functionCall": null,
+                "functionResponse": null,
+                "inlineData": null,
+                "text": "Executive Summary: Graph topology investigation for host 'workstation-corp-12' identified active connections to adjacent hosts 'server-app-04' and 'dc-primary'. Process ancestry analysis reveals PowerShell execution spawned from an abnormal parent process, indicating active lateral movement pathways.",
+                "thought": null,
+                "thoughtSignature": null,
+                "videoMetadata": null,
+                "toolCall": null,
+                "toolResponse": null,
+                "partMetadata": null
+              }
+            ],
+            "role": "model"
+          },
+          "intermediateData": {
+            "toolUses": [
+              {
+                "id": null,
+                "args": {
+                  "query_type": "entity_neighborhood",
+                  "entity_value": "workstation-corp-12"
+                },
+                "name": "query_knowledge_graph",
+                "partialArgs": null,
+                "willContinue": null
+              }
+            ],
+            "toolResponses": [],
+            "intermediateResponses": []
+          },
+          "creationTimestamp": 0.0,
+          "rubrics": null,
+          "appDetails": null
+        }
+      ],
+      "conversationScenario": null,
+      "sessionInput": null,
+      "creationTimestamp": 0.0,
+      "rubrics": null,
+      "finalSessionState": {}
+    },
+    {
+      "evalId": "case_02_asset_criticality_lookup",
+      "conversation": [
+        {
+          "invocationId": "turn_1",
+          "userContent": {
+            "parts": [
+              {
+                "mediaResolution": null,
+                "codeExecutionResult": null,
+                "executableCode": null,
+                "fileData": null,
+                "functionCall": null,
+                "functionResponse": null,
+                "inlineData": null,
+                "text": "Look up the asset classification, business tier, owner, and operating system for database host 'db-prod-finance-01' in the enterprise asset catalog.",
+                "thought": null,
+                "thoughtSignature": null,
+                "videoMetadata": null,
+                "toolCall": null,
+                "toolResponse": null,
+                "partMetadata": null
+              }
+            ],
+            "role": "user"
+          },
+          "finalResponse": {
+            "parts": [
+              {
+                "mediaResolution": null,
+                "codeExecutionResult": null,
+                "executableCode": null,
+                "fileData": null,
+                "functionCall": null,
+                "functionResponse": null,
+                "inlineData": null,
+                "text": "Executive Summary: Asset catalog records indicate 'db-prod-finance-01' is classified as Tier 0 (Mission Critical) running Linux enterprise server OS. The system is owned by the Finance Engineering team and requires highest priority response protocol.",
+                "thought": null,
+                "thoughtSignature": null,
+                "videoMetadata": null,
+                "toolCall": null,
+                "toolResponse": null,
+                "partMetadata": null
+              }
+            ],
+            "role": "model"
+          },
+          "intermediateData": {
+            "toolUses": [
+              {
+                "id": null,
+                "args": {
+                  "query": "db-prod-finance-01",
+                  "search_mode": "exact_asset"
+                },
+                "name": "query_asset_catalog",
+                "partialArgs": null,
+                "willContinue": null
+              }
+            ],
+            "toolResponses": [],
+            "intermediateResponses": []
+          },
+          "creationTimestamp": 0.0,
+          "rubrics": null,
+          "appDetails": null
+        }
+      ],
+      "conversationScenario": null,
+      "sessionInput": null,
+      "creationTimestamp": 0.0,
+      "rubrics": null,
+      "finalSessionState": {}
+    },
+    {
+      "evalId": "case_03_investigation_memory_context",
+      "conversation": [
+        {
+          "invocationId": "turn_1",
+          "userContent": {
+            "parts": [
+              {
+                "mediaResolution": null,
+                "codeExecutionResult": null,
+                "executableCode": null,
+                "fileData": null,
+                "functionCall": null,
+                "functionResponse": null,
+                "inlineData": null,
+                "text": "Check our investigation memory notes for any past findings, active analyst hypotheses, or containment tags regarding entity 'jdoe-admin'.",
+                "thought": null,
+                "thoughtSignature": null,
+                "videoMetadata": null,
+                "toolCall": null,
+                "toolResponse": null,
+                "partMetadata": null
+              }
+            ],
+            "role": "user"
+          },
+          "finalResponse": {
+            "parts": [
+              {
+                "mediaResolution": null,
+                "codeExecutionResult": null,
+                "executableCode": null,
+                "fileData": null,
+                "functionCall": null,
+                "functionResponse": null,
+                "inlineData": null,
+                "text": "Executive Summary: Investigation memory retrieval for 'jdoe-admin' identified active analyst hypotheses regarding suspicious privileged credential usage and prior containment review tags. Correlation with historical notes suggests potential account compromise under investigation.",
+                "thought": null,
+                "thoughtSignature": null,
+                "videoMetadata": null,
+                "toolCall": null,
+                "toolResponse": null,
+                "partMetadata": null
+              }
+            ],
+            "role": "model"
+          },
+          "intermediateData": {
+            "toolUses": [
+              {
+                "id": null,
+                "args": {
+                  "entity": "jdoe-admin"
+                },
+                "name": "query_investigation_memory",
+                "partialArgs": null,
+                "willContinue": null
+              }
+            ],
+            "toolResponses": [],
+            "intermediateResponses": []
+          },
+          "creationTimestamp": 0.0,
+          "rubrics": null,
+          "appDetails": null
+        }
+      ],
+      "conversationScenario": null,
+      "sessionInput": null,
+      "creationTimestamp": 0.0,
+      "rubrics": null,
+      "finalSessionState": {}
+    },
+    {
+      "evalId": "case_04_composite_rag_and_asset_investigation",
+      "conversation": [
+        {
+          "invocationId": "turn_1",
+          "userContent": {
+            "parts": [
+              {
+                "mediaResolution": null,
+                "codeExecutionResult": null,
+                "executableCode": null,
+                "fileData": null,
+                "functionCall": null,
+                "functionResponse": null,
+                "inlineData": null,
+                "text": "We detected suspicious process execution on host 'srv-payments-02' matching Mimikatz credential dumping. Query the asset catalog for host criticality and consult our RAG Incident Response Playbook for credential access containment steps.",
+                "thought": null,
+                "thoughtSignature": null,
+                "videoMetadata": null,
+                "toolCall": null,
+                "toolResponse": null,
+                "partMetadata": null
+              }
+            ],
+            "role": "user"
+          },
+          "finalResponse": {
+            "parts": [
+              {
+                "mediaResolution": null,
+                "codeExecutionResult": null,
+                "executableCode": null,
+                "fileData": null,
+                "functionCall": null,
+                "functionResponse": null,
+                "inlineData": null,
+                "text": "Executive Summary: Asset catalog verification confirms 'srv-payments-02' is a Tier 0 high-value payment processing asset. In accordance with the Credential Dumping Incident Response Playbook (IRP-04), immediate remediation requires credential revocation, Kerberos ticket invalidation, active session termination, and network isolation.",
+                "thought": null,
+                "thoughtSignature": null,
+                "videoMetadata": null,
+                "toolCall": null,
+                "toolResponse": null,
+                "partMetadata": null
+              }
+            ],
+            "role": "model"
+          },
+          "intermediateData": {
+            "toolUses": [
+              {
+                "id": null,
+                "args": {
+                  "query": "srv-payments-02",
+                  "search_mode": "exact_asset"
+                },
+                "name": "query_asset_catalog",
+                "partialArgs": null,
+                "willContinue": null
+              }
+            ],
+            "toolResponses": [],
+            "intermediateResponses": []
+          },
+          "creationTimestamp": 0.0,
+          "rubrics": null,
+          "appDetails": null
+        }
+      ],
+      "conversationScenario": null,
+      "sessionInput": null,
+      "creationTimestamp": 0.0,
+      "rubrics": null,
+      "finalSessionState": {}
+    }
+  ],
+  "creation_timestamp": 0.0
+}
