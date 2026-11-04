@@ -9,7 +9,6 @@ __pycache__/
 implementation_plan.md
 .env*
 .env.secops.adc
-.env.argolis
 investigations/*
 !investigations/similarity_reports/
 *.json
@@ -47,3 +46,22 @@ htmlcov/
 # Local AQuA source snapshots and stripped goal artifacts
 aqua/snapshots/
 docs/.aqua_goal_stripped.md
+
+# Terraform state, variable files, provider caches, and local keys
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfvars.json
+!*.tfvars.example
+!*.tfvars.sample
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+crash.log
+crash.*.log
+*.pem
+*.key
+*.p12
+*.pfx
