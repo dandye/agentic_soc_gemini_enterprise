@@ -1,0 +1,46 @@
+{
+  "capabilities": {
+    "extendedAgentCard": true,
+    "streaming": false
+  },
+  "defaultInputModes": [
+    "text/plain"
+  ],
+  "defaultOutputModes": [
+    "application/json"
+  ],
+  "description": "Chronicle SIEM Detection Engineer specialist that authors, validates, and evaluates YARA-L 2.0 UDM event detection rules via Chronicle OneMCP.",
+  "name": "detection_engineer_agent",
+  "skills": [
+    {
+      "description": "Authors and validates Chronicle SIEM YARA-L 2.0 UDM event detection rules, inspects existing rules, and evaluates coverage (distinct from standard file/payload YARA).",
+      "examples": [
+        "Draft and validate a YARA-L 2.0 rule detecting PowerShell encoded command execution",
+        "List existing YARA-L 2.0 detection rules in Chronicle SIEM"
+      ],
+      "id": "yaral2_rule_validation",
+      "name": "YARA-L 2.0 detection rule authoring and validation",
+      "tags": [
+        "chronicle",
+        "yaral2",
+        "detection-engineering",
+        "udm"
+      ]
+    },
+    {
+      "description": "Attempts parser activation/deactivation or feed deletion via Chronicle MCP (governed by Agent Gateway tool allowlist).",
+      "examples": [
+        "Deactivate parser parser-01 for WINDOWS_AD"
+      ],
+      "id": "parser_and_feed_admin",
+      "name": "Chronicle parser and feed administration",
+      "tags": [
+        "chronicle",
+        "parsers",
+        "feeds",
+        "admin"
+      ]
+    }
+  ],
+  "version": "1.0.0"
+}

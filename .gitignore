@@ -27,6 +27,11 @@ investigations/*
 # inside the whitelisted investigations/similarity_reports/ directory, and
 # gitignore is last-match-wins, so the re-include must come AFTER *.json.
 !investigations/similarity_reports/**/*.json
+!terraform/agentcards/*.json
+!terraform/toolspec/*.json
+
+# Packaged agent tarballs and source-tree hashes built by scripts/governance/package_agent.sh
+terraform/dist/
 
 .adk/
 worktrees/

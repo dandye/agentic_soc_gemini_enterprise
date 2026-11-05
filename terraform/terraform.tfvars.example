@@ -1,0 +1,30 @@
+# Copy to `terraform/terraform.tfvars` (git-ignored) and populate placeholders.
+# Pass the GTI / VirusTotal v3 API key via shell environment variable:
+#   export TF_VAR_gti_api_key="..."
+
+project_id            = "<YOUR_PROJECT_ID>"
+org_id                = "<YOUR_ORG_ID>"
+chronicle_customer_id = "<YOUR_CHRONICLE_CUSTOMER_ID>"
+chronicle_region      = "us"
+region                = "us-central1"
+resource_prefix       = "agw-secops"
+
+# Optional Gemini Enterprise integration (defaults keep shared apps untouched)
+ge_engine_id    = "<YOUR_GE_ENGINE_ID>"
+ge_location     = "global"
+bind_ge_app     = false
+create_ge_agent = false
+
+# Gemini 3+ models on global Vertex AI endpoint
+orchestrator_model = "gemini-3.1-pro-preview"
+tier2_model        = "gemini-3.1-pro-preview"
+specialist_model   = "gemini-3.5-flash"
+model_location     = "global"
+
+# Governance enforcement modes
+authz_enforcement_mode       = "ENFORCED"
+enable_model_armor           = true
+model_armor_enforcement_type = "INSPECT_AND_BLOCK"
+model_armor_confidence_level = "HIGH"
+enable_semantic_governance   = true
+sgp_enforcement_mode         = "ENFORCED"
