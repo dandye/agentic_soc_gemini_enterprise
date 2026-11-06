@@ -6,7 +6,7 @@
 #
 #   bind_ge_app.sh status    print the app's current agentGatewaySetting
 #   bind_ge_app.sh bind      point the app at $GE_AGENT_GATEWAY
-#   bind_ge_app.sh unbind    clear agentGatewaySetting
+#   bind_ge_app.sh unbind    clear agentGatewaySetting (refuses if bound to a gateway other than $GE_AGENT_GATEWAY unless GE_FORCE_REBIND=1)
 
 set -euo pipefail
 
@@ -130,9 +130,18 @@ do_bind() {
 do_unbind() {
   read_engine
 
-  if [[ -z $(bound_gateway) ]]; then
+  local current
+  current=$(bound_gateway)
+
+  if [[ -z $current ]]; then
     note "${GE_ENGINE_ID} is not bound to a gateway -- nothing to do"
     return 0
+  fi
+
+  # On a shared app the binding may belong to someone else. Only clear it when
+  # it is ours (GE_AGENT_GATEWAY matches) or the caller forces it.
+  if [[ -n ${GE_AGENT_GATEWAY:-} && $current != "$GE_AGENT_GATEWAY" && ${GE_FORCE_REBIND:-} != "1" ]]; then
+    die "${GE_ENGINE_ID} is bound to a different gateway (${current}), not ${GE_AGENT_GATEWAY}. Refusing to unbind; set GE_FORCE_REBIND=1 to override."
   fi
 
   note "clearing the egress gateway on ${GE_ENGINE_ID}"
