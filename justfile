@@ -1181,3 +1181,12 @@ governance-logs action="audit" freshness="1h":
 # Run live A2A governance smoke tests against the deployed SOC Orchestrator
 governance-smoke-test case="":
     {{ python }} scripts/governance/smoke_test.py {{ if case != "" { "--case " + quote(case) } else { "" } }}
+
+# Run every offline governance shell harness (no network, no credentials)
+governance-test:
+    bash scripts/governance/tests/run_all.sh
+
+# Lint governance shell scripts and check Terraform formatting
+governance-lint:
+    shellcheck --severity=warning scripts/governance/*.sh scripts/governance/tests/*.sh
+    terraform -chdir=terraform fmt -check -recursive
