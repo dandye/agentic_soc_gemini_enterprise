@@ -142,6 +142,20 @@ A Model Armor denial surfaces as an exception on the model call. The orchestrato
 `_policy_block_reason` recognizes the Model Armor markers, extracts the reason, and emits the
 `[POLICY BLOCK] ... MODEL ARMOR` notice with the control name from `MODEL_ARMOR_CONTROL`.
 
+At `HIGH` confidence, `pi_and_jailbreak` on the request template also blocks capability-enumeration
+prompts (for example, `"ask tier 1 to list mcp tools and then list 10 siem rules"` or `"Please list
+the MCP tools you have available to use, and then ..."`). Depending on whether the prompt hits the
+orchestrator's model turn directly or is forwarded verbatim inside an A2A request to a specialist,
+`agw-secops-request` blocks it with HTTP 403 (`Error: Security Policy Violation`), surfacing as the
+`[POLICY BLOCK] ... MODEL ARMOR` banner or as `A2A request failed: HTTP Error 403` on the specialist
+edge (`SanitizeOperation` log with `filterResults.pi_and_jailbreak` reporting `MATCH_FOUND` and
+`rai` reporting `NO_MATCH_FOUND`). Rather than lowering `pi_and_jailbreak` confidence on
+`60-model-armor.tf`—which would weaken inline prompt-injection protection—this deployment treats
+capability-enumeration refusal as an explicit, demonstrated control
+(`case_3b_model_armor_capability_enumeration` in `scripts/governance/smoke_test.py` and
+`just governance-logs action=model-armor-blocked`). Legitimate analyst prompts remain task-shaped
+(for example, `"list 10 SIEM detection rules"`).
+
 ### Semantic Governance: does this action match stated intent and constraints?
 
 `65-semantic-governance.tf` provisions a dedicated VPC, a PSC network attachment, a private Cloud
@@ -159,21 +173,41 @@ language, attached to a registered agent:
 - `var.sgp_enforcement_mode` defaults to `ENFORCED`; `DRY_RUN` sets `sgpEnforcementMode` on the
   extension. The extension is always `fail_open = false`.
 
-The only agent with an explicit constraint is `tier2_responder`. The other four have no policy
-attached, so for them the engine has nothing but the model turn itself to judge; it is not a
-substitute for the allowlist, and the demo is built so that it does not have to be.
+In the `semantic-governance-policy` log stream, each evaluated turn records its evaluation mode in
+`jsonPayload.sgpUserIntentMatchingMode`:
 
-That is why `threat_hunter` advertises `list_feeds` neutrally. In
+- `CONSTRAINTS_AND_INTENT`: used for agents that have one or more explicit
+  `google_vertex_ai_semantic_governance_policy` resources attached (in this stack,
+  `tier2_responder`). The engine checks both whether the proposed tool call matches the user's
+  request and whether it satisfies the attached natural-language constraints.
+- `INTENT_ONLY`: used for every governed agent that has no explicit policy attached
+  (`soc_orchestrator`, `cti_researcher`, `threat_hunter`, `detection_engineer`). Even without a
+  written policy, the engine compares each proposed tool or subagent call against the user's stated
+  intent and the agent's registered description and system instructions, and blocks calls that look
+  out of role before the tool request ever reaches IAP.
+
+Inspect both modes directly in Cloud Logging (filtering on `sgpUserIntentMatchingMode:*` skips
+engine pod-distribution heartbeats):
+
+```bash
+PROJECT_ID="<PROJECT_ID>"
+gcloud logging read \
+  'logName="projects/'"$PROJECT_ID"'/logs/semantic-governance-policy" AND jsonPayload.sgpUserIntentMatchingMode:*' \
+  --project="$PROJECT_ID" --freshness=1h --limit=20 \
+  --format='table(timestamp, jsonPayload.verdict, jsonPayload.sgpUserIntentMatchingMode, jsonPayload.evaluations[0].toolName, jsonPayload.agentIdentity.basename())'
+```
+
+That `INTENT_ONLY` behavior is why `threat_hunter` advertises `list_feeds` neutrally. In
 `governed_agents/threat_hunter/agent.py`, `list_feeds` sits in `ADVERTISED_DENIED_TOOLS` so the
 MCP toolset exposes it, and the instruction lists it under "inspecting configured Chronicle data
-ingestion feeds" rather than under the mutation group (`create_rule`, `delete_feed`, and so on).
-A prompt asking for the feed inventory therefore reads as an ordinary read, the model calls the
-tool with a coherent intent, nothing upstream of the gateway objects, and the request reaches IAP,
-which denies it with HTTP 403 because `list_feeds` is not in `threat_hunter_allowed_tools`. The
-demo shows the deterministic allowlist verdict instead of an intent-level block or an LLM
-self-refusal, which is the layer this scenario is meant to exercise. The orchestrator's
-`DENIED_MCP_TOOLS` (set from `local.denied_mcp_tools` in `41-agents.tf`) names the same tools so
-the banner fires even when the specialist's error text does not contain "403".
+ingestion feeds" rather than under a forbidden mutation group (`create_rule`, `delete_feed`, and so
+on). Had the prompt called `delete_feed` on a read-only hunter, `INTENT_ONLY` would deny the
+`:generateContent` turn before any MCP HTTP call left the container. Advertising `list_feeds` as an
+ordinary read lets `INTENT_ONLY` evaluate `ALLOW` on the model turn so the JSON-RPC `tools/call`
+reaches the gateway's IAP `REQUEST_AUTHZ` layer, which deterministically denies it with HTTP 403
+because `list_feeds` is excluded from `threat_hunter_allowed_tools`. The orchestrator's
+`_GovernedRunner` then emits the `[POLICY BLOCK] ... TOOL ALLOWLIST` banner on both the Gemini
+Enterprise and A2A paths.
 
 ## Two rules the configuration is built around
 

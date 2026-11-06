@@ -15,11 +15,13 @@ Three controls act on every outbound request from the five agents (`soc_orchestr
 The IAP Data Access audit log is the only surface that records a per-tool verdict together with the SPIFFE identity that made the call. Start there every time.
 
 ```bash
-just governance-logs action=denied freshness=1h        # IAP denials only; the surface to gate on
-just governance-logs action=audit freshness=1h         # every IAP decision, allow and deny
-just governance-logs action=who freshness=1h           # distinct SPIFFE principals seen in the audit log
-just governance-logs action=mcp freshness=1h           # gateway request log: MCP method, tool, result
-just governance-logs action=unregistered freshness=24h # hosts observed at the gateway minus hosts in Agent Registry
+just governance-logs action=denied freshness=1h              # IAP denials only; the surface to gate on
+just governance-logs action=audit freshness=1h               # every IAP decision, allow and deny
+just governance-logs action=model-armor-blocked freshness=1h # Model Armor BLOCK verdicts only
+just governance-logs action=model-armor freshness=1h         # every Model Armor SanitizeOperation verdict
+just governance-logs action=who freshness=1h                 # distinct SPIFFE principals seen in the audit log
+just governance-logs action=mcp freshness=1h                 # gateway request log: MCP method, tool, result
+just governance-logs action=unregistered freshness=24h       # hosts observed at the gateway minus hosts in Agent Registry
 ```
 
 `governance-logs` wraps [`scripts/governance/verify_logs.sh`](../scripts/governance/verify_logs.sh). The script also accepts `all`, `types`, and `telemetry`, plus `--limit`, `--project`, and `--raw` when you call it directly.
@@ -139,11 +141,17 @@ The orchestrator emits this from `_POLICY_NOTICE` in [`governed_agents/soc_orche
 **Evidence.**
 
 ```bash
+just governance-logs action=model-armor-blocked freshness=1h
+```
+
+or inspect the full `SanitizeOperation` payload directly:
+
+```bash
 PROJECT_ID="<PROJECT_ID>"
 gcloud logging read \
-  'logName="projects/'"$PROJECT_ID"'/logs/modelarmor.googleapis.com%2Fsanitize_operations"' \
+  'resource.type="modelarmor.googleapis.com/SanitizeOperation"' \
   --project="$PROJECT_ID" --freshness=1h --limit=20 \
-  --format='table(timestamp, jsonPayload.sanitizationVerdict, jsonPayload.filterResults)'
+  --format='table(timestamp, jsonPayload.sanitizationResult.sanitizationVerdict, resource.labels.template_id, jsonPayload.sanitizationResult.filterResults)'
 ```
 
 A row with verdict `MODEL_ARMOR_SANITIZATION_VERDICT_BLOCK` and a filter result naming `pi_and_jailbreak`, `rai`, or `malicious_uri` is the block. The IAP `denied` table stays empty, because Model Armor is a separate `CONTENT_AUTHZ` policy.
@@ -174,13 +182,18 @@ If you need to keep inspecting without blocking while you tune, set `model_armor
 ```bash
 PROJECT_ID="<PROJECT_ID>"
 gcloud logging read \
-  'logName="projects/'"$PROJECT_ID"'/logs/semantic-governance-policy"' \
+  'logName="projects/'"$PROJECT_ID"'/logs/semantic-governance-policy" AND jsonPayload.sgpUserIntentMatchingMode:*' \
   --project="$PROJECT_ID" --freshness=1h --limit=20 --format=json
 ```
 
-Read the verdict, the policy ID (the built-in one is `<resource_prefix>-tier2-crown-jewel-change-control`), and the engine's reasoning. The same log feeds the `sgp_verdicts` metric in `70-observability.tf`. A denial with no policy ID attached is the signature of this case.
+Filter on `jsonPayload.sgpUserIntentMatchingMode:*` so engine pod-distribution heartbeats are excluded. Read `jsonPayload.verdict`, `jsonPayload.sgpUserIntentMatchingMode`, and `jsonPayload.evaluations[].{actionName,toolName,verdict,rationale}`. The built-in Tier-0 policy is `<resource_prefix>-tier2-crown-jewel-change-control`, and the same log feeds the `sgp_verdicts` metric in `70-observability.tf`.
 
-**Cause.** The policy engine evaluates every model turn that crosses the gateway, not only turns from agents that have a `google_vertex_ai_semantic_governance_policy`. An agent with no explicit policy is judged on intent alone: the engine compares what the turn is trying to do against the agent's registered description and skills. When a specialist's prompt or description does not mention the action it is now taking (host isolation, account disablement, reference-list writes), the engine can conclude the action is out of scope and deny it, even though no written constraint applies. In this repository only `tier2_responder` carries a policy (`local.sgp_builtin_policies` in [`65-semantic-governance.tf`](../terraform/65-semantic-governance.tf)); the other three specialists are evaluated on intent only.
+**Cause.** The policy engine evaluates every model turn that crosses the gateway under one of two `sgpUserIntentMatchingMode` values:
+
+- `CONSTRAINTS_AND_INTENT`: agents that carry an explicit `google_vertex_ai_semantic_governance_policy` (`tier2_responder` in [`65-semantic-governance.tf`](../terraform/65-semantic-governance.tf)).
+- `INTENT_ONLY`: agents with no explicit policy attached (`soc_orchestrator`, `cti_researcher`, `threat_hunter`, `detection_engineer`).
+
+Under `INTENT_ONLY`, the engine compares what the turn is trying to do against the user's request and the agent's registered description and system instructions. When a specialist's prompt or description does not mention the action it is taking—or frames a tool as forbidden—`INTENT_ONLY` can conclude the call is out of role and deny `:generateContent` before any MCP request reaches IAP. (This is also why `threat_hunter` advertises `list_feeds` neutrally in `governed_agents/threat_hunter/agent.py`: `INTENT_ONLY` passes the read-shaped turn so the `tools/call` reaches IAP and produces the deterministic HTTP 403 allowlist denial.)
 
 **Fix.** One of two edits, in this order:
 
@@ -350,14 +363,15 @@ GE_FORCE_REBIND=1 terraform -chdir=terraform apply
 
 **Cause.** Transient. Any apply that changes an engine redeploys it, and the first turns after a redeploy can time out while the container warms and re-registers its identity. Specialist calls that fan out from the orchestrator multiply the exposure.
 
-**Fix.** Wait a minute and rerun only the failed case. [`scripts/governance/smoke_test.py`](../scripts/governance/smoke_test.py) matches `--case` against either the full case ID or the short token after `case_`, so both forms work:
+**Fix.** Wait a minute and rerun only the failed case. [`scripts/governance/smoke_test.py`](../scripts/governance/smoke_test.py) matches `--case` against the full case ID, any `case_id` prefix (`case_4a`, `case_4` for both `4a` and `4b`), or the short token after `case_`:
 
 ```bash
 just governance-smoke-test case=4a
+just governance-smoke-test case=case_4a
 just governance-smoke-test case=case_4a_sgp_crown_jewel_deny
 ```
 
-The short tokens are `1`, `2`, `3`, `4a`, and `4b`. If the same case fails three times in a row with the same 500, it is not transient; read the engine's logs in Cloud Logging for the traceback.
+The short tokens are `1`, `2`, `3`, `3b`, `4a`, and `4b`. If the same case fails three times in a row with the same 500, it is not transient; read the engine's logs in Cloud Logging for the traceback.
 
 ### 13. `TF_VAR_gti_api_key is empty` precondition on plan
 
@@ -391,12 +405,20 @@ A2A host shows `ALLOW` in `audit`, so this is not the allowlist. The
 the Model Armor log:
 
 ```bash
+just governance-logs action=model-armor-blocked freshness=10m
+```
+
+or inspect the `pi_and_jailbreak` filter fields in JSON:
+
+```bash
 PROJECT_ID="<PROJECT_ID>"
 gcloud logging read 'resource.type="modelarmor.googleapis.com/SanitizeOperation"' \
   --project="$PROJECT_ID" --freshness=10m --format=json \
   | jq '.[] | {t: .timestamp, template: .resource.labels.template_id, pi: .jsonPayload.sanitizationResult.filterResults.pi_and_jailbreak}'
 # ... "matchState": "MATCH_FOUND", "confidenceLevel": "HIGH" on the request template
 ```
+
+Smoke test scenario `case_3b_model_armor_capability_enumeration` (`just governance-smoke-test case=3b`) exercises this exact control path.
 
 **Cause.** Prompts shaped like "ask the <specialist> to list the MCP tools it
 can use, and then ..." match the prompt-injection and jailbreak filter at

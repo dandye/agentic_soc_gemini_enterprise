@@ -3,14 +3,16 @@
 # Read Agent Gateway, IAP, and Agent Engine telemetry status from Cloud Logging
 # and Vertex AI REST APIs.
 #
-#   verify_logs.sh mcp           MCP traffic: method, tool name, result
-#   verify_logs.sh all           every gateway request entry
-#   verify_logs.sh audit         every IAP AuthorizeUser decision (allow + deny)
-#   verify_logs.sh denied        IAP denials only
-#   verify_logs.sh who           distinct SPIFFE agent identities observed
-#   verify_logs.sh types         diagnostic: resource.type carrying gateway logs
-#   verify_logs.sh telemetry     verify GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY
-#   verify_logs.sh unregistered  observed SNI hosts minus Agent Registry hosts
+#   verify_logs.sh mcp                  MCP traffic: method, tool name, result
+#   verify_logs.sh all                  every gateway request entry
+#   verify_logs.sh audit                every IAP AuthorizeUser decision (allow + deny)
+#   verify_logs.sh denied               IAP denials only
+#   verify_logs.sh model-armor          every Model Armor SanitizeOperation verdict (alias: armor)
+#   verify_logs.sh model-armor-blocked  Model Armor BLOCK verdicts only (alias: armor-blocked)
+#   verify_logs.sh who                  distinct SPIFFE agent identities observed
+#   verify_logs.sh types                diagnostic: resource.type carrying gateway logs
+#   verify_logs.sh telemetry            verify GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY
+#   verify_logs.sh unregistered         observed SNI hosts minus Agent Registry hosts
 #
 # Flags:
 #   --limit N        entries to return (default 20; 1000 for unregistered)
@@ -45,6 +47,8 @@ raw=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
   mcp | all | audit | denied | who | types | unregistered | telemetry) action="$1" ;;
+  model-armor | armor) action="model-armor" ;;
+  model-armor-blocked | armor-blocked) action="model-armor-blocked" ;;
   --limit)
     limit="${2:-}"
     limit_explicit=true
@@ -69,12 +73,12 @@ while [[ $# -gt 0 ]]; do
     awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "${BASH_SOURCE[0]}"
     exit 0
     ;;
-  *) die "unknown argument '$1'. Actions: mcp | all | audit | denied | who | types | unregistered | telemetry." ;;
+  *) die "unknown argument '$1'. Actions: mcp | all | audit | denied | model-armor | model-armor-blocked | who | types | unregistered | telemetry." ;;
   esac
   shift
 done
 
-[[ -n $action ]] || die "no action given. Expected: mcp | all | audit | denied | who | types | unregistered | telemetry."
+[[ -n $action ]] || die "no action given. Expected: mcp | all | audit | denied | model-armor | model-armor-blocked | who | types | unregistered | telemetry."
 [[ $limit =~ ^[1-9][0-9]*$ ]] || die "--limit must be a positive integer, got '$limit'"
 [[ $freshness =~ ^[0-9]+[smhd]$ ]] || die "--freshness must look like 30m, 2h, or 7d, got '$freshness'"
 
@@ -98,6 +102,7 @@ readonly GATEWAY_SCOPE="resource.type=\"${RESOURCE_TYPE}\""
 readonly AUDIT_SCOPE="logName=\"projects/${project}/logs/cloudaudit.googleapis.com%2Fdata_access\"
   AND protoPayload.serviceName=\"iap.googleapis.com\"
   AND protoPayload.methodName=\"GatekeeperAuthorizer.AuthorizeUser\""
+readonly MODEL_ARMOR_SCOPE='resource.type="modelarmor.googleapis.com/SanitizeOperation"'
 
 run_read() {
   local filter="$1"
@@ -147,6 +152,16 @@ readonly AUDIT_TABLE='table(
   protoPayload.metadata.mcp_attributes.mcp_tool_name.yesno(no="-"),
   protoPayload.authenticationInfo.principalSubject.basename():label=AGENT,
   protoPayload.requestMetadata.requestAttributes.host.yesno(no="-")
+)'
+
+readonly MODEL_ARMOR_TABLE='table(
+  timestamp.date(tz=LOCAL),
+  jsonPayload.sanitizationResult.sanitizationVerdict.yesno(no="-"):label=VERDICT,
+  resource.labels.template_id.yesno(no="-"):label=TEMPLATE,
+  jsonPayload.operationType.yesno(no="-"):label=OPERATION,
+  jsonPayload.sanitizationResult.filterMatchState.yesno(no="-"):label=MATCH,
+  jsonPayload.sanitizationResult.filterResults.pi_and_jailbreak.piAndJailbreakFilterResult.matchState.yesno(no="-"):label=PI_JAILBREAK,
+  jsonPayload.sanitizationResult.filterResults.rai.raiFilterResult.matchState.yesno(no="-"):label=RAI
 )'
 
 # Mirrors local.api_id in 10-registry-endpoints.tf for *.googleapis.com hosts
@@ -213,6 +228,36 @@ denied)
       printf '%s\n' "$rows"
     else
       note "no IAP denials recorded in the last ${freshness}."
+    fi
+  fi
+  ;;
+
+model-armor)
+  filter="${MODEL_ARMOR_SCOPE}"
+  note "Model Armor sanitize verdicts in the last ${freshness}, project ${project}"
+  if $raw; then
+    run_read "$filter" --format=json
+  else
+    rows="$(run_read "$filter" --format="$MODEL_ARMOR_TABLE")"
+    if [[ -n $rows ]]; then
+      printf '%s\n' "$rows"
+    else
+      note "no Model Armor sanitize verdicts recorded in the last ${freshness}."
+    fi
+  fi
+  ;;
+
+model-armor-blocked)
+  filter="${MODEL_ARMOR_SCOPE} AND jsonPayload.sanitizationResult.sanitizationVerdict=\"MODEL_ARMOR_SANITIZATION_VERDICT_BLOCK\""
+  note "Model Armor blocks in the last ${freshness}, project ${project}"
+  if $raw; then
+    run_read "$filter" --format=json
+  else
+    rows="$(run_read "$filter" --format="$MODEL_ARMOR_TABLE")"
+    if [[ -n $rows ]]; then
+      printf '%s\n' "$rows"
+    else
+      note "no Model Armor blocks recorded in the last ${freshness}."
     fi
   fi
   ;;

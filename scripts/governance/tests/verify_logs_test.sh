@@ -177,8 +177,15 @@ new_case() {
 
 # invoke [args...] : run `verify_logs.sh unregistered`; sets OUT, RC, READ
 invoke() {
+  invoke_action unregistered "$@"
+}
+
+# invoke_action ACTION [args...] : run `verify_logs.sh <action>`; sets OUT, RC, READ
+invoke_action() {
+  local act=$1
+  shift
   set +e
-  OUT=$(PATH="$WORK/bin:$PATH" STUB_DIR="$STUB_DIR" bash "$TARGET" unregistered "$@" 2>&1)
+  OUT=$(PATH="$WORK/bin:$PATH" STUB_DIR="$STUB_DIR" bash "$TARGET" "$act" "$@" 2>&1)
   RC=$?
   set -e
   READ=$(cat "$STUB_DIR/read.log" 2>/dev/null || true)
@@ -470,6 +477,37 @@ observed "iap.googleapis.com"
 invoke --limit abc
 equal "a non-numeric --limit is rejected" "$RC" 1
 check "the limit rejection explains itself" "$OUT" "--limit must be a positive integer"
+
+# --- 10. model-armor and model-armor-blocked --------------------------------
+
+echo "model-armor actions read SanitizeOperation verdicts"
+
+new_case
+observed "2026-11-06T04:22:49  MODEL_ARMOR_SANITIZATION_VERDICT_BLOCK  agw-secops-request  SANITIZE_USER_PROMPT  MATCH_FOUND  MATCH_FOUND  NO_MATCH_FOUND"
+invoke_action model-armor --freshness 30m
+equal "model-armor exits 0" "$RC" 0
+check "model-armor filters on SanitizeOperation" "$READ" 'resource.type="modelarmor.googleapis.com/SanitizeOperation"'
+refute "model-armor includes both allow and block verdicts" "$READ" 'MODEL_ARMOR_SANITIZATION_VERDICT_BLOCK'
+check "model-armor prints the returned row" "$OUT" "agw-secops-request"
+
+new_case
+observed
+invoke_action armor --freshness 10m
+equal "armor alias exits 0 on an empty window" "$RC" 0
+check "armor alias reports an empty window" "$OUT" "no Model Armor sanitize verdicts recorded in the last 10m."
+
+new_case
+observed "2026-11-06T04:22:49  MODEL_ARMOR_SANITIZATION_VERDICT_BLOCK  agw-secops-request  SANITIZE_USER_PROMPT  MATCH_FOUND  MATCH_FOUND  NO_MATCH_FOUND"
+invoke_action model-armor-blocked --freshness 15m
+equal "model-armor-blocked exits 0" "$RC" 0
+check "model-armor-blocked restricts to BLOCK verdicts" "$READ" 'jsonPayload.sanitizationResult.sanitizationVerdict="MODEL_ARMOR_SANITIZATION_VERDICT_BLOCK"'
+check "model-armor-blocked prints the block row" "$OUT" "MODEL_ARMOR_SANITIZATION_VERDICT_BLOCK"
+
+new_case
+observed '[{"jsonPayload":{"sanitizationResult":{"sanitizationVerdict":"MODEL_ARMOR_SANITIZATION_VERDICT_BLOCK"}}}]'
+invoke_action armor-blocked --raw
+equal "armor-blocked --raw exits 0" "$RC" 0
+check "armor-blocked --raw requests JSON output" "$READ" "--format=json"
 
 # --- result ----------------------------------------------------------------
 

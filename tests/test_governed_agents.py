@@ -7,6 +7,7 @@ import functools
 import importlib.util
 import json
 import os
+import sys
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
@@ -65,6 +66,7 @@ def _load_module(
         spec = importlib.util.spec_from_file_location(module_name, file_path)
         assert spec is not None and spec.loader is not None
         module = importlib.util.module_from_spec(spec)
+        sys.modules[module_name] = module
         spec.loader.exec_module(module)
         return module
 
@@ -754,3 +756,68 @@ def test_soc_orchestrator_tool_list_comes_from_the_environment() -> None:
     os.environ.pop("_NOTICE_TEST_ABSENT", None)
     assert mod._tool_list("_NOTICE_TEST_ABSENT", "a,b") == ("a", "b")
     assert "delete_feed" in mod.DENIED_MCP_TOOLS
+
+
+def test_smoke_test_case_selection_supports_prefixes_and_short_tokens() -> None:
+    """`smoke_test.py --case` accepts short tokens, case_id prefixes, and full IDs."""
+    smoke = _load_module(
+        "test_smoke_test_mod", GOVERNANCE_SCRIPTS_DIR / "smoke_test.py", {}
+    )
+    all_ids = [c.case_id for c in smoke._select_cases(None)]
+    assert len(all_ids) == 6
+    assert "case_3b_model_armor_capability_enumeration" in all_ids
+
+    assert [c.case_id for c in smoke._select_cases("")] == all_ids
+    assert [c.case_id for c in smoke._select_cases("4a")] == [
+        "case_4a_sgp_crown_jewel_deny"
+    ]
+    assert [c.case_id for c in smoke._select_cases("case_4a")] == [
+        "case_4a_sgp_crown_jewel_deny"
+    ]
+    assert [c.case_id for c in smoke._select_cases("case_4a_sgp")] == [
+        "case_4a_sgp_crown_jewel_deny"
+    ]
+    assert [c.case_id for c in smoke._select_cases("case_4a_sgp_crown_jewel_deny")] == [
+        "case_4a_sgp_crown_jewel_deny"
+    ]
+    assert [c.case_id for c in smoke._select_cases("case_4")] == [
+        "case_4a_sgp_crown_jewel_deny",
+        "case_4b_sgp_crown_jewel_allow",
+    ]
+    # `case_3` and `3` target case_3_model_armor_block without spilling into case_3b.
+    assert [c.case_id for c in smoke._select_cases("3")] == ["case_3_model_armor_block"]
+    assert [c.case_id for c in smoke._select_cases("case_3")] == [
+        "case_3_model_armor_block"
+    ]
+    assert [c.case_id for c in smoke._select_cases("3b")] == [
+        "case_3b_model_armor_capability_enumeration"
+    ]
+    assert [c.case_id for c in smoke._select_cases("case_3b")] == [
+        "case_3b_model_armor_capability_enumeration"
+    ]
+    assert smoke._select_cases("nonexistent") == []
+
+
+def test_smoke_test_capability_enumeration_predicate() -> None:
+    """`case_3b` accepts either the Model Armor banner or the outbound A2A 403."""
+    smoke = _load_module(
+        "test_smoke_test_eval_mod", GOVERNANCE_SCRIPTS_DIR / "smoke_test.py", {}
+    )
+    cid = "case_3b_model_armor_capability_enumeration"
+
+    assert smoke._evaluate_case(
+        cid,
+        "**[POLICY BLOCK] Blocked by AI security policy -- MODEL ARMOR.**",
+    )[0]
+    assert smoke._evaluate_case(
+        cid,
+        "Threat_Hunter encountered an error: A2A request failed: HTTP Error 403",
+    )[0]
+    assert smoke._evaluate_case(
+        cid,
+        "403 Forbidden: Error: Security Policy Violation",
+    )[0]
+    assert not smoke._evaluate_case(
+        cid,
+        "Threat_Hunter can use udm_search and list_rules. Here are 10 rules:",
+    )[0]
