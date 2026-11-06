@@ -829,6 +829,9 @@ def test_terraform_scaling_and_multi_env_templates() -> None:
     agents_tf = (tf_dir / "41-agents.tf").read_text(encoding="utf-8")
     assert agents_tf.count("min_instances = var.min_instances") == 5
     assert agents_tf.count("max_instances = var.max_instances") == 5
+    assert 'resource "terraform_data" "reasoning_engine_min_instances"' in agents_tf
+    assert "reasoning_engine_scaling.sh ensure" in agents_tf
+    assert (GOVERNANCE_SCRIPTS_DIR / "reasoning_engine_scaling.sh").is_file()
 
     vars_tf = (tf_dir / "variables.tf").read_text(encoding="utf-8")
     assert 'variable "min_instances"' in vars_tf
