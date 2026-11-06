@@ -302,10 +302,11 @@ def test_secops_mcp_recovers_the_gateway_http_status_behind_the_generic_mcp_erro
 
     # The orchestrator now sees a real denial signal on the gateway path.
     orchestrator = _load_orchestrator()
-    assert orchestrator._tool_denial_match(text) == (
-        "list_feeds",
-        text.split(" -- ", 1)[1][:240],
-    )
+    matched = orchestrator._tool_denial_match(text)
+    assert matched is not None
+    assert matched[0] == "list_feeds"
+    assert matched[1].startswith("MCP tool execution failed: HTTP 403 Forbidden")
+    assert "Security Policy Violation" in matched[1]
 
 
 def test_tier2_response_tools_preserve_host_user_and_change_ticket() -> None:
@@ -648,6 +649,98 @@ def test_soc_orchestrator_denied_turn_is_banner_then_events_with_no_retry() -> N
     assert events[0] is banners[0]
     assert events[1] is stream[0]
     assert events[2].content.parts[0].text == ""
+
+
+def test_soc_orchestrator_governed_runner_banners_the_a2a_path() -> None:
+    """The A2A executor calls runner.run_async directly, so the runner itself must govern.
+
+    Regression for the gap where only stream_query (via _run_and_report) emitted
+    the banner while A2A callers received the raw TOOL_ERROR text.
+    """
+    mod = _load_orchestrator()
+    assert isinstance(mod._get_runner(), mod._GovernedRunner)
+    stream = [
+        _tool_event(mod, "Threat_Hunter", {"error": _OBSERVED_TOOL_ERROR}),
+        _text_event(mod, "The threat hunter said: " + _OBSERVED_TOOL_ERROR),
+    ]
+
+    class _FakeBaseRunner:
+
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def run_async(self, *_: Any, **__: Any) -> Any:
+            self.calls += 1
+            for event in stream:
+                yield event
+
+    # Build a _GovernedRunner without touching Runner.__init__ (no services needed).
+    governed = mod._GovernedRunner.__new__(mod._GovernedRunner)
+    base = _FakeBaseRunner()
+    with patch.object(
+        mod.Runner, "run_async", lambda self, *a, **k: base.run_async(*a, **k)
+    ):
+
+        async def via_a2a_path() -> list[Any]:
+            # Exactly what A2aAgentExecutor does: call run_async on the runner.
+            return [event async for event in governed.run_async(session_id="a2a")]
+
+        async def via_stream_query_path() -> list[Any]:
+            return [
+                event async for event in mod._run_and_report(governed, session_id="sq")
+            ]
+
+        a2a_events = asyncio.run(via_a2a_path())
+        sq_events = asyncio.run(via_stream_query_path())
+
+    assert base.calls == 2
+    for events in (a2a_events, sq_events):
+        banners = [
+            e
+            for e in events
+            if e.author == mod.APP_NAME
+            and "[POLICY BLOCK]" in (e.content.parts[0].text or "")
+        ]
+        assert (
+            len(banners) == 1
+        ), "exactly one banner, and not doubled on the stream_query path"
+        assert events[0] is banners[0]
+        assert events[-1].content.parts[0].text == ""  # relayed marker stripped
+
+
+def test_soc_orchestrator_tool_banner_detail_has_no_dangling_json_tail() -> None:
+    """The quoted reason stops before the JSON envelope the specialist relayed."""
+    mod = _load_orchestrator()
+    observed = (
+        "TOOL_ERROR: list_feeds -- MCP tool execution failed: HTTP 403 Forbidden: "
+        'Egress request is not authorized."}'
+    )
+    matched = mod._tool_denial_match(observed)
+    assert matched == (
+        "list_feeds",
+        "MCP tool execution failed: HTTP 403 Forbidden: Egress request is not authorized.",
+    )
+    banner = mod._stream_notice(observed)
+    assert banner is not None
+    assert '"}' not in banner
+    assert "Egress request is not authorized." in banner
+
+    # A stream-serialised envelope with nested braces and a long body is bounded and clean.
+    long_body = "x" * 500
+    serialised = (
+        '{"error": "TOOL_ERROR: delete_feed -- HTTP 403 Forbidden: access denied '
+        + long_body
+        + '"}}'
+    )
+    tool, detail = mod._tool_denial_match(serialised)
+    assert tool == "delete_feed"
+    assert len(detail) <= 240
+    assert not detail.endswith(('"', "}", "]", ","))
+
+    # Plain detail without any envelope is untouched.
+    assert mod._tidy_detail(
+        "HTTP 403 Forbidden: permission denied by IAP access policy"
+    ) == ("HTTP 403 Forbidden: permission denied by IAP access policy")
 
 
 def test_soc_orchestrator_tool_list_comes_from_the_environment() -> None:

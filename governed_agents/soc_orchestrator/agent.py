@@ -319,6 +319,7 @@ orchestrator_llm = LlmAgent(
     ],
 )
 
+
 _runner: Runner | None = None
 _runner_lock = threading.Lock()
 
@@ -327,7 +328,8 @@ def _get_runner() -> Runner:
     global _runner
     with _runner_lock:
         if _runner is None:
-            _runner = Runner(
+            # Defined below with the banner helpers; resolved at first call.
+            _runner = _GovernedRunner(
                 app_name=APP_NAME,
                 agent=orchestrator_llm,
                 artifact_service=InMemoryArtifactService(),
@@ -476,10 +478,30 @@ def _tool_denial_match(text: str) -> tuple[str, str] | None:
     if not match:
         return None
     tool_name = match.group(1)
-    detail = match.group(2).strip()
+    detail = _tidy_detail(match.group(2))
     if not _AUTHZ_DENIAL_RE.search(detail):
         return None
-    return tool_name, detail[:240]
+    return tool_name, detail
+
+
+def _tidy_detail(detail: str) -> str:
+    """Trims a relayed tool error to a quotable reason.
+
+    The specialist forwards the gateway body verbatim, and the orchestrator's
+    own stream serialises tool results as JSON, so the text often ends with
+    the tail of an envelope (`"}` or `"}}`). Cut at the first JSON-ish tail,
+    then bound the length, then drop any unbalanced closing quote or brace
+    the cut left behind.
+    """
+    cleaned = detail.strip()
+    for tail in ('"}', "'}", '"]', "'"):
+        idx = cleaned.find(tail)
+        if idx > 0:
+            cleaned = cleaned[:idx]
+    cleaned = cleaned[:240].rstrip()
+    while cleaned and cleaned[-1] in "\"'}]),;:":
+        cleaned = cleaned[:-1].rstrip()
+    return cleaned
 
 
 def _denied_tools_markdown() -> str:
@@ -584,10 +606,17 @@ def _notice_event(exc: BaseException) -> Event:
     )
 
 
-async def _run_and_report(runner: Runner, **run_kwargs: Any) -> AsyncIterator[Event]:
+async def _govern_stream(
+    events: AsyncIterator[Event], session_id: Any
+) -> AsyncIterator[Event]:
+    """Inserts the policy banner once and strips relayed markers afterwards.
+
+    Shared by every entrypoint: the A2A executor (`_GovernedRunner`), and the
+    `stream_query` / `async_stream_query` operations used by Gemini Enterprise.
+    """
     announced = False
     try:
-        async for event in runner.run_async(**run_kwargs):
+        async for event in events:
             if not announced:
                 banner = _stream_notice(_tool_result_text(event))
                 if banner is not None:
@@ -600,9 +629,38 @@ async def _run_and_report(runner: Runner, **run_kwargs: Any) -> AsyncIterator[Ev
     except Exception as exc:  # noqa: BLE001
         logger.exception(
             "turn failed for session %s; reporting notice",
-            run_kwargs.get("session_id"),
+            session_id,
         )
         yield _notice_event(exc)
+
+
+class _GovernedRunner(Runner):
+    """Runner whose `run_async` always passes through `_govern_stream`.
+
+    `A2aAgentExecutor` calls `runner.run_async` directly, so wrapping at the
+    Runner level is what makes the banner reach A2A callers as well.
+    """
+
+    async def run_async(self, *args: Any, **kwargs: Any) -> AsyncIterator[Event]:  # type: ignore[override]
+        async for event in _govern_stream(
+            super().run_async(*args, **kwargs), kwargs.get("session_id")
+        ):
+            yield event
+
+
+async def _run_and_report(runner: Runner, **run_kwargs: Any) -> AsyncIterator[Event]:
+    """Runs a turn with the banner logic applied exactly once.
+
+    A `_GovernedRunner` already governs its own stream; any other runner (the
+    unit tests pass a bare fake) is wrapped here.
+    """
+    stream = runner.run_async(**run_kwargs)
+    if isinstance(runner, _GovernedRunner):
+        async for event in stream:
+            yield event
+        return
+    async for event in _govern_stream(stream, run_kwargs.get("session_id")):
+        yield event
 
 
 _bridge_loop: asyncio.AbstractEventLoop | None = None
