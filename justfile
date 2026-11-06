@@ -1191,12 +1191,18 @@ governance-lint:
     shellcheck --severity=warning scripts/governance/*.sh scripts/governance/tests/*.sh
     terraform -chdir=terraform fmt -check -recursive
 
-# Show whether the Gemini Enterprise app is bound to the egress Agent Gateway and whether the governed orchestrator is published (requires GE_* env vars; see docs/agent_governance.md)
+# Show whether the Gemini Enterprise app is bound to the egress Agent Gateway and whether the governed orchestrator is published (derives GE_* from terraform output unless overridden)
 governance-ge-status:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    eval "$(bash scripts/governance/ge_env.sh)"
     bash scripts/governance/bind_ge_app.sh status
     bash scripts/governance/ge_agent.sh status
 
-# Emergency rollback: remove the governed orchestrator from the Gemini Enterprise app, then unbind the gateway (requires GE_* env vars)
+# Emergency rollback: remove the governed orchestrator from the Gemini Enterprise app, then unbind the gateway (derives GE_* from terraform output unless overridden)
 governance-ge-rollback:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    eval "$(bash scripts/governance/ge_env.sh)"
     bash scripts/governance/ge_agent.sh delete
     bash scripts/governance/bind_ge_app.sh unbind

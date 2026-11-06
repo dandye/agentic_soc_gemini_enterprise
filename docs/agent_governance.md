@@ -246,9 +246,11 @@ terraform -chdir=terraform apply \
   -target='terraform_data.gti_auth_provider'
 ```
 
-Expected: `auth_provider.sh` reports the AuthProvider created or updated. It
-prints the key's length, never its value. The `roles/agentidentity.user` grant
-to `cti_researcher` (`terraform_data.gti_auth_provider_grant`) is created in
+Expected: `auth_provider.sh` reports the AuthProvider created, updated, or
+already up to date. It tags the resource description with a non-secret
+`[v<version> sha256:<12hex>]` marker so unchanged re-runs skip `PATCH`, and
+never prints the key value. The `roles/agentidentity.user` grant to
+`cti_researcher` (`terraform_data.gti_auth_provider_grant`) is created in
 stage 6 because it needs the agent's SPIFFE identity.
 
 ### 4. Gateway and authorization path
@@ -493,32 +495,30 @@ so even a `-target` on it pulls in any pending in-place change to the
 Reasoning Engines. If the plan shows a `spec.agent_card` diff on engines you
 have not changed, that is provider read-back noise and is safe to apply, but
 review it before you do; a plan that destroys or replaces an engine is not.
-To publish without touching the engines, run the same shim Terraform runs:
+To publish without touching the engines, load the `GE_*` exports from Terraform
+outputs via `scripts/governance/ge_env.sh` and run the shim directly:
 
 ```bash
-GE_PROJECT_ID="<PROJECT_ID>"
-GE_PROJECT_NUMBER="<PROJECT_NUMBER>"
-GE_LOCATION="global"
-GE_COLLECTION_ID="default_collection"
-GE_ENGINE_ID="<GE_ENGINE_ID>"
-GE_ASSISTANT_ID="default_assistant"
-GE_REASONING_ENGINE="$(terraform -chdir=terraform output -json agent_engines | jq -r .soc_orchestrator.name)"
-GE_AGENT_DISPLAY_NAME="Governed SecOps Orchestrator"
-GE_AGENT_SHARING_SCOPE="ALL_USERS"
-export GE_PROJECT_ID GE_PROJECT_NUMBER GE_LOCATION GE_COLLECTION_ID GE_ENGINE_ID GE_ASSISTANT_ID GE_REASONING_ENGINE GE_AGENT_DISPLAY_NAME GE_AGENT_SHARING_SCOPE
+eval "$(bash scripts/governance/ge_env.sh)"
+export GE_ASSISTANT_ID="default_assistant"
+export GE_AGENT_DISPLAY_NAME="Governed SecOps Orchestrator"
+export GE_AGENT_SHARING_SCOPE="ALL_USERS"
 bash scripts/governance/ge_agent.sh create
 # ge_agent.sh: ok: <AGENT_ID> is ENABLED, shared ALL_USERS
 ```
 
-`ge_agent.sh create` adopts an existing registration that points at the same
-Reasoning Engine instead of creating a duplicate, so a later `terraform apply`
-with `create_ge_agent = true` converges without a second entry.
+`ge_env.sh` reads `terraform -chdir=terraform output -json` (`project_id`,
+`ge_binding`, and `agent_engines`) and respects any `GE_*` variables already set
+in your shell unless `--force` is passed. `ge_agent.sh create` adopts an
+existing registration that points at the same Reasoning Engine instead of
+creating a duplicate, so a later `terraform apply` with `create_ge_agent = true`
+converges without a second entry.
 
 Verify:
 
 ```bash
 just governance-ge-status        # bound to .../agentGateways/<PREFIX>-egress; agent ENABLED
-just governance-smoke-test       # the A2A path still passes all five cases
+just governance-smoke-test       # the A2A path still passes all six cases
 just governance-logs action=audit freshness=1h
 ```
 
@@ -531,11 +531,14 @@ selected ADK agent, so use the console for this check.
 Rollback:
 
 ```bash
-just governance-ge-rollback      # ge_agent.sh delete, then bind_ge_app.sh unbind
+just governance-ge-rollback      # evaluates ge_env.sh, then ge_agent.sh delete + bind_ge_app.sh unbind
 ```
 
-or set `bind_ge_app = false` and `create_ge_agent = false` and run
-`terraform apply`; the destroy provisioners run the same two commands.
+Both `just governance-ge-status` and `just governance-ge-rollback` evaluate
+`scripts/governance/ge_env.sh` automatically, while honoring explicit `GE_*`
+environment overrides. You can also set `bind_ge_app = false` and
+`create_ge_agent = false` and run `terraform apply`; the destroy provisioners
+run the same two commands.
 
 ## Cost
 
@@ -553,20 +556,21 @@ Set `enable_semantic_governance = false` to avoid the last two rows.
 
 ## Tests
 
-`just governance-test` runs `scripts/governance/tests/run_all.sh`: seven offline
+`just governance-test` runs `scripts/governance/tests/run_all.sh`: eight offline
 harnesses that stub `gcloud`, `terraform`, and `curl` on `PATH`. No network, no
 credentials. It prints `ALL GREEN: <n> harnesses, <m> checks` or
 `FAILED: <k> of <n> harnesses`.
 
 | Harness | What it proves |
 | --- | --- |
-| `auth_provider_test.sh` | `auth_provider.sh` upsert, grant, and delete branches issue the right requests and never print the key |
+| `auth_provider_test.sh` | `auth_provider.sh` upsert (including `[v<version> sha256:<12hex>]` no-op skip), grant, and delete branches issue the right requests and never print the key |
 | `bind_ge_app_test.sh` | `bind_ge_app.sh` patches the Gemini Enterprise app correctly and does not shell out to `gcloud` when a token is set |
 | `delete_until_gone_test.sh` | `delete_until_gone.sh` polls until 404 and fails cleanly when `DG_WAIT_SECONDS` elapses |
 | `ge_agent_test.sh` | `ge_agent.sh` create, icon, and delete branches issue exactly the expected Discovery Engine calls against replayed fixtures |
+| `ge_env_test.sh` | `ge_env.sh` derives shell-quoted `GE_*` exports from `terraform output -json`, honors caller overrides (`--force`), and fails cleanly when state is missing |
 | `package_agent_test.sh` | Archives put `agent.py` and `requirements.txt` at the root and are byte-identical for identical input |
 | `sgp_test.sh` | `sgp_gateway_config.sh` attach and detach branches manage the policy engine's gateway config as `65-semantic-governance.tf` expects |
-| `verify_logs_test.sh` | `verify_logs.sh unregistered` diffs observed SNI hosts against registry state correctly |
+| `verify_logs_test.sh` | `verify_logs.sh` `unregistered`, `model-armor`, and `model-armor-blocked` actions format and diff log payloads accurately |
 
 `just governance-lint` runs `shellcheck --severity=warning` over
 `scripts/governance/*.sh` and `scripts/governance/tests/*.sh`, then
