@@ -830,6 +830,8 @@ def test_terraform_scaling_and_multi_env_templates() -> None:
     assert agents_tf.count("min_instances = var.min_instances") == 5
     assert agents_tf.count("max_instances = var.max_instances") == 5
     assert 'resource "terraform_data" "reasoning_engine_min_instances"' in agents_tf
+    assert "replace_triggered_by" in agents_tf
+    assert "each.value.update_time" not in agents_tf
     assert "reasoning_engine_scaling.sh ensure" in agents_tf
     assert (GOVERNANCE_SCRIPTS_DIR / "reasoning_engine_scaling.sh").is_file()
 
