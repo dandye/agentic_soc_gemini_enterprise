@@ -1145,3 +1145,39 @@ security-hygiene:
 # Audit commit messages and added diff lines across a branch range before opening a PR
 security-hygiene-range rev_range="origin/main..HEAD":
     {{ python }} scripts/check_public_repo_hygiene.py --git-range {{ quote(rev_range) }}
+
+# ============================================================================
+# Governed SecOps Multi-Agent Infrastructure (Agent Gateway + A2A + Auth Manager)
+# ============================================================================
+
+# Package deterministic source archives for one or all governed SecOps agents
+governance-package agent="all":
+    bash scripts/governance/package_agent.sh {{ quote(agent) }}
+
+# Generate A2A AgentCard JSON files into terraform/agentcards/
+governance-cards:
+    {{ python }} scripts/governance/gen_agent_cards.py
+
+# Initialize Terraform providers in terraform/
+governance-init:
+    terraform -chdir=terraform init
+
+# Validate Terraform configuration after packaging and card generation
+governance-validate: governance-package governance-cards
+    terraform -chdir=terraform validate
+
+# Run terraform plan against the governed SecOps stack
+governance-plan: governance-package governance-cards
+    terraform -chdir=terraform plan
+
+# Toggle IAP authorization enforcement mode (enforced | dry-run | status)
+governance-enforce mode="status":
+    bash scripts/governance/enforce.sh {{ quote(mode) }}
+
+# Inspect Agent Gateway, IAP Data Access, and telemetry logs
+governance-logs action="audit" freshness="1h":
+    bash scripts/governance/verify_logs.sh {{ quote(action) }} --freshness {{ quote(freshness) }}
+
+# Run live A2A governance smoke tests against the deployed SOC Orchestrator
+governance-smoke-test case="":
+    {{ python }} scripts/governance/smoke_test.py {{ if case != "" { "--case " + quote(case) } else { "" } }}

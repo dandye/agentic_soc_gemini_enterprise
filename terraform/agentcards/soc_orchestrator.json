@@ -1,0 +1,33 @@
+{
+  "capabilities": {
+    "extendedAgentCard": true,
+    "streaming": false
+  },
+  "defaultInputModes": [
+    "text/plain"
+  ],
+  "defaultOutputModes": [
+    "application/json"
+  ],
+  "description": "Governed SOC Orchestrator that coordinates Cyber Threat Intelligence (CTI_Researcher), Chronicle SIEM UDM Threat Hunting (Threat_Hunter), YARA-L 2.0 Detection Engineering (Detection_Engineer), and Tier-2 Incident Response (Tier2_Responder) over A2A with zero direct tools.",
+  "name": "soc_orchestrator_agent",
+  "skills": [
+    {
+      "description": "Coordinates external GTI indicator enrichment, Chronicle SIEM UDM hunting, YARA-L 2.0 detection validation, and change-controlled Tier-2 endpoint/account containment across four isolated A2A agents.",
+      "examples": [
+        "List recent Chronicle alerts, enrich observed indicators in GTI, and validate a YARA-L 2.0 rule",
+        "Isolate workstation WKSTN-FIN-042 due to confirmed C2 beacon"
+      ],
+      "id": "governed_soc_investigation",
+      "name": "Multi-specialist governed SOC triage, hunting, YARA-L 2.0, and response",
+      "tags": [
+        "secops",
+        "chronicle",
+        "gti",
+        "yaral2",
+        "governance"
+      ]
+    }
+  ],
+  "version": "1.0.0"
+}

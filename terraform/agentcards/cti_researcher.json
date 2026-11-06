@@ -1,0 +1,60 @@
+{
+  "capabilities": {
+    "extendedAgentCard": true,
+    "streaming": false
+  },
+  "defaultInputModes": [
+    "text/plain"
+  ],
+  "defaultOutputModes": [
+    "application/json"
+  ],
+  "description": "Cyber Threat Intelligence (CTI) specialist that enriches file hashes, domains, IP addresses, and threat collections via Google Threat Intelligence (VirusTotal v3) using credentials retrieved at call time from Auth Manager.",
+  "name": "cti_researcher_agent",
+  "skills": [
+    {
+      "description": "Queries Google Threat Intelligence (VirusTotal v3) for engine detections, threat classification, and tags on a SHA256, SHA1, or MD5 file hash.",
+      "examples": [
+        "Look up GTI reputation for SHA256 275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f"
+      ],
+      "id": "enrich_file_hash",
+      "name": "File hash GTI reputation",
+      "tags": [
+        "cti",
+        "hash",
+        "virustotal",
+        "gti"
+      ]
+    },
+    {
+      "description": "Queries Google Threat Intelligence (VirusTotal v3) for domain and IP address reputation, categories, ASN owner, and detections.",
+      "examples": [
+        "Check GTI reputation for domain google.com and IP 8.8.8.8"
+      ],
+      "id": "enrich_network_ioc",
+      "name": "Domain and IP GTI reputation",
+      "tags": [
+        "cti",
+        "domain",
+        "ip",
+        "virustotal",
+        "gti"
+      ]
+    },
+    {
+      "description": "Retrieves campaign, threat actor, or malware collection context from Google Threat Intelligence.",
+      "examples": [
+        "Fetch GTI collection details for a threat report ID"
+      ],
+      "id": "inspect_threat_collection",
+      "name": "GTI threat collection lookup",
+      "tags": [
+        "cti",
+        "collection",
+        "campaign",
+        "gti"
+      ]
+    }
+  ],
+  "version": "1.0.0"
+}

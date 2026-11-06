@@ -1,0 +1,48 @@
+{
+  "capabilities": {
+    "extendedAgentCard": true,
+    "streaming": false
+  },
+  "defaultInputModes": [
+    "text/plain"
+  ],
+  "defaultOutputModes": [
+    "application/json"
+  ],
+  "description": "Chronicle SIEM Threat Hunter specialist that runs UDM event searches, triages security alerts, inspects rules and ingestion feeds, and checks IOC matches.",
+  "name": "threat_hunter_agent",
+  "skills": [
+    {
+      "description": "Searches Chronicle SIEM UDM events, lists recent security alerts, summarizes host/user/IP entities, and checks IOC matches.",
+      "examples": [
+        "List the 5 most recent security alerts in Chronicle SIEM",
+        "Run a UDM search for recent network or process events"
+      ],
+      "id": "udm_threat_hunt",
+      "name": "Chronicle UDM threat hunting and alert triage",
+      "tags": [
+        "chronicle",
+        "siem",
+        "udm",
+        "alerts",
+        "threat-hunting"
+      ]
+    },
+    {
+      "description": "Attempts Chronicle SIEM feed deletion, rule creation, or reference list creation via Chronicle MCP (governed by Agent Gateway allowlist).",
+      "examples": [
+        "Delete Chronicle feed feed-12345",
+        "Create a new reference list in Chronicle"
+      ],
+      "id": "siem_feed_and_rule_mutation",
+      "name": "Chronicle feed administration and rule creation",
+      "tags": [
+        "chronicle",
+        "feeds",
+        "rules",
+        "admin"
+      ]
+    }
+  ],
+  "version": "1.0.0"
+}

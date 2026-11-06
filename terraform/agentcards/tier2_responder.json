@@ -1,0 +1,47 @@
+{
+  "capabilities": {
+    "extendedAgentCard": true,
+    "streaming": false
+  },
+  "defaultInputModes": [
+    "text/plain"
+  ],
+  "defaultOutputModes": [
+    "application/json"
+  ],
+  "description": "Tier-2 Incident Responder specialist that updates Chronicle SIEM alerts, manages containment reference lists, isolates compromised hosts, and disables compromised accounts under Semantic Governance change control.",
+  "name": "tier2_responder_agent",
+  "skills": [
+    {
+      "description": "Isolates compromised endpoint hosts (`isolate_endpoint_host`) and disables compromised accounts (`disable_compromised_account`), passing optional `CHG-*` change tickets for Tier-0 assets.",
+      "examples": [
+        "Isolate workstation WKSTN-FIN-042 due to active C2 beacon",
+        "Isolate domain controller DC-PROD-01 immediately",
+        "Isolate DC-PROD-01 under emergency change ticket CHG-20261105"
+      ],
+      "id": "endpoint_and_account_containment",
+      "name": "Endpoint host isolation and compromised account disablement",
+      "tags": [
+        "containment",
+        "edr",
+        "iam",
+        "incident-response"
+      ]
+    },
+    {
+      "description": "Updates Chronicle SIEM security alert status and manages containment reference lists.",
+      "examples": [
+        "Inspect and summarize security alerts for Tier-2 escalation"
+      ],
+      "id": "siem_alert_and_reference_list_response",
+      "name": "Chronicle SIEM alert triage update and IOC reference lists",
+      "tags": [
+        "chronicle",
+        "siem",
+        "alerts",
+        "reference-lists"
+      ]
+    }
+  ],
+  "version": "1.0.0"
+}
