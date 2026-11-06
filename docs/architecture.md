@@ -61,6 +61,7 @@ To avoid regional gRPC transport mismatches and minimize network latency, the Or
 
 The repository also includes a governed multi-agent deployment under `governed_agents/` and `terraform/`. In that topology, `soc_orchestrator` runs with zero direct tools and delegates over HTTP+JSON A2A to four dedicated Reasoning Engines (`cti_researcher`, `threat_hunter`, `detection_engineer`, `tier2_responder`), each provisioned with `identity_type = "AGENT_IDENTITY"` rather than a shared service account. Every outbound model, A2A, Chronicle OneMCP, and GTI REST request traverses a Google-managed egress Agent Gateway (`AGENT_TO_ANYWHERE`) backed by Agent Registry, IAP IAM v3 CEL tool allowlists, inline Model Armor templates, and a Semantic Governance crown-jewel policy.
 
-![Agent Platform Gateway details showing agw-secops-egress, the regional Agent Registry binding, and the IAP, Model Armor, and Semantic Governance service extensions](images/governance/04-agent-gateway.png)
+![Agent Platform Gateway details showing agw-secops-egress, the regional Agent Registry binding, and the IAP, Model Armor, and Semantic Governance service extensions](images/governance/04-agent-gateway.png)\
+*Figure 1. **Agent Platform > Gateways** details for `agw-secops-egress`, showing the regional Agent Registry binding and the IAP, Model Armor, and Semantic Governance Service Extensions.*
 
 See [agent_governance.md](agent_governance.md) to deploy and verify the stack, [agent_governance_design.md](agent_governance_design.md) for the per-edge policy matrix and Terraform shims, and [agent_governance_troubleshooting.md](agent_governance_troubleshooting.md) for log attribution when a call returns HTTP 403.

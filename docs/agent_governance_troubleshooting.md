@@ -77,7 +77,8 @@ flowchart TD
 
 **Evidence.** `just governance-logs action=denied freshness=1h` shows a `DENY` row with `tools/call`, the tool name, the specialist's engine ID under `AGENT`, and the Chronicle MCP host. The log entry's `protoPayload.methodName` is `GatekeeperAuthorizer.AuthorizeUser`.
 
-![Logs Explorer showing GatekeeperAuthorizer.AuthorizeUser Permission Denied entries in the IAP Data Access audit log on agw-secops-egress](images/governance/09-iap-tool-allowlist-audit-log.png)
+![Logs Explorer showing GatekeeperAuthorizer.AuthorizeUser Permission Denied entries in the IAP Data Access audit log on agw-secops-egress](images/governance/09-iap-tool-allowlist-audit-log.png)\
+*Figure 1. **Logs Explorer** querying `cloudaudit.googleapis.com/data_access` for `GatekeeperAuthorizer.AuthorizeUser` with `granted=false`, showing `Permission Denied` entries on `us-central1:agw-secops-egress`.*
 
 The banner is emitted by the orchestrator's `_GovernedRunner`, so it appears on both the Gemini Enterprise (`stream_query`) path and the A2A (`message:send`) path; smoke case 2 asserts it on the A2A path. If the specialist's text says only `MCP tool execution failed: Server returned an error response` with no HTTP status, the orchestrator will not raise the banner: that is the MCP SDK's generic wording for any non-2xx reply, and the banner requires a real denial signal (`403`, `forbidden`, `permission denied`, `access denied`, or `denied`), not just that the tool is on the denied list. The specialists' `secops_mcp.py` installs an `httpx` response hook that records non-2xx replies and rewrites the generic text to `HTTP <status> <reason>: <body>`; if you see the generic form, the specialist is running a build from before that hook (redeploy with `just governance-plan` / `apply`).
 
@@ -158,7 +159,8 @@ gcloud logging read \
 
 A row with verdict `MODEL_ARMOR_SANITIZATION_VERDICT_BLOCK` and a filter result naming `pi_and_jailbreak`, `rai`, or `malicious_uri` is the block. The IAP `denied` table stays empty, because Model Armor is a separate `CONTENT_AUTHZ` policy.
 
-![Logs Explorer combining Model Armor MODEL_ARMOR_SANITIZATION_VERDICT_BLOCK entries and a Semantic Governance DENY entry keyed by the calling agent SPIFFE identity](images/governance/10-model-armor-and-sgp-logs.png)
+![Logs Explorer combining Model Armor MODEL_ARMOR_SANITIZATION_VERDICT_BLOCK entries and a Semantic Governance DENY entry keyed by the calling agent SPIFFE identity](images/governance/10-model-armor-and-sgp-logs.png)\
+*Figure 2. **Logs Explorer** combining `modelarmor.googleapis.com/SanitizeOperation` (`MODEL_ARMOR_SANITIZATION_VERDICT_BLOCK`) and `semantic-governance-policy` (`verdict="DENY"`) entries attributed to the calling agent SPIFFE `agentIdentity`.*
 
 **Cause.** A false positive on cyber content. [`60-model-armor.tf`](../terraform/60-model-armor.tf) already runs the prompt-injection, jailbreak, and Responsible AI filters at `HIGH` confidence (`var.model_armor_confidence_level`) and leaves the malicious-URI filter off (`var.model_armor_enable_malicious_uri_filter = false`) for exactly this reason. If someone lowered the confidence to `MEDIUM_AND_ABOVE` or enabled the URI filter, legitimate phishing URLs and exploit descriptions start tripping it.
 
