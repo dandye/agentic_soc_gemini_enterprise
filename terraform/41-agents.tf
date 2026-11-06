@@ -608,9 +608,18 @@ resource "terraform_data" "reasoning_engine_min_instances" {
 
   triggers_replace = [
     each.value.name,
-    each.value.update_time,
     tostring(var.min_instances),
   ]
+
+  lifecycle {
+    replace_triggered_by = [
+      google_vertex_ai_reasoning_engine.cti_researcher,
+      google_vertex_ai_reasoning_engine.threat_hunter,
+      google_vertex_ai_reasoning_engine.detection_engineer,
+      google_vertex_ai_reasoning_engine.tier2_responder,
+      google_vertex_ai_reasoning_engine.soc_orchestrator,
+    ]
+  }
 
   provisioner "local-exec" {
     environment = {

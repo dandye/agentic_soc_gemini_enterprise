@@ -505,10 +505,11 @@ In addition, `hashicorp/google-beta` treats integer `0` as empty in SDKv2
 previously set `0` back to the regional service default (`1` warm instance in
 `us-central1`). `terraform_data.reasoning_engine_min_instances` in
 `41-agents.tf` runs `scripts/governance/reasoning_engine_scaling.sh ensure`
-after each engine create or update (`triggers_replace` on `name`,
-`update_time`, and `min_instances`), issuing an idempotent field-masked
-`PATCH ?updateMask=spec.deploymentSpec.minInstances` and verifying that both
-`minInstances` and `agentGateway` remain persisted.
+after each engine create or update (`triggers_replace` on `name` and
+`min_instances`, plus `lifecycle.replace_triggered_by` across the five
+`google_vertex_ai_reasoning_engine` resources), issuing an idempotent
+field-masked `PATCH ?updateMask=spec.deploymentSpec.minInstances` and verifying
+that both `minInstances` and `agentGateway` remain persisted.
 
 ## Publish to Gemini Enterprise
 
