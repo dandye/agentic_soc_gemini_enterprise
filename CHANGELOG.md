@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Public repository hygiene gate**: `scripts/check_public_repo_hygiene.py` blocks secrets, Terraform state and variable files, and internal-only vocabulary in tracked files, commit messages, and added diff lines; wired into pre-commit (`public-repo-hygiene`, `gitleaks`) and the `Public Repo Secret & Hygiene Gate` GitHub Actions workflow. Recipes: `just security-hygiene`, `just security-hygiene-range`.
+- **Governed A2A SecOps agents and Agent Gateway Terraform stack**: `governed_agents/` (zero-tool `soc_orchestrator` plus `cti_researcher`, `threat_hunter`, `detection_engineer`, `tier2_responder`) deployed as `AGENT_IDENTITY` Reasoning Engines behind a default-deny egress Agent Gateway, with Agent Registry, Auth Manager for the GTI API key, IAM v3 CEL tool allowlists, inline Model Armor, Semantic Governance crown-jewel change control, and a Cloud Monitoring governance dashboard. Recipes: `just governance-package|cards|init|validate|plan|enforce|logs|smoke-test`.
+- **Offline governance shell harnesses and Governance CI**: seven offline harnesses under `scripts/governance/tests/` (package, delete-until-gone, Gemini Enterprise bind and agent shims, log verification, Semantic Governance gateway config, Auth Manager key handling with a key-leak invariant), a `shellcheck` pre-commit hook, `just governance-test` and `just governance-lint`, and the `Governance CI` workflow (harnesses, governed-agent unit tests, `terraform fmt` and `validate`).
+- **Governance documentation**: `docs/agent_governance.md` (deploy, verify, operate), `docs/agent_governance_design.md`, and `docs/agent_governance_troubleshooting.md`, linked from the README `Agent Governance` section.
+- **Gemini Enterprise binding and publication**: opt-in `bind_ge_app` and `create_ge_agent` variables bind an existing Gemini Enterprise app to the egress Agent Gateway and publish the governed `soc_orchestrator` into its agent picker, with documented rollback.
+
 ## [0.5.0] - 2026-06-22
 
 ### Added
