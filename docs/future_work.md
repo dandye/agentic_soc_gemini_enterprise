@@ -72,8 +72,6 @@ graph TD
 
 ---
 
----
-
 ## 5. Sandboxed Infosec CLI Tooling (Google & Mandiant Suite)
 
 Running untrusted, weaponized security artifacts directly inside the agent host environment poses severe parser-exploit and breakout risks. In future phases, our **Vertex AI Code Execution Sandbox (gVisor microVMs)** will serve as an isolated detonation and deep-inspection environment equipped with first-party Google and Mandiant infosec CLI tools:

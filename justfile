@@ -1149,6 +1149,31 @@ security-hygiene-range rev_range="origin/main..HEAD":
     {{ python }} scripts/check_public_repo_hygiene.py --git-range {{ quote(rev_range) }}
 
 # ============================================================================
+# Static Documentation Site (Sphinx + MyST + PyData WCAG 2.1 AA)
+# ============================================================================
+
+# Install pinned Sphinx documentation dependencies into the active Python environment
+docs-install:
+    {{ python }} -m pip install -r requirements-docs.txt
+
+# Build the Sphinx HTML documentation site strictly (warnings treated as errors)
+docs-build:
+    {{ python }} -m sphinx -W --keep-going -b html docs docs/_build/html
+    touch docs/_build/html/.nojekyll
+
+# Build and serve the Sphinx HTML documentation site locally on port 8000
+docs-serve port="8000": docs-build
+    {{ python }} -m http.server {{ port }} --bind 127.0.0.1 --directory docs/_build/html
+
+# Audit built Sphinx HTML pages against WCAG 2.1 Level AA (dark + light modes) with Playwright and axe-core
+docs-a11y: docs-build
+    {{ python }} scripts/verify_docs_accessibility.py --html-dir docs/_build/html
+
+# Remove generated Sphinx build artifacts
+docs-clean:
+    rm -rf docs/_build
+
+# ============================================================================
 # Governed SecOps Multi-Agent Infrastructure (Agent Gateway + A2A + Auth Manager)
 # ============================================================================
 

@@ -2,7 +2,7 @@
 type: "Playbook"
 title: "Playbook for Systematic Agent Experimentation"
 description: "Strategic playbook cataloging experimental variables, structured workflow, and high-priority optimization designs for Advanced Agentic SOC"
-resource: "file:///Users/dandye/Projects/agentic_soc_agentspace__worktrees/harvest_detection_reports/docs/experimentation_playbook.md"
+resource: "docs/experimentation_playbook.md"
 timestamp: "2026-06-17T07:45:00Z"
 provenance:
   source_type: "generative_ai"

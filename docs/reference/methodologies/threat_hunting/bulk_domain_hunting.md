@@ -2,7 +2,7 @@
 type: "Playbook"
 title: "SecOps Threat Hunting: Bulk Domain Hunting via Reference Lists & Retrohunt"
 description: "Industry best-practice runbook for efficiently hunting large volumes of domain indicators of compromise (IOCs) using Google SecOps Reference Lists, YARA-L rules, and historical Retrohunts."
-resource: "file:///Users/dandye/Projects/agentic_soc_agentspace__worktrees/harvest_detection_reports/docs/reference/methodologies/threat_hunting/bulk_domain_hunting.md"
+resource: "docs/reference/methodologies/threat_hunting/bulk_domain_hunting.md"
 timestamp: "2026-06-18T04:40:00Z"
 provenance:
   source_type: "generative_ai"

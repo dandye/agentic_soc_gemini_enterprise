@@ -2,7 +2,7 @@
 type: "Documentation"
 title: "Multi-Modal Similarity Scoring Profiles for AlloyDB"
 description: "Comprehensive guide to multi-modal similarity profiles in AlloyDB, defining mathematical weight sets, operational use cases (threat hunting, compromise pivot, false positive triage, semantic discovery), and usage workflows."
-resource: "file:///Users/dandye/Projects/agentic_soc_agentspace__worktrees/harvest_detection_reports/docs/similarity_profiles.md"
+resource: "docs/similarity_profiles.md"
 timestamp: "2026-07-30T19:54:00Z"
 provenance:
   source_type: "python_generated"

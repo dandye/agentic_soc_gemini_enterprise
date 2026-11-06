@@ -2,7 +2,7 @@
 type: "Documentation"
 title: "Vertex AI Memory Bank Reference Guide"
 description: "Comprehensive catalog of official documentation resources, structural concepts, and local project configurations for the Vertex AI Memory Bank."
-resource: "file:///Users/dandye/Projects/agentic_soc_agentspace__worktrees/harvest_detection_reports/docs/reference/memory.md"
+resource: "docs/reference/memory.md"
 timestamp: "2026-06-17T20:58:00Z"
 provenance:
   source_type: "generative_ai"
@@ -37,7 +37,7 @@ Use these official Google Cloud documentation links to research features, APIs, 
 
 Our Orchestrator (`agent_soc_manager`) and remote specialists are pre-configured with a highly optimized set of custom memory topics. This allows the agents to capture and persist critical context across multiple independent security incidents.
 
-The active configuration is defined in the project codebase under [agent_soc_manager/agent.py](file:///Users/dandye/Projects/agentic_soc_agentspace__worktrees/harvest_detection_reports/agent_soc_manager/agent.py#L2336-L2400):
+The active configuration is defined in the project codebase under [agent_soc_manager/agent.py](../../agent_soc_manager/agent.py):
 
 | Topic Label | Purpose / Description | Mapped Use Cases |
 | :--- | :--- | :--- |

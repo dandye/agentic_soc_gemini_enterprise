@@ -278,3 +278,16 @@ just governance-smoke-test case=""               # Run live A2A governance smoke
 just governance-test                             # Run every offline governance shell harness (no network, no credentials)
 just governance-lint                             # Lint governance shell scripts and check Terraform formatting
 ```
+
+## 12. Static Documentation Site & Accessibility Audit
+
+Build, serve, and audit the WCAG 2.1 Level AA Sphinx documentation site published to GitHub Pages.
+
+### using justfile:
+```bash
+just docs-install                                # Install pinned Sphinx documentation dependencies from requirements-docs.txt
+just docs-build                                  # Build Sphinx HTML site strictly into docs/_build/html (warnings as errors)
+just docs-serve port="8000"                      # Build and serve documentation locally at http://127.0.0.1:8000
+just docs-a11y                                   # Run Playwright + axe-core WCAG 2.1 Level AA audit across dark and light modes
+just docs-clean                                  # Remove docs/_build artifacts
+```

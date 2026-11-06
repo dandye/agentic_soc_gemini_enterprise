@@ -2,7 +2,7 @@
 type: "Documentation"
 title: "External Reference & Literature Catalog"
 description: "Index and structural catalog of external research papers, industry standards, methodologies, and playbooks used to ground the Agentic SOC development."
-resource: "file:///Users/dandye/Projects/agentic_soc_agentspace__worktrees/harvest_detection_reports/docs/reference/README.md"
+resource: "docs/reference/README.md"
 timestamp: "2026-06-17T20:30:00Z"
 provenance:
   source_type: "generative_ai"
@@ -45,10 +45,10 @@ Use the table below to index reference materials as you add them:
 
 | Category | Title / Resource | Author / Source | Key Concepts | Local Path |
 | :--- | :--- | :--- | :--- | :--- |
-| **Cognitive Agents** | Vertex AI Agent Development Kit Documentation | Google Cloud | Reasoning Engines, Session Management, Agent Tooling | [adk_docs](file:///Users/dandye/Projects/agentic_soc_agentspace__worktrees/harvest_detection_reports/docs/architecture.md) |
-| **Graph RAG** | GraphRAG: Retrieval-Augmented Generation with Graphs | Microsoft Research | Entities correlation, global summarization, community detection | [papers/graph_rag.md](file:///Users/dandye/Projects/agentic_soc_agentspace__worktrees/harvest_detection_reports/docs/reference/papers/graph_rag.md) (Placeholder) |
-| **Incident Response** | NIST SP 800-61 Rev. 2: Computer Security Incident Handling Guide | NIST | Triage, containment, eradication, and post-incident recovery | [industry/nist/sp_800_61_r2.md](file:///Users/dandye/Projects/agentic_soc_agentspace__worktrees/harvest_detection_reports/docs/reference/industry/nist/sp_800_61_r2.md) (Placeholder) |
-| **Threat Hunting** | SecOps Threat Hunting: Bulk Domain Hunting | Agentic SOC Team | Reference Lists, YARA-L Rules, Retrohunts | [methodologies/threat_hunting/bulk_domain_hunting.md](file:///Users/dandye/Projects/agentic_soc_agentspace__worktrees/harvest_detection_reports/docs/reference/methodologies/threat_hunting/bulk_domain_hunting.md) |
+| **Cognitive Agents** | Vertex AI Agent Development Kit Documentation | Google Cloud | Reasoning Engines, Session Management, Agent Tooling | [architecture.md](../architecture.md) |
+| **Graph RAG** | GraphRAG: Retrieval-Augmented Generation with Graphs | Microsoft Research | Entities correlation, global summarization, community detection | `papers/graph_rag.md` (Placeholder) |
+| **Incident Response** | NIST SP 800-61 Rev. 2: Computer Security Incident Handling Guide | NIST | Triage, containment, eradication, and post-incident recovery | `industry/nist/sp_800_61_r2.md` (Placeholder) |
+| **Threat Hunting** | SecOps Threat Hunting: Bulk Domain Hunting | Agentic SOC Team | Reference Lists, YARA-L Rules, Retrohunts | [methodologies/threat_hunting/bulk_domain_hunting.md](methodologies/threat_hunting/bulk_domain_hunting.md) |
 
 ---
 

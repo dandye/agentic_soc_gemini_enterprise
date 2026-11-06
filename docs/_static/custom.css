@@ -1,0 +1,52 @@
+/* Accessible figure and caption framing (WCAG 2.1 AA contrast >= 4.5:1) */
+
+figure.align-default,
+figure {
+  margin: 1.5rem 0 2rem 0;
+  padding: 0.75rem;
+  border: 1px solid var(--pst-color-border);
+  border-radius: 0.5rem;
+  background-color: var(--pst-color-surface);
+}
+
+figure img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto;
+  border-radius: 0.25rem;
+}
+
+figure figcaption {
+  margin-top: 0.75rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--pst-color-border);
+  text-align: left;
+  font-size: 0.92rem;
+  line-height: 1.5;
+  color: var(--pst-color-text-base);
+}
+
+figure figcaption p {
+  margin-bottom: 0;
+}
+
+/* Keep Mermaid diagrams legible in both dark and light themes */
+.mermaid {
+  margin: 1.25rem 0;
+  overflow-x: auto;
+}
+
+/* Override Mermaid v11 semi-transparent dark-mode edge label pills (#e0dfdf on rgba(88,88,88,0.5) ~3.8:1)
+   so flowchart edge labels exceed WCAG 2.1 AA/AAA contrast (> 14:1). */
+html[data-theme="dark"] .mermaid .labelBkg,
+html[data-theme="dark"] .mermaid .edgeLabel {
+  background-color: #1e2430 !important;
+  color: #f8fafc !important;
+}
+
+html[data-theme="dark"] .mermaid .edgeLabel p,
+html[data-theme="dark"] .mermaid .edgeLabel span {
+  background-color: transparent !important;
+  color: #f8fafc !important;
+}

@@ -2,7 +2,7 @@
 type: "Documentation"
 title: "Google Cloud AlloyDB Deployment and Grounding Guide"
 description: "End-to-end guide for provisioning managed Google Cloud AlloyDB with pgvector, Private Services Access peering, IAM connection, and detection reports grounding."
-resource: "file:///Users/dandye/Projects/agentic_soc_agentspace__worktrees/harvest_detection_reports/docs/alloydb_gcp_deployment_guide.md"
+resource: "docs/alloydb_gcp_deployment_guide.md"
 timestamp: "2026-07-31T00:55:00Z"
 provenance:
   source_type: "manual"
