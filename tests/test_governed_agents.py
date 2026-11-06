@@ -5,7 +5,9 @@ from __future__ import annotations
 import asyncio
 import functools
 import importlib.util
+import json
 import os
+import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -19,12 +21,39 @@ GOVERNANCE_SCRIPTS_DIR = REPO_ROOT / "scripts" / "governance"
 
 
 # Importing a governed agent constructs its A2aAgent, which calls
-# aiplatform.init(); a project ID (no credentials) is enough for that to
-# succeed in a hermetic CI runner with no Application Default Credentials.
+# aiplatform.init(). That resolves a project from the environment and then
+# google.auth.default() for credentials, so a hermetic CI runner needs both:
+# a placeholder project and an Application Default Credentials file. An
+# authorized_user ADC with placeholder fields loads without any key material
+# and is never exchanged for a token because no test makes a network call.
+_HERMETIC_PROJECT = "example-secops-project"
+
+
+def _placeholder_adc_path() -> str:
+    """Returns the real ADC path if one is configured, else writes a placeholder."""
+    configured = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "")
+    if configured:
+        return configured
+    path = Path(tempfile.gettempdir()) / "governed_agents_placeholder_adc.json"
+    path.write_text(
+        json.dumps(
+            {
+                "type": "authorized_user",
+                "client_id": "placeholder.apps.googleusercontent.com",
+                "client_secret": "placeholder",
+                "refresh_token": "placeholder",
+                "quota_project_id": _HERMETIC_PROJECT,
+            }
+        )
+    )
+    return str(path)
+
+
 _HERMETIC_ENV = {
-    "GOOGLE_CLOUD_PROJECT": "example-secops-project",
+    "GOOGLE_CLOUD_PROJECT": _HERMETIC_PROJECT,
     "GOOGLE_CLOUD_LOCATION": "us-central1",
     "GOOGLE_GENAI_USE_VERTEXAI": "TRUE",
+    "GOOGLE_APPLICATION_CREDENTIALS": _placeholder_adc_path(),
 }
 
 
