@@ -49,6 +49,25 @@ flowchart LR
     GW --> VAI["Vertex AI models"]
 ```
 
+![Agent Platform Gateway details showing agw-secops-egress in Agent-to-Anywhere mode, the bound regional Agent Registry, three Service Extensions, and the Semantic Governance PSC network attachment](images/governance/04-agent-gateway.png)\
+*Figure 1. **Agent Platform > Gateways** details for `agw-secops-egress` in `Agent-to-Anywhere (egress)` mode, showing the bound regional Agent Registry, the three Service Extensions (`agw-secops-ma-content-authz`, `agw-secops-iap-authz`, and `agw-secops-sgp-content-authz`), and the Semantic Governance PSC network attachment.*
+
+![Agent Platform Topology view showing discovered MCP traffic edges from agw-secops-threat-hunter and agw-secops-detection-engineer to Chronicle OneMCP](images/governance/02-agent-topology.png)\
+*Figure 2. **Agent Platform > Topology** graph showing live discovered MCP traffic edges from `agw-secops-threat-hunter` and `agw-secops-detection-engineer` to `MCP for chronicle.googleapis.com`.*
+
+### Cloud Console routes
+
+| Surface | Cloud Console URL (`?project=<PROJECT_ID>`) |
+| --- | --- |
+| Reasoning Engine runtimes and SPIFFE identities | `https://console.cloud.google.com/agent-platform/runtimes` |
+| Live agent-to-resource topology | `https://console.cloud.google.com/agent-platform/topology` |
+| Agent Registry (agents, MCP servers, endpoints) | `https://console.cloud.google.com/agent-platform/agent-registry/agents` |
+| Egress Agent Gateway and Service Extensions | `https://console.cloud.google.com/agent-platform/gateways` |
+| IAM v3 Unified Access Policies | `https://console.cloud.google.com/agent-platform/policies` |
+| Semantic Governance Business Policies | `https://console.cloud.google.com/agent-platform/policies/business-policies` |
+| Model Armor templates | `https://console.cloud.google.com/security/modelarmor` |
+| SecOps Governance dashboard | `https://console.cloud.google.com/monitoring/dashboards/builder/agw-secops-secops-governance` |
+
 ## Prerequisites
 
 ### APIs and service identities
@@ -275,6 +294,12 @@ Expected: one endpoint per Google API host (18 by default, plus
 `extra_google_api_hosts`), the `www.virustotal.com` endpoint, and the Chronicle
 OneMCP server registered with `protocol_binding = "JSONRPC"`.
 
+![Agent Registry Agents tab filtered to _agent, showing the five governed A2A agents and their Reasoning Engine SPIFFE identities](images/governance/03-agent-registry.png)\
+*Figure 3. **Agent Platform > Agent Registry > Agents** filtered to `Name : _agent`, listing the five governed A2A agents (`detection_engineer_agent`, `cti_researcher_agent`, `tier2_responder_agent`, `soc_orchestrator_agent`, and `threat_hunter_agent`) alongside their Reasoning Engine IDs and SPIFFE identities.*
+
+![Agent Registry Endpoints tab showing www.virustotal.com scoped to cti_researcher alongside the 18 Google API infrastructure endpoints](images/governance/03b-agent-registry-endpoints.png)\
+*Figure 4. **Agent Platform > Agent Registry > Endpoints** showing `www.virustotal.com` (`agw-secops-virustotal`, granted only to `cti_researcher`) alongside the 18 Google API infrastructure hosts.*
+
 ### 3. Auth Manager
 
 ```bash
@@ -331,6 +356,9 @@ REST API (working around `hashicorp/google-beta` omitting integer `0` as an
 empty SDKv2 value). Afterwards `agent_identities` shows five SPIFFE
 identities under `agents.global.org-<ORG_ID>.system.id.goog`.
 
+![Deployments on Agent Runtime showing the five agw-secops Reasoning Engines with dedicated SPIFFE workload identities and telemetry enabled](images/governance/01-agent-runtimes.png)\
+*Figure 5. **Agent Platform > Deployments** showing all five `agw-secops-*` Reasoning Engines running under dedicated SPIFFE workload identities with telemetry enabled, contrasted directly above a legacy service-account runtime.*
+
 ### 6. Policies
 
 ```bash
@@ -354,6 +382,9 @@ per-specialist Chronicle and MCP IAM roles, and the Auth Manager grant.
 `chronicle_tool_policies` lists the compiled CEL per specialist; `a2a_edges`
 lists the four permitted `soc_orchestrator -> <specialist>` hops.
 
+![Agent Platform Access policies tab showing IAM v3 rules grouped by agent across A2A edges, VirusTotal REST, and Chronicle OneMCP tool allowlists](images/governance/05-governance-policies.png)\
+*Figure 6. **Agent Platform > Policies > Access policies** grouping IAM v3 rules by calling agent: four A2A `Allow` rules on `soc_orchestrator_agent`, `Endpoint: www.virustotal.com` on `cti_researcher_agent`, and two chunked Chronicle OneMCP rules per specialist.*
+
 ### 7. Model Armor and Semantic Governance
 
 ```bash
@@ -371,6 +402,12 @@ PSC attachment via `sgp_gateway_config.sh attach`, the second `CONTENT_AUTHZ`
 policy, and the Tier-0 Crown Jewel policy on `tier2_responder`.
 `content_governance.policy_count` is `3` when both features are enabled.
 
+![Model Armor console showing the regional agw-secops-request and agw-secops-response templates](images/governance/07-model-armor-templates.png)\
+*Figure 7. **Security > Model Armor > Templates** showing the regional `agw-secops-request` and `agw-secops-response` screening templates in `us-central1`.*
+
+![Business Policies detail drawer showing agw-secops-tier2-crown-jewel-change-control on tier2_responder_agent and its CHG-* emergency change-ticket constraint](images/governance/06-semantic-governance-policy.png)\
+*Figure 8. **Agent Platform > Policies > Business Policies** detail drawer for `agw-secops-tier2-crown-jewel-change-control` on `tier2_responder_agent`, showing the natural-language constraint requiring an approved `CHG-*` emergency change ticket before Tier-0 containment.*
+
 ### 8. Observability and the full apply
 
 ```bash
@@ -383,6 +420,12 @@ terraform -chdir=terraform output observability
 Expected: five log-based metrics and the `SecOps Governance` dashboard, then a
 bare apply that reports no changes except the `deployment_spec` diff described
 under Operate. The `observability` output includes the dashboard URL.
+
+![SecOps Governance dashboard Gateway section showing denied request counts, allowed versus denied verdicts over time, destination hosts, and inline 200 and 403 gateway logs](images/governance/08-governance-dashboard.png)\
+*Figure 9. **Monitoring > Dashboards > SecOps Governance** (**Gateway** section) showing outbound denied counts, allowed versus denied verdicts over time, destination hosts, and inline `200` and `403` gateway request log entries.*
+
+![SecOps Governance dashboard Chronicle MCP Tools section showing allowed list_rules and validate_rule calls alongside the denied list_feeds call and IAP AuthorizeUser log](images/governance/08b-governance-dashboard-tools-sgp.png)\
+*Figure 10. **Monitoring > Dashboards > SecOps Governance** (**Chronicle MCP Tools** section) showing `allowed list_rules` and `allowed validate_rule` calls alongside the `denied list_feeds` call and the IAP `AuthorizeUser` audit log.*
 
 ## Verify
 
@@ -441,6 +484,12 @@ evaluated but not enforced, and `-` when it was enforced. After
 just governance-logs action=denied
 just governance-logs action=who freshness=24h
 ```
+
+![Logs Explorer showing IAP GatekeeperAuthorizer.AuthorizeUser Permission Denied audit records on agw-secops-egress](images/governance/09-iap-tool-allowlist-audit-log.png)\
+*Figure 11. **Logs Explorer** querying `cloudaudit.googleapis.com/data_access` for `GatekeeperAuthorizer.AuthorizeUser` with `granted=false`, showing `Permission Denied` entries on `us-central1:agw-secops-egress` and the expanded `AuditLog` `protoPayload`.*
+
+![Logs Explorer showing Model Armor MODEL_ARMOR_SANITIZATION_VERDICT_BLOCK entries alongside a Semantic Governance DENY entry](images/governance/10-model-armor-and-sgp-logs.png)\
+*Figure 12. **Logs Explorer** combining `modelarmor.googleapis.com/SanitizeOperation` (`MODEL_ARMOR_SANITIZATION_VERDICT_BLOCK`) and `semantic-governance-policy` (`verdict="DENY"`) entries attributed to the calling agent SPIFFE `agentIdentity`.*
 
 ## Operate
 
