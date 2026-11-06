@@ -50,6 +50,14 @@ repos:
       - id: gitleaks
         name: Detect hardcoded secrets with Gitleaks
 
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.10.0.1
+    hooks:
+      - id: shellcheck
+        name: shellcheck governance scripts
+        files: ^scripts/governance/.*\.sh$
+        args: ['--severity=warning']
+
   - repo: local
     hooks:
       - id: public-repo-hygiene

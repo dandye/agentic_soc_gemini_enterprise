@@ -1,0 +1,18 @@
+# Gitleaks configuration for this public repository.
+#
+# The offline governance harnesses under scripts/governance/tests/ exercise the
+# Auth Manager shim with obviously fake API keys and with env-var assignment
+# strings such as `GTI_API_KEY=`. Those strings match the generic-api-key rule
+# but carry no secret. Everything else is scanned with the default rules.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Offline test fixtures that intentionally contain fake credential-shaped strings"
+paths = [
+  '''scripts/governance/tests/.*_test\.sh$''',
+]
+regexes = [
+  '''FAKE-GTI-KEY-\d+''',
+]
