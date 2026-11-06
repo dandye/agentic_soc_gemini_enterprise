@@ -110,12 +110,23 @@ write_state() {
   }
 }
 
-# state HOST... : register each host as google_agent_registry_service.google_apis["<id>"]
+# api_id HOST : the service_id Terraform derives for a *.googleapis.com host
+# (local.api_id in 10-registry-endpoints.tf): strip the suffix, dots to
+# dashes, prefix "<region>-g-" unless already regional, pad short ids.
+api_id() {
+  local base=${1%.googleapis.com}
+  base=${base//./-}
+  [[ $base == "${REGION}-"* ]] || base="${REGION}-g-${base}"
+  ((${#base} >= 6)) || base="${base}-api"
+  printf '%s' "$base"
+}
+
+# state HOST... : register each host as google_agent_registry_service.google_apis["<api_id>"]
 state() {
   local res=() h
   for h in "$@"; do
     res+=("$(resource google_agent_registry_service \
-      "google_agent_registry_service.google_apis[\"${h//./-}\"]" "https://${h}")")
+      "google_agent_registry_service.google_apis[\"$(api_id "$h")\"]" "https://${h}" JSONRPC "$(api_id "$h")")")
   done
   write_state "${res[@]}"
 }
@@ -135,7 +146,7 @@ secops_state() {
     "oauth2.googleapis.com" \
     "logging.googleapis.com"; do
     res+=("$(resource google_agent_registry_service \
-      "google_agent_registry_service.google_apis[\"${h//./-}\"]" "https://${h}")")
+      "google_agent_registry_service.google_apis[\"$(api_id "$h")\"]" "https://${h}" JSONRPC "$(api_id "$h")")")
   done
   res+=("$(resource google_agent_registry_service \
     "google_agent_registry_service.gti_api" "https://www.virustotal.com" HTTP_JSON \
@@ -300,8 +311,20 @@ invoke
 check "a colliding service_id is flagged" "$OUT" "WARNING: service_id"
 check "the collision names the derived id" "$OUT" "\"${REGION}-g-aiplatform-us-rep\""
 check "the collision names the registered host that owns the id" "$OUT" \
-  "collides with aiplatform.us.rep.googleapis.com"
+  "is already registered for aiplatform.us.rep.googleapis.com"
 check "the collision says the registration would be a no-op" "$OUT" "would be a silent no-op"
+check "the collision tells the operator what to do" "$OUT" "Register it under a distinct id"
+
+# A third-party host never shares the google_apis id namespace, so an
+# unregistered one is listed with the dedicated-resource hint and no
+# collision warning, even when a registered third-party id looks similar.
+new_case
+secops_state
+observed "api.some-vendor.example" "www.virustotal.com"
+invoke
+check "third-party host is listed" "$OUT" "api.some-vendor.example"
+check "third-party host gets the dedicated-resource hint" "$OUT" "dedicated google_agent_registry_service scoped to one agent"
+refute "no collision warning is produced for a third-party host" "$OUT" "WARNING: service_id"
 
 # The upstream reference collided aiplatform.googleapis.com with
 # <region>-aiplatform.googleapis.com. The SecOps derivation adds a "-g-"

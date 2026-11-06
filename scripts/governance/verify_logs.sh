@@ -149,6 +149,10 @@ readonly AUDIT_TABLE='table(
   protoPayload.requestMetadata.requestAttributes.host.yesno(no="-")
 )'
 
+# Mirrors local.api_id in 10-registry-endpoints.tf for *.googleapis.com hosts
+# only. Third-party hosts are registered under hand-chosen ids (for example
+# `<prefix>-virustotal`), so no derivation applies to them; callers must not
+# use this for a host that does not end in .googleapis.com.
 derive_service_id() {
   local region=$1 host=$2 base
   base="${host%.googleapis.com}"
@@ -255,6 +259,18 @@ unregistered)
 
   [[ -n $registered ]] || die "no Agent Registry resources in terraform state (${TF_DIR})"
 
+  # service_id -> host pairs as actually registered, so the collision check
+  # compares against real ids rather than re-deriving them.
+  registered_ids="$(printf '%s' "$state_json" | jq -r '
+    [ .values.root_module | recurse(.child_modules[]?) | .resources[]?
+      | select(.type | test("^google_agent_registry_(service|mcp_server)$"))
+      | . as $r
+      | ($r.values.interfaces[]?.url // empty)
+      | [($r.values.service_id // $r.values.mcp_server_id // "?"),
+         (sub("^[a-z]+://"; "") | split("/")[0])]
+      | @tsv
+    ] | unique[]' 2>/dev/null || true)"
+
   region="$(printf '%s' "$state_json" | jq -r '
     [ .values.root_module | recurse(.child_modules[]?) | .resources[]?
       | select(.type == "google_agent_registry_service")
@@ -292,14 +308,18 @@ unregistered)
       fi
       printf '%-52s %s\n' "$host" "$target"
 
-      base="$(derive_service_id "$region" "$host")"
-      while IFS= read -r other; do
-        [[ -n $other ]] || continue
-        obase="$(derive_service_id "$region" "$other")"
-        if [[ $obase == "$base" ]]; then
-          printf '%-52s WARNING: service_id "%s" collides with %s; registering this host under that id would be a silent no-op (for_each key already taken)\n' "" "$base" "$other"
-        fi
-      done <<<"$registered"
+      # Only *.googleapis.com hosts share the derived-id namespace of the
+      # google_apis for_each; a third-party host gets its own hand-named
+      # resource and cannot collide with it.
+      if [[ $host == *.googleapis.com ]]; then
+        base="$(derive_service_id "$region" "$host")"
+        while IFS=$'\t' read -r rid rhost; do
+          [[ -n $rid ]] || continue
+          if [[ $rid == "$base" ]]; then
+            printf '%-52s WARNING: service_id "%s" is already registered for %s; adding this host to the list would be a silent no-op (for_each key already taken). Register it under a distinct id.\n' "" "$base" "$rhost"
+          fi
+        done <<<"$registered_ids"
+      fi
     done <<<"$missing"
   fi
 
