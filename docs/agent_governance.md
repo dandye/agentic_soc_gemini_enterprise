@@ -450,12 +450,87 @@ the gateway.
 
 ## Publish to Gemini Enterprise
 
-Publication is opt-in. Set `ge_engine_id = "<GE_ENGINE_ID>"`, then
-`bind_ge_app = true` to route the app's agent egress through this gateway
-(`55-ge-binding.tf`), and `create_ge_agent = true` to add `soc_orchestrator` to
-the app's agent picker (`56-ge-agent.tf`). Specialists are never published
-directly. The step-by-step procedure and rollback will be completed in this
-section after live verification.
+Publication is opt-in and touches an existing Gemini Enterprise app, so it is
+the one part of this stack that can affect agents you did not deploy.
+
+> [!WARNING]
+> Binding routes all agent traffic for the app through this gateway. Any
+> agent already in the app whose tool hosts are not in the Agent Registry is
+> denied at the gateway until you register those hosts (`10-registry-endpoints.tf`)
+> or unbind. Check the app's existing agents before you bind.
+
+Prerequisites: the app exists; its location pairs with the gateway region
+(`global` and `us` require `us-central1`, `eu` requires `europe-west1`;
+`55-ge-binding.tf` enforces this); the Discovery Engine service agent has the
+custom gateway role (created by `55-ge-binding.tf` on every apply, even when
+binding is off).
+
+Configure in `terraform/terraform.tfvars`:
+
+```hcl
+ge_engine_id    = "<GE_ENGINE_ID>"
+ge_location     = "global"
+bind_ge_app     = true
+create_ge_agent = true
+```
+
+Bind first, on its own:
+
+```bash
+terraform -chdir=terraform apply -target=terraform_data.ge_binding
+# ... bind_ge_app.sh: ok: all agent traffic for <GE_ENGINE_ID> now egresses through .../agentGateways/<PREFIX>-egress
+# Apply complete! Resources: 1 added, 0 changed, 0 destroyed.
+```
+
+Then publish the orchestrator with a full `terraform apply`. Note that
+`terraform_data.ge_agent` depends on `google_vertex_ai_reasoning_engine.soc_orchestrator`,
+so even a `-target` on it pulls in any pending in-place change to the
+Reasoning Engines. If the plan shows a `spec.agent_card` diff on engines you
+have not changed, that is provider read-back noise and is safe to apply, but
+review it before you do; a plan that destroys or replaces an engine is not.
+To publish without touching the engines, run the same shim Terraform runs:
+
+```bash
+GE_PROJECT_ID="<PROJECT_ID>"
+GE_PROJECT_NUMBER="<PROJECT_NUMBER>"
+GE_LOCATION="global"
+GE_COLLECTION_ID="default_collection"
+GE_ENGINE_ID="<GE_ENGINE_ID>"
+GE_ASSISTANT_ID="default_assistant"
+GE_REASONING_ENGINE="$(terraform -chdir=terraform output -json agent_engines | jq -r .soc_orchestrator.name)"
+GE_AGENT_DISPLAY_NAME="Governed SecOps Orchestrator"
+GE_AGENT_SHARING_SCOPE="ALL_USERS"
+export GE_PROJECT_ID GE_PROJECT_NUMBER GE_LOCATION GE_COLLECTION_ID GE_ENGINE_ID GE_ASSISTANT_ID GE_REASONING_ENGINE GE_AGENT_DISPLAY_NAME GE_AGENT_SHARING_SCOPE
+bash scripts/governance/ge_agent.sh create
+# ge_agent.sh: ok: <AGENT_ID> is ENABLED, shared ALL_USERS
+```
+
+`ge_agent.sh create` adopts an existing registration that points at the same
+Reasoning Engine instead of creating a duplicate, so a later `terraform apply`
+with `create_ge_agent = true` converges without a second entry.
+
+Verify:
+
+```bash
+just governance-ge-status        # bound to .../agentGateways/<PREFIX>-egress; agent ENABLED
+just governance-smoke-test       # the A2A path still passes all five cases
+just governance-logs action=audit freshness=1h
+```
+
+Then open the app in the Gemini Enterprise console, pick the governed
+orchestrator from the agent picker, and run the smoke-test prompts. Rows for
+`soc_orchestrator` and the specialists appear in `governance-logs action=audit`
+within a minute. The `assistants:streamAssist` REST surface does not route to a
+selected ADK agent, so use the console for this check.
+
+Rollback:
+
+```bash
+just governance-ge-rollback      # ge_agent.sh delete, then bind_ge_app.sh unbind
+```
+
+or set `bind_ge_app = false` and `create_ge_agent = false` and run
+`terraform apply`; the destroy provisioners run the same two commands.
 
 ## Cost
 
