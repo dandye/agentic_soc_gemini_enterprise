@@ -375,6 +375,43 @@ just governance-plan
 
 To rotate the key later, change the value in the environment and bump `gti_api_key_version` in `terraform.tfvars`.
 
+### 14. Specialist edge returns `A2A request failed: HTTP 403` with `Error: Security Policy Violation`
+
+**Symptom.** The orchestrator reports that a specialist "encountered an error":
+`A2A request failed: HTTP Error 403 ... reasoningEngines/<ENGINE_ID>/a2a/message:send`.
+From the Gemini Enterprise console the same turn shows the orchestrator's
+policy-notice banner, and the Reasoning Engine log carries
+`google.genai.errors.ClientError: 403 Forbidden ... "Error: Security Policy Violation"`.
+
+**Evidence.** `just governance-logs action=denied freshness=10m` is empty and the
+A2A host shows `ALLOW` in `audit`, so this is not the allowlist. The
+`semantic-governance-policy` log shows `verdict: ALLOW`. The attribution is in
+the Model Armor log:
+
+```bash
+PROJECT_ID="<PROJECT_ID>"
+gcloud logging read 'resource.type="modelarmor.googleapis.com/SanitizeOperation"' \
+  --project="$PROJECT_ID" --freshness=10m --format=json \
+  | jq '.[] | {t: .timestamp, template: .resource.labels.template_id, pi: .jsonPayload.sanitizationResult.filterResults.pi_and_jailbreak}'
+# ... "matchState": "MATCH_FOUND", "confidenceLevel": "HIGH" on the request template
+```
+
+**Cause.** Prompts shaped like "ask the <specialist> to list the MCP tools it
+can use, and then ..." match the prompt-injection and jailbreak filter at
+`HIGH` confidence (capability enumeration directed at an agent reads as an
+injection attempt). The orchestrator forwards the user text verbatim inside the
+A2A request to the specialist, and that outbound request is what the request
+template inspects, so the block lands on the specialist edge rather than on
+the first model call. The message text is the generic inline-extension string;
+only the Model Armor log names the filter.
+
+**Fix.** Phrase specialist work as a task ("list 10 SIEM detection rules",
+"validate this YARA-L 2.0 rule") rather than as instructions to the agent about
+itself. If capability enumeration must be allowed, lower the request template's
+`pi_and_jailbreak` confidence or switch `model_armor_enforcement_type` to
+`INSPECT_ONLY` in `60-model-armor.tf`; both weaken the prompt-injection
+demonstration, so prefer the rephrasing.
+
 ## Rollback levers
 
 Each lever turns off one control without touching the others. Apply after each change and allow about 60 seconds for the gateway to pick up new metadata.
