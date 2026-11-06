@@ -409,6 +409,57 @@ def test_soc_orchestrator_tool_denial_match_requires_the_gateway_marker() -> Non
     assert mod._stream_notice(armor) is None
 
 
+def test_soc_orchestrator_denied_list_membership_is_not_evidence() -> None:
+    """An operational failure on a denied-list tool is not dressed as an allowlist block.
+
+    Regression for the earlier rule `tool in DENIED_MCP_TOOLS or <403 text>`: a
+    quota or 5xx error on `delete_feed` raised a TOOL ALLOWLIST banner even
+    though the gateway never issued a verdict.
+    """
+    mod = _load_orchestrator()
+    assert "delete_feed" in mod.DENIED_MCP_TOOLS
+    for operational in (
+        "TOOL_ERROR: delete_feed -- MCP tool execution failed: quota exceeded",
+        "TOOL_ERROR: delete_feed -- upstream 503 Service Unavailable",
+        "TOOL_ERROR: delete_feed -- request timed out after 30s",
+    ):
+        assert mod._tool_denial_match(operational) is None, operational
+        assert mod._stream_notice(operational) is None, operational
+    # The word "denied" must be a whole word, not a substring of something else.
+    assert (
+        mod._tool_denial_match("TOOL_ERROR: delete_feed -- field undeniedState invalid")
+        is None
+    )
+    # The real gateway verdict on the same tool is still recognised.
+    assert mod._tool_denial_match(
+        "TOOL_ERROR: delete_feed -- HTTP 403 Forbidden: access denied by policy"
+    ) == ("delete_feed", "HTTP 403 Forbidden: access denied by policy")
+
+
+def test_soc_orchestrator_tool_banner_lists_the_denied_tools() -> None:
+    """The allowlist banner renders DENIED_MCP_TOOLS so the reader sees the policy, not just one tool."""
+    mod = _load_orchestrator()
+    banner = mod._stream_notice(_OBSERVED_TOOL_ERROR)
+    assert banner is not None
+    for name in mod.DENIED_MCP_TOOLS:
+        assert f"- `{name}`" in banner, name
+    assert "deliberately kept off every specialist's allowlist" in banner
+
+    # The list follows the environment, like the rest of the tool configuration.
+    custom = _load_module(
+        "test_soc_orchestrator_custom_denied",
+        GOVERNED_AGENTS_DIR / "soc_orchestrator" / "agent.py",
+        {**_ORCHESTRATOR_ENV, "DENIED_MCP_TOOLS": "alpha_tool, ,beta_tool"},
+    )
+    custom_banner = custom._stream_notice(
+        "TOOL_ERROR: alpha_tool -- HTTP 403 Forbidden"
+    )
+    assert custom_banner is not None
+    assert "- `alpha_tool`" in custom_banner
+    assert "- `beta_tool`" in custom_banner
+    assert "- `delete_feed`" not in custom_banner
+
+
 def test_soc_orchestrator_tool_banner_quotes_the_specialist_error() -> None:
     """The tool banner names the tool and quotes the gateway's own error text."""
     mod = _load_orchestrator()
