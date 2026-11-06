@@ -1,0 +1,100 @@
+name: Governance CI
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'governed_agents/**'
+      - 'scripts/governance/**'
+      - 'terraform/**'
+      - 'tests/test_governed_agents.py'
+      - '.github/workflows/governance-ci.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'governed_agents/**'
+      - 'scripts/governance/**'
+      - 'terraform/**'
+      - 'tests/test_governed_agents.py'
+
+permissions:
+  contents: read
+
+jobs:
+  shell-harnesses:
+    name: Shell harnesses and shellcheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned shellcheck
+        run: |
+          pip install shellcheck-py==0.10.0.1
+
+      - name: shellcheck
+        run: |
+          shellcheck --severity=warning scripts/governance/*.sh scripts/governance/tests/*.sh
+
+      - name: Offline harnesses
+        run: |
+          bash scripts/governance/tests/run_all.sh
+
+  python-tests:
+    name: Governed agent unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install pinned dependencies
+        run: |
+          pip install pytest==8.3.5
+          pip install -r governed_agents/soc_orchestrator/requirements.txt
+          pip install -r governed_agents/cti_researcher/requirements.txt
+
+      - name: pytest
+        run: |
+          python -m pytest -o addopts="" tests/test_governed_agents.py
+
+  terraform:
+    name: Terraform fmt and validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.16.5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install pinned agent dependencies (card generation imports the agents)
+        run: |
+          pip install -r governed_agents/soc_orchestrator/requirements.txt
+          pip install -r governed_agents/cti_researcher/requirements.txt
+
+      - name: fmt
+        run: |
+          terraform -chdir=terraform fmt -check -recursive
+
+      - name: Package agents and generate cards
+        run: |
+          bash scripts/governance/package_agent.sh all
+          python scripts/governance/gen_agent_cards.py
+
+      - name: validate
+        run: |
+          terraform -chdir=terraform init -backend=false -input=false
+          terraform -chdir=terraform validate
