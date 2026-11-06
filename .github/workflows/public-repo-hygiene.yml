@@ -1,0 +1,52 @@
+name: Public Repo Secret & Hygiene Gate
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  hygiene-gate:
+    name: Secret, State & Internal-Jargon Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository with full history
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install pinned test runner
+        run: |
+          pip install pytest==8.3.5
+
+      - name: Run hygiene gate unit tests
+        run: |
+          pytest tests/test_check_public_repo_hygiene.py -o addopts=""
+
+      - name: Scan all tracked repository files
+        run: |
+          python3 scripts/check_public_repo_hygiene.py --all-tracked
+
+      - name: Scan PR commit messages and added lines
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          python3 scripts/check_public_repo_hygiene.py --git-range "${BASE_SHA}..${HEAD_SHA}"
+
+      - name: Run Gitleaks secret scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -44,6 +44,7 @@ exclude = [
 [tool.pytest.ini_options]
 # Pytest configuration
 minversion = "6.0"
+pythonpath = ["."]
 python_files = "test_*.py"
 python_classes = "Test*"
 python_functions = "test_*"
@@ -95,6 +96,7 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["S101"]  # Allow assert in tests
+"scripts/check_public_repo_hygiene.py" = ["S603", "S607"]  # Trusted git CLI invocations
 "agent_soc_manager/tools/chatops/test_*.py" = ["S101", "S105", "E402"]  # test secrets and post-bootstrap imports
 "agent_soc_manager/tools/chatops/generate_test_url.py" = ["S105", "E402"]
 "agent_soc_manager/tools/chatops/webhook_handler.py" = ["S104"]
@@ -109,3 +111,9 @@ ignore = [
 force-single-line = false
 force-sort-within-sections = false
 lines-after-imports = 2
+
+[[tool.uv.index]]
+# Pin public PyPI explicitly so lockfiles never capture internal workstation proxy URLs
+name = "pypi"
+url = "https://pypi.org/simple"
+default = true

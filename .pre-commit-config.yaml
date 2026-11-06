@@ -41,3 +41,19 @@ repos:
         name: Check for merge conflicts
       - id: mixed-line-ending
         name: Fix mixed line endings
+      - id: detect-private-key
+        name: Detect private keys
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.24.2
+    hooks:
+      - id: gitleaks
+        name: Detect hardcoded secrets with Gitleaks
+
+  - repo: local
+    hooks:
+      - id: public-repo-hygiene
+        name: Public repository secret and internal-jargon gate
+        entry: python3 scripts/check_public_repo_hygiene.py
+        language: system
+        pass_filenames: true

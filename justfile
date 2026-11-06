@@ -1133,3 +1133,15 @@ aqua-ui:
 # Promote a failing AQuA production insight into evalsets/aqua_regressions.evalset.json
 aqua-promote-insight insight_id insights_file="aqua/insights.json":
     {{ python }} scripts/promote_aqua_insight.py --insight-id {{ quote(insight_id) }} --insights-file {{ insights_file }}
+
+# ============================================================================
+# Public Repository Secret & Internal-Jargon Hygiene Gates
+# ============================================================================
+
+# Scan all Git-tracked files for secrets, Terraform state/tfvars, and internal jargon
+security-hygiene:
+    {{ python }} scripts/check_public_repo_hygiene.py --all-tracked
+
+# Audit commit messages and added diff lines across a branch range before opening a PR
+security-hygiene-range rev_range="origin/main..HEAD":
+    {{ python }} scripts/check_public_repo_hygiene.py --git-range {{ quote(rev_range) }}
