@@ -452,30 +452,40 @@ Unified Access Policies enforce an explicit per-tool CEL allowlist on the
 Chronicle MCP server. Even with valid project credentials, tools outside that
 specialist's allowlist are denied at the gateway choke point.
 
+Tools deliberately kept off every specialist's allowlist in this deployment:
+{denied_tools}
+
 **Control:** `chronicle-mcp-tool-allowlist` | **Verdict:** `DENY`
 """
 
+_AUTHZ_DENIAL_RE = re.compile(
+    r"\b(?:403|forbidden|permission_denied|permission denied|access denied|denied)\b",
+    re.IGNORECASE,
+)
+
 
 def _tool_denial_match(text: str) -> tuple[str, str] | None:
+    """Returns (tool, detail) only when the specialist relayed an authorization denial.
+
+    Membership in DENIED_MCP_TOOLS is not evidence on its own: an operational
+    failure (quota, timeout, upstream 5xx) on a denied-list tool is still an
+    operational failure, and dressing it as an allowlist verdict would be a
+    false claim about the gateway. The gateway's 403 text is the evidence.
+    """
     match = _TOOL_ERROR_RE.search(text or "")
     if not match:
         return None
     tool_name = match.group(1)
     detail = match.group(2).strip()
-    lowered = detail.lower()
-    is_authz_denial = any(
-        token in lowered
-        for token in (
-            "403",
-            "forbidden",
-            "permission_denied",
-            "permission denied",
-            "denied",
-        )
-    )
-    if tool_name in DENIED_MCP_TOOLS or is_authz_denial:
-        return tool_name, detail[:240]
-    return None
+    if not _AUTHZ_DENIAL_RE.search(detail):
+        return None
+    return tool_name, detail[:240]
+
+
+def _denied_tools_markdown() -> str:
+    if not DENIED_MCP_TOOLS:
+        return "- (none configured via `DENIED_MCP_TOOLS`)"
+    return "\n".join(f"- `{name}`" for name in DENIED_MCP_TOOLS)
 
 
 def _stream_notice(text: str) -> str | None:
@@ -483,7 +493,9 @@ def _stream_notice(text: str) -> str | None:
     if matched is None:
         return None
     tool_name, detail = matched
-    return _TOOL_DENIAL_NOTICE.format(tool=tool_name, detail=detail)
+    return _TOOL_DENIAL_NOTICE.format(
+        tool=tool_name, detail=detail, denied_tools=_denied_tools_markdown()
+    )
 
 
 _TOOL_ERROR_LINE_RE = re.compile(r"^.*TOOL_ERROR\s*:.*$", re.MULTILINE)
