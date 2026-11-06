@@ -16,7 +16,9 @@ TERRAFORM_DIR = REPO_ROOT / "terraform"
 GOVERNANCE_SCRIPTS_DIR = REPO_ROOT / "scripts" / "governance"
 
 
-def _load_module(module_name: str, file_path: Path, env_overrides: dict[str, str]) -> Any:
+def _load_module(
+    module_name: str, file_path: Path, env_overrides: dict[str, str]
+) -> Any:
     """Loads a file-backed module under temporary environment variables."""
     with patch.dict(os.environ, env_overrides, clear=False):
         spec = importlib.util.spec_from_file_location(module_name, file_path)
@@ -30,11 +32,7 @@ def _contains_emoji(text: str) -> bool:
     """Checks for emoji codepoints across Supplementary Multilingual & symbol ranges."""
     for ch in text:
         cp = ord(ch)
-        if (
-            0x1F300 <= cp <= 0x1FAFF
-            or 0x2600 <= cp <= 0x27BF
-            or 0xFE00 <= cp <= 0xFE0F
-        ):
+        if 0x1F300 <= cp <= 0x1FAFF or 0x2600 <= cp <= 0x27BF or 0xFE00 <= cp <= 0xFE0F:
             return True
     return False
 
@@ -46,9 +44,14 @@ def test_zero_emojis_across_governance_files() -> None:
         for path in sorted(root.rglob("*")):
             if not path.is_file():
                 continue
-            if any(part in {".terraform", "dist", "__pycache__"} for part in path.parts):
+            if any(
+                part in {".terraform", "dist", "__pycache__"} for part in path.parts
+            ):
                 continue
-            if path.suffix in {".gz", ".pyc", ".lock", ".hcl"} and path.name != ".terraform.lock.hcl":
+            if (
+                path.suffix in {".gz", ".pyc", ".lock", ".hcl"}
+                and path.name != ".terraform.lock.hcl"
+            ):
                 continue
             if path.name == ".terraform.lock.hcl":
                 continue
@@ -122,8 +125,15 @@ def test_gti_tools_retrieves_auth_manager_secret_without_leaking_key() -> None:
             "id": "example.com",
             "attributes": {
                 "reputation": -42,
-                "last_analysis_stats": {"malicious": 9, "suspicious": 2, "harmless": 60, "undetected": 15},
-                "popular_threat_classification": {"suggested_threat_label": "trojan.beacon"},
+                "last_analysis_stats": {
+                    "malicious": 9,
+                    "suspicious": 2,
+                    "harmless": 60,
+                    "undetected": 15,
+                },
+                "popular_threat_classification": {
+                    "suggested_threat_label": "trojan.beacon"
+                },
                 "tags": ["c2"],
             },
         }
@@ -165,11 +175,15 @@ def test_secops_mcp_strips_response_schema_and_formats_tool_errors() -> None:
         {"CHRONICLE_PROJECT_ID": "example-proj"},
     )
 
-    fd = SimpleNamespace(name="list_security_alerts", response_json_schema={"type": "object"})
+    fd = SimpleNamespace(
+        name="list_security_alerts", response_json_schema={"type": "object"}
+    )
     tool_decl = SimpleNamespace(function_declarations=[fd])
     fn_resp = SimpleNamespace(
         name="delete_feed",
-        response={"error": "HTTP 403 Forbidden: permission denied by IAP access policy"},
+        response={
+            "error": "HTTP 403 Forbidden: permission denied by IAP access policy"
+        },
     )
     llm_request = SimpleNamespace(
         config=SimpleNamespace(tools=[tool_decl]),
@@ -180,7 +194,10 @@ def test_secops_mcp_strips_response_schema_and_formats_tool_errors() -> None:
     assert fd.response_json_schema is None
     assert short_circuit is not None
     text = short_circuit.content.parts[0].text
-    assert text == "TOOL_ERROR: delete_feed -- HTTP 403 Forbidden: permission denied by IAP access policy"
+    assert (
+        text
+        == "TOOL_ERROR: delete_feed -- HTTP 403 Forbidden: permission denied by IAP access policy"
+    )
 
 
 def test_tier2_response_tools_preserve_host_user_and_change_ticket() -> None:
@@ -190,7 +207,9 @@ def test_tier2_response_tools_preserve_host_user_and_change_ticket() -> None:
         GOVERNED_AGENTS_DIR / "tier2_responder" / "response_tools.py",
         {},
     )
-    iso = mod.isolate_endpoint_host(" WKSTN-FIN-042 ", "Confirmed C2 beacon", " CHG-10492 ")
+    iso = mod.isolate_endpoint_host(
+        " WKSTN-FIN-042 ", "Confirmed C2 beacon", " CHG-10492 "
+    )
     assert iso["status"] == "ISOLATED"
     assert iso["hostname"] == "WKSTN-FIN-042"
     assert iso["change_ticket"] == "CHG-10492"
@@ -222,7 +241,9 @@ def test_soc_orchestrator_policy_block_banners() -> None:
     assert "`delete_feed`" in banner
     assert "`chronicle-mcp-tool-allowlist`" in banner
 
-    exc = RuntimeError('{"error": {"message": "Security Policy Violation: prompt injection detected"}}')
+    exc = RuntimeError(
+        '{"error": {"message": "Security Policy Violation: prompt injection detected"}}'
+    )
     event = mod._notice_event(exc)
     notice_text = event.content.parts[0].text
     assert "[POLICY BLOCK] Blocked by AI security policy -- MODEL ARMOR." in notice_text

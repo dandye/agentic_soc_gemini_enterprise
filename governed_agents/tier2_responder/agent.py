@@ -162,9 +162,7 @@ agent_card = create_agent_card(
                 "containment reference lists."
             ),
             tags=["chronicle", "siem", "alerts", "reference-lists"],
-            examples=[
-                "Inspect and summarize security alerts for Tier-2 escalation"
-            ],
+            examples=["Inspect and summarize security alerts for Tier-2 escalation"],
         ),
     ],
 )

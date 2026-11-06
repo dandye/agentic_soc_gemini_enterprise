@@ -63,7 +63,11 @@ def _fetch_gti_resource(path: str) -> dict[str, Any]:
             },
         )
     if response.status_code == 404:
-        return {"found": False, "status_code": 404, "detail": "Indicator not found in GTI."}
+        return {
+            "found": False,
+            "status_code": 404,
+            "detail": "Indicator not found in GTI.",
+        }
     if response.status_code >= 400:
         return {
             "error": (
@@ -75,7 +79,9 @@ def _fetch_gti_resource(path: str) -> dict[str, Any]:
     return {"found": True, "data": payload.get("data", {})}
 
 
-def _summarize_indicator(indicator: str, indicator_type: str, result: dict[str, Any]) -> dict[str, Any]:
+def _summarize_indicator(
+    indicator: str, indicator_type: str, result: dict[str, Any]
+) -> dict[str, Any]:
     """Extracts concise reputation attributes from a GTI v3 object."""
     if "error" in result or not result.get("found"):
         return {

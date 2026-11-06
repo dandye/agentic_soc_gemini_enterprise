@@ -123,9 +123,7 @@ agent_card = create_agent_card(
                 "and IP address reputation, categories, ASN owner, and detections."
             ),
             tags=["cti", "domain", "ip", "virustotal", "gti"],
-            examples=[
-                "Check GTI reputation for domain google.com and IP 8.8.8.8"
-            ],
+            examples=["Check GTI reputation for domain google.com and IP 8.8.8.8"],
         ),
         AgentSkill(
             id="inspect_threat_collection",

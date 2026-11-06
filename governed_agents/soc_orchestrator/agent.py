@@ -352,9 +352,7 @@ def _to_content(message: str | dict[str, Any]) -> types.Content:
     )
 
 
-async def _resolve_session(
-    runner: Runner, user_id: str, session_id: str | None
-) -> str:
+async def _resolve_session(runner: Runner, user_id: str, session_id: str | None) -> str:
     service = runner.session_service
     if session_id:
         existing = await service.get_session(
@@ -467,7 +465,13 @@ def _tool_denial_match(text: str) -> tuple[str, str] | None:
     lowered = detail.lower()
     is_authz_denial = any(
         token in lowered
-        for token in ("403", "forbidden", "permission_denied", "permission denied", "denied")
+        for token in (
+            "403",
+            "forbidden",
+            "permission_denied",
+            "permission denied",
+            "denied",
+        )
     )
     if tool_name in DENIED_MCP_TOOLS or is_authz_denial:
         return tool_name, detail[:240]
