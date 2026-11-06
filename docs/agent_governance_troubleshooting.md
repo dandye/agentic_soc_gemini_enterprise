@@ -61,7 +61,7 @@ flowchart TD
 
 ### 1. HTTP 403 with `GatekeeperAuthorizer.AuthorizeUser` on a tool call
 
-**Symptom.** A specialist reports `TOOL_ERROR: <tool> -- ... 403 ...`, and the orchestrator wraps it in the tool-allowlist banner:
+**Symptom.** A specialist reports `TOOL_ERROR: <tool> -- MCP tool execution failed: HTTP 403 Forbidden: ...`, and the orchestrator wraps it in the tool-allowlist banner:
 
 ```
 **[POLICY BLOCK] Blocked by AI security policy -- TOOL ALLOWLIST.**
@@ -74,6 +74,8 @@ flowchart TD
 ```
 
 **Evidence.** `just governance-logs action=denied freshness=1h` shows a `DENY` row with `tools/call`, the tool name, the specialist's engine ID under `AGENT`, and the Chronicle MCP host. The log entry's `protoPayload.methodName` is `GatekeeperAuthorizer.AuthorizeUser`.
+
+If the specialist's text says only `MCP tool execution failed: Server returned an error response` with no HTTP status, the orchestrator will not raise the banner: that is the MCP SDK's generic wording for any non-2xx reply, and the banner requires a real denial signal (`403`, `forbidden`, `permission denied`, `access denied`, or `denied`), not just that the tool is on the denied list. The specialists' `secops_mcp.py` installs an `httpx` response hook that records non-2xx replies and rewrites the generic text to `HTTP <status> <reason>: <body>`; if you see the generic form, the specialist is running a build from before that hook (redeploy with `just governance-plan` / `apply`).
 
 **Cause.** Either of two things, and the row does not distinguish them:
 

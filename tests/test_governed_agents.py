@@ -241,6 +241,73 @@ def test_secops_mcp_strips_response_schema_and_formats_tool_errors() -> None:
     )
 
 
+def test_secops_mcp_recovers_the_gateway_http_status_behind_the_generic_mcp_error() -> (
+    None
+):
+    """A gateway 403 survives the MCP SDK's generic error so the orchestrator can name it.
+
+    mcp 2.x reports any non-2xx, non-JSON-RPC reply as "Server returned an error
+    response" and ADK wraps that as {"error": "MCP tool execution failed: ..."}.
+    The response hook records the real status so TOOL_ERROR carries it.
+    """
+    mod = _load_module(
+        "test_secops_mcp_http_status",
+        GOVERNED_AGENTS_DIR / "threat_hunter" / "secops_mcp.py",
+        {"CHRONICLE_PROJECT_ID": "example-proj"},
+    )
+    generic = {"error": "MCP tool execution failed: Server returned an error response"}
+
+    # The factory installs a response hook on the real client type ADK uses.
+    client = mod.create_chronicle_http_client()
+    assert mod._record_non_2xx in client.event_hooks["response"]
+
+    # Nothing recorded yet: the generic text passes through unchanged.
+    assert (
+        mod._extract_tool_error("list_feeds", generic)
+        == "TOOL_ERROR: list_feeds -- MCP tool execution failed: Server returned an error response"
+    )
+
+    class _Reply:
+        status_code = 403
+        reason_phrase = "Forbidden"
+        url = "https://chronicle.example/mcp"
+
+        async def aread(self) -> bytes:
+            return b'{"error":{"code":403,"message":"Error: Security Policy Violation","status":"PERMISSION_DENIED"}}'
+
+    asyncio.run(mod._record_non_2xx(_Reply()))
+    text = mod._extract_tool_error("list_feeds", generic)
+    assert text is not None
+    assert text.startswith(
+        "TOOL_ERROR: list_feeds -- MCP tool execution failed: HTTP 403 Forbidden: "
+    )
+    assert "Security Policy Violation" in text
+
+    # Consumed once: a later unrelated generic error does not inherit the 403.
+    assert "403" not in (mod._extract_tool_error("list_feeds", generic) or "")
+
+    # 2xx replies are never recorded; non-generic errors are never rewritten.
+    class _Ok(_Reply):
+        status_code = 200
+
+    asyncio.run(mod._record_non_2xx(_Ok()))
+    assert mod._take_recent_http_error() is None
+    asyncio.run(mod._record_non_2xx(_Reply()))
+    assert mod._extract_tool_error("list_feeds", {"error": "quota exceeded"}) == (
+        "TOOL_ERROR: list_feeds -- quota exceeded"
+    )
+    assert (
+        mod._take_recent_http_error() is not None
+    )  # left untouched for the generic path
+
+    # The orchestrator now sees a real denial signal on the gateway path.
+    orchestrator = _load_orchestrator()
+    assert orchestrator._tool_denial_match(text) == (
+        "list_feeds",
+        text.split(" -- ", 1)[1][:240],
+    )
+
+
 def test_tier2_response_tools_preserve_host_user_and_change_ticket() -> None:
     """Verifies Tier-2 containment tool return payloads."""
     mod = _load_module(
