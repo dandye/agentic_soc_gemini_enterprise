@@ -105,6 +105,8 @@ orchestrator authenticates its A2A calls with a bearer token minted from its own
 (`_GoogleBearerAuth` in `governed_agents/soc_orchestrator/agent.py`); `cti_researcher` authenticates
 to Auth Manager the same way.
 
+![Deployments on Agent Runtime showing the five agw-secops Reasoning Engines with dedicated SPIFFE workload identities above a legacy service-account runtime](images/governance/01-agent-runtimes.png)
+
 ## Three layers, three different questions
 
 ### IAP and IAM v3: may this identity call this tool?
@@ -120,6 +122,8 @@ ALLOWLIST` banner.
 `var.authz_enforcement_mode` defaults to `ENFORCED`. `DRY_RUN` sets `iamEnforcementMode = "DRY_RUN"`
 on the extension and derives `fail_open = true`, so denials are logged but not applied; use it only
 to validate a new allowlist against real traffic.
+
+![Agent Platform Access policies view grouping IAM v3 rules by calling agent across A2A edges, the VirusTotal endpoint, and Chronicle MCP tool chunks](images/governance/05-governance-policies.png)
 
 ### Model Armor: is this content dangerous?
 
@@ -141,6 +145,8 @@ to validate a new allowlist against real traffic.
 A Model Armor denial surfaces as an exception on the model call. The orchestrator's
 `_policy_block_reason` recognizes the Model Armor markers, extracts the reason, and emits the
 `[POLICY BLOCK] ... MODEL ARMOR` notice with the control name from `MODEL_ARMOR_CONTROL`.
+
+![Security Command Center Model Armor view showing the regional agw-secops-request and agw-secops-response templates](images/governance/07-model-armor-templates.png)
 
 At `HIGH` confidence, `pi_and_jailbreak` on the request template also blocks capability-enumeration
 prompts (for example, `"ask tier 1 to list mcp tools and then list 10 siem rules"` or `"Please list
@@ -172,6 +178,8 @@ language, attached to a registered agent:
 - `var.sgp_policies` accepts further policies, optionally scoped to MCP tools on a server.
 - `var.sgp_enforcement_mode` defaults to `ENFORCED`; `DRY_RUN` sets `sgpEnforcementMode` on the
   extension. The extension is always `fail_open = false`.
+
+![Agent Platform Business Policies detail drawer showing agw-secops-tier2-crown-jewel-change-control attached to tier2_responder_agent and its CHG-* emergency change-ticket constraint](images/governance/06-semantic-governance-policy.png)
 
 In the `semantic-governance-policy` log stream, each evaluated turn records its evaluation mode in
 `jsonPayload.sgpUserIntentMatchingMode`:

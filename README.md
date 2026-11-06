@@ -242,6 +242,10 @@ just rag-delete RAG_CORPUS_ID=projects/.../ragCorpora/...
 
 The `governed_agents/` and `terraform/` directories add a governed deployment of the SOC agents: a zero-tool `soc_orchestrator` and four narrow specialists (`cti_researcher`, `threat_hunter`, `detection_engineer`, `tier2_responder`), each running as a Reasoning Engine with its own workload identity, with all egress routed through a default-deny Agent Gateway. Per-tool CEL allowlists, inline Model Armor, a Semantic Governance crown-jewel policy, and a Cloud Monitoring dashboard enforce and evidence every decision.
 
+![Egress Agent Gateway details showing Agent-to-Anywhere mode, regional Agent Registry binding, three Service Extensions, and the Semantic Governance PSC network attachment](docs/images/governance/04-agent-gateway.png)
+
+![Cloud Monitoring SecOps Governance dashboard showing allowed and denied outbound gateway verdicts, destination hosts, and inline 403 enforcement logs](docs/images/governance/08-governance-dashboard.png)
+
 ```bash
 just governance-init        # terraform init
 just governance-validate    # package agents, generate agent cards, terraform validate
