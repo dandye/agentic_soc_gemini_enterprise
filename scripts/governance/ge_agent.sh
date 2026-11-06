@@ -47,7 +47,8 @@ GE_AGENT_DISPLAY_NAME="${GE_AGENT_DISPLAY_NAME:-Governed SecOps Orchestrator}"
 GE_AGENT_DESCRIPTION=${GE_AGENT_DESCRIPTION:-}
 GE_AGENT_SHARING_SCOPE=${GE_AGENT_SHARING_SCOPE:-ALL_USERS}
 
-readonly REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
+REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
+readonly REPO_ROOT
 GE_AGENT_ICON_PATH=${GE_AGENT_ICON_PATH-}
 if [[ -n $GE_AGENT_ICON_PATH && $GE_AGENT_ICON_PATH != /* ]]; then
   GE_AGENT_ICON_PATH="${REPO_ROOT}/${GE_AGENT_ICON_PATH}"
@@ -77,7 +78,8 @@ engine_key() {
   sed -E 's#^.*/(locations/[^/]+/reasoningEngines/[^/]+)$#\1#' <<<"$1"
 }
 
-readonly WANT_ENGINE_KEY="$(engine_key "$GE_REASONING_ENGINE")"
+WANT_ENGINE_KEY="$(engine_key "$GE_REASONING_ENGINE")"
+readonly WANT_ENGINE_KEY
 [[ $WANT_ENGINE_KEY == locations/*/reasoningEngines/* ]] ||
   die "GE_REASONING_ENGINE must be a full resource name like projects/<p>/locations/<r>/reasoningEngines/<id>, got '${GE_REASONING_ENGINE}'"
 
@@ -253,10 +255,10 @@ do_delete() {
   req DELETE "$existing"
   [[ $REQ_CODE == 200 ]] || die "delete failed (HTTP ${REQ_CODE}): $REQ_BODY"
 
-  local op done
+  local op op_done
   op=$(jq -r '.name // ""' <<<"$REQ_BODY")
-  done=$(jq -r '.done // false' <<<"$REQ_BODY")
-  note "ok: delete accepted (operation ${op##*/}, done=${done})"
+  op_done=$(jq -r '.done // false' <<<"$REQ_BODY")
+  note "ok: delete accepted (operation ${op##*/}, done=${op_done})"
 }
 
 case "$action" in

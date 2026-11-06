@@ -21,7 +21,8 @@
 set -euo pipefail
 
 readonly SELF="verify_logs.sh"
-readonly TF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../terraform" && pwd)"
+TF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../terraform" && pwd)"
+readonly TF_DIR
 
 RESOURCE_TYPE="${AGW_LOG_RESOURCE_TYPE:-networkservices.googleapis.com/Gateway}"
 

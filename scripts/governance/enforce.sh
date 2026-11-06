@@ -8,7 +8,8 @@
 
 set -euo pipefail
 
-readonly TF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../terraform" && pwd)"
+TF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../terraform" && pwd)"
+readonly TF_DIR
 
 note() { printf 'enforce.sh: %s\n' "$*" >&2; }
 die() {

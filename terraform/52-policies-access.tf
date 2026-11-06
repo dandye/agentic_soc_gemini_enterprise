@@ -87,7 +87,7 @@ locals {
         expression  = expr
       }
     }
-  ]...) : {
+    ]...) : {
     for agent_name, spec in local.mcp_specialist_allowlists :
     "${agent_name}_mcp_all" => {
       description = "${spec.label} (all tools diagnostic)"
