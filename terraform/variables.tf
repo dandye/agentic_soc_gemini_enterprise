@@ -198,6 +198,34 @@ variable "trace_capture_message_content" {
   default     = true
 }
 
+variable "min_instances" {
+  description = "Minimum warm container instances per Reasoning Engine (`0` scales idle memory cost to $0/hr with a cold start on first request; `1` keeps one warm instance at ~$24/mo per engine)."
+  type        = number
+  default     = 0
+  nullable    = false
+
+  validation {
+    condition     = var.min_instances >= 0 && var.min_instances <= 10 && floor(var.min_instances) == var.min_instances
+    error_message = "min_instances must be a whole number between 0 and 10."
+  }
+}
+
+variable "max_instances" {
+  description = "Optional maximum container instances per Reasoning Engine (`null` preserves the Vertex AI platform default of 100)."
+  type        = number
+  default     = null
+
+  validation {
+    condition = var.max_instances == null || (
+      var.max_instances >= 1 &&
+      var.max_instances <= 1000 &&
+      floor(var.max_instances) == var.max_instances &&
+      var.max_instances >= var.min_instances
+    )
+    error_message = "max_instances must be null or a whole number between 1 and 1000 that is >= min_instances."
+  }
+}
+
 # Agent Registry & IAP CEL policies
 
 variable "extra_google_api_hosts" {

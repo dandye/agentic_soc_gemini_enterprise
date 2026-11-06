@@ -176,6 +176,9 @@ resource "google_vertex_ai_reasoning_engine" "cti_researcher" {
         }
       }
 
+      min_instances = var.min_instances
+      max_instances = var.max_instances
+
       agent_gateway_config {
         agent_to_anywhere_config {
           agent_gateway = local.agent_gateway_name
@@ -263,6 +266,9 @@ resource "google_vertex_ai_reasoning_engine" "threat_hunter" {
         }
       }
 
+      min_instances = var.min_instances
+      max_instances = var.max_instances
+
       agent_gateway_config {
         agent_to_anywhere_config {
           agent_gateway = local.agent_gateway_name
@@ -349,6 +355,9 @@ resource "google_vertex_ai_reasoning_engine" "detection_engineer" {
         }
       }
 
+      min_instances = var.min_instances
+      max_instances = var.max_instances
+
       agent_gateway_config {
         agent_to_anywhere_config {
           agent_gateway = local.agent_gateway_name
@@ -434,6 +443,9 @@ resource "google_vertex_ai_reasoning_engine" "tier2_responder" {
           value = env.value
         }
       }
+
+      min_instances = var.min_instances
+      max_instances = var.max_instances
 
       agent_gateway_config {
         agent_to_anywhere_config {
@@ -546,6 +558,9 @@ resource "google_vertex_ai_reasoning_engine" "soc_orchestrator" {
           value = env.value
         }
       }
+
+      min_instances = var.min_instances
+      max_instances = var.max_instances
 
       agent_gateway_config {
         agent_to_anywhere_config {

@@ -133,6 +133,37 @@ Copy the example and fill in the placeholders. `*.tfvars` is gitignored;
 cp terraform/terraform.tfvars.example terraform/terraform.tfvars
 ```
 
+### Multi-environment `tfvars` and GCS remote state
+
+When managing separate development and demo tenants from the same repository (or
+across multiple Git worktrees), create named variable files under
+`terraform/environments/<name>.tfvars` (`*.tfvars` is gitignored) and configure
+an optional GCS state backend (`terraform/backend.tf` is gitignored and blocked
+by the public-repo hygiene gate; `terraform/backend.tf.example` is tracked):
+
+```bash
+cp terraform/environments/example.tfvars.example terraform/environments/demo.tfvars
+
+TFSTATE_BUCKET="<YOUR_TFSTATE_BUCKET>"
+just governance-init bucket="$TFSTATE_BUCKET" prefix="agentic-soc-governance/demo"
+just governance-plan env=demo
+terraform -chdir=terraform apply -var-file="environments/demo.tfvars"
+```
+
+To migrate an existing local `terraform/terraform.tfstate` into GCS without
+recreating resources, pass `migrate=true` (which runs
+`terraform -chdir=terraform init -migrate-state`):
+
+```bash
+TFSTATE_BUCKET="<YOUR_TFSTATE_BUCKET>"
+just governance-init bucket="$TFSTATE_BUCKET" prefix="agentic-soc-governance/default" migrate=true
+```
+
+If two environments coexist inside a single GCP project, give each environment
+its own `resource_prefix` (for example `"agw-secops-dev"` and
+`"agw-secops-demo"`) and a distinct `sgp_dns_zone_suffix`, plus a separate GCS
+state `prefix`.
+
 Every variable in `terraform/variables.tf`:
 
 | Variable | Type | Default | Meaning |
@@ -164,6 +195,8 @@ Every variable in `terraform/variables.tf`:
 | `model_location` | string | `"global"` | Vertex AI model endpoint location (`global`, `us`, `eu`) |
 | `python_version` | string | `"3.12"` | Python runtime for the Reasoning Engines |
 | `trace_capture_message_content` | bool | `true` | Set `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=EVENT_ONLY` |
+| `min_instances` | number | `0` | Minimum warm container instances per Reasoning Engine (`0` scales idle memory cost to \$0; `1` keeps one warm instance) |
+| `max_instances` | number | `null` | Maximum container instances per Reasoning Engine (`null` preserves the platform default of `100`) |
 | `extra_google_api_hosts` | list(string) | `[]` | Additional Google API hosts to register and permit for all agents |
 | `chronicle_enforce_tool_allowlist` | bool | `true` | Enforce per-specialist Chronicle MCP tool allowlists in IAP |
 | `enable_agent_registry_policies` | bool | `true` | Look up auto-registered specialists and bind A2A and Semantic Governance policies |
@@ -212,6 +245,9 @@ shims use plain TLS. The Reasoning Engines already set it in their environment.
 ```bash
 export GOOGLE_API_USE_CLIENT_CERTIFICATE=false
 just governance-init
+# Or with a GCS remote state backend:
+# TFSTATE_BUCKET="<YOUR_TFSTATE_BUCKET>"
+# just governance-init bucket="$TFSTATE_BUCKET" prefix="agentic-soc-governance/default"
 just governance-validate
 ```
 
@@ -371,6 +407,10 @@ just governance-smoke-test case=3b
 
 The script prints `Summary: N/6 scenarios passed` and exits non-zero on any
 failure. Pass `--json-out <path>` through the Python entrypoint to save results.
+Because `min_instances` defaults to `0`, the first turn after an idle period
+incurs a 10 to 25 second cold start per specialist; run
+`just governance-smoke-test` shortly before a live demo to warm all five
+engines, or set `min_instances = 1` when continuous warm capacity is needed.
 
 ### Logs
 
@@ -547,7 +587,7 @@ region.
 
 | Item | Where it comes from | Approximate cost |
 | --- | --- | --- |
-| Reasoning Engine idle memory | Five `google_vertex_ai_reasoning_engine` resources in `41-agents.tf` | About \$24 per month per engine while idle. This Terraform does not expose a minimum-instance setting, so budget for five engines |
+| Reasoning Engine idle memory | Five `google_vertex_ai_reasoning_engine` resources in `41-agents.tf` | \$0 while idle by default (`min_instances = 0`). Setting `min_instances = 1` keeps one warm instance per engine at about \$24 per month per engine |
 | Egress Agent Gateway | `google_network_services_agent_gateway.egress` in `30-gateway.tf` | \$0 idle; about \$5.67 per million proxied requests |
 | Semantic Governance PSC endpoint | Forwarding rule created by `sgp_gateway_config.sh attach` in `65-semantic-governance.tf` | About \$7.30 per month |
 | Semantic Governance private DNS zone | `google_dns_managed_zone.sgp` in `65-semantic-governance.tf` | About \$0.20 per month |
@@ -556,7 +596,7 @@ Set `enable_semantic_governance = false` to avoid the last two rows.
 
 ## Tests
 
-`just governance-test` runs `scripts/governance/tests/run_all.sh`: eight offline
+`just governance-test` runs `scripts/governance/tests/run_all.sh`: nine offline
 harnesses that stub `gcloud`, `terraform`, and `curl` on `PATH`. No network, no
 credentials. It prints `ALL GREEN: <n> harnesses, <m> checks` or
 `FAILED: <k> of <n> harnesses`.
@@ -568,6 +608,7 @@ credentials. It prints `ALL GREEN: <n> harnesses, <m> checks` or
 | `delete_until_gone_test.sh` | `delete_until_gone.sh` polls until 404 and fails cleanly when `DG_WAIT_SECONDS` elapses |
 | `ge_agent_test.sh` | `ge_agent.sh` create, icon, and delete branches issue exactly the expected Discovery Engine calls against replayed fixtures |
 | `ge_env_test.sh` | `ge_env.sh` derives shell-quoted `GE_*` exports from `terraform output -json`, honors caller overrides (`--force`), and fails cleanly when state is missing |
+| `multi_env_test.sh` | `.gitignore` blocks `terraform/backend.tf` and `environments/*.tfvars` while tracking `.example` templates, and `just governance-init` renders valid GCS backend blocks |
 | `package_agent_test.sh` | Archives put `agent.py` and `requirements.txt` at the root and are byte-identical for identical input |
 | `sgp_test.sh` | `sgp_gateway_config.sh` attach and detach branches manage the policy engine's gateway config as `65-semantic-governance.tf` expects |
 | `verify_logs_test.sh` | `verify_logs.sh` `unregistered`, `model-armor`, and `model-armor-blocked` actions format and diff log payloads accurately |
