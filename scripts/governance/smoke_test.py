@@ -257,20 +257,16 @@ def _evaluate_case(case_id: str, output: str) -> tuple[bool, str]:
         )
         return ok, "expected clean multi-specialist synthesis with GTI + WKSTN-FIN-042"
     if case_id == "case_2_mcp_allowlist_deny":
-        ok = "a2a request failed" not in lower and any(
-            marker in lower
-            for marker in (
-                "tool allowlist",
-                "chronicle-mcp-tool-allowlist",
-                "tool_error: list_feeds",
-                "tool_error: delete_feed",
-                "403",
-                "denied",
-                "refused",
-                "permission_denied",
-            )
+        # The banner is the deliverable: it proves the orchestrator attributed
+        # the refusal to the gateway allowlist on the A2A path, not just that a
+        # tool call failed somewhere.
+        ok = (
+            "a2a request failed" not in lower
+            and "tool allowlist" in lower
+            and "chronicle-mcp-tool-allowlist" in lower
+            and "list_feeds" in lower
         )
-        return ok, "expected gateway MCP tool allowlist refusal on list_feeds"
+        return ok, "expected TOOL ALLOWLIST banner naming list_feeds on the A2A path"
     if case_id == "case_3_model_armor_block":
         ok = (
             "model armor" in lower
