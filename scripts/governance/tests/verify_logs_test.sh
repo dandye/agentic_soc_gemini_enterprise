@@ -301,6 +301,7 @@ check "a colliding service_id is flagged" "$OUT" "WARNING: service_id"
 check "the collision names the derived id" "$OUT" "\"${REGION}-g-aiplatform-us-rep\""
 check "the collision names the registered host that owns the id" "$OUT" \
   "collides with aiplatform.us.rep.googleapis.com"
+check "the collision says the registration would be a no-op" "$OUT" "would be a silent no-op"
 
 # The upstream reference collided aiplatform.googleapis.com with
 # <region>-aiplatform.googleapis.com. The SecOps derivation adds a "-g-"
@@ -353,9 +354,10 @@ state "iap.googleapis.com"
 observed
 invoke
 check "an empty window is called out" "$OUT" "no gateway SNI entries observed in the last 1h"
+check "an empty window says it verified nothing" "$OUT" "nothing to verify (not a clean result)"
 refute "an empty window does not claim no gaps" "$OUT" "no gaps"
 refute "an empty window does not list gaps" "$OUT" "UNREGISTERED HOSTS SEEN"
-equal "an empty window is not an error exit" "$RC" 0
+equal "an empty window exits 2, distinct from clean (0) and fatal (1)" "$RC" 2
 
 # --- 7. a truncated sample warns -------------------------------------------
 #
@@ -372,12 +374,22 @@ check "a truncated sample warns" "$OUT" "WARNING: sample truncated at --limit 3"
 check "the warning says what to do" "$OUT" "rerun with higher --limit"
 check "the explicit limit reaches the logging read" "$READ" "--limit=3"
 check "a truncated clean sample still prints the diff" "$OUT" "no gaps"
+equal "a truncated sample exits 3 so CI cannot read it as clean" "$RC" 3
+
+new_case
+state "iap.googleapis.com"
+observed "iap.googleapis.com"
+invoke --limit 0
+equal "--limit 0 is rejected before any read" "$RC" 1
+check "--limit 0 names the shape" "$OUT" "--limit must be a positive integer"
+equal "--limit 0 never reaches gcloud" "$READ" ""
 
 new_case
 state "iap.googleapis.com" "storage.googleapis.com" "oauth2.googleapis.com"
 observed "iap.googleapis.com" "storage.googleapis.com"
 invoke --limit 50
 refute "an untruncated sample does not warn" "$OUT" "truncated"
+equal "an untruncated sample with a gap still exits 0" "$RC" 0
 
 # Truncation counts raw entries, not distinct hosts: three log lines for one
 # host still fill a --limit 3 window.

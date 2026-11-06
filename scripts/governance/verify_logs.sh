@@ -14,6 +14,9 @@
 #
 # Flags:
 #   --limit N        entries to return (default 20; 1000 for unregistered)
+#
+# Exit codes for `unregistered`: 0 checked and no gaps (or gaps printed),
+# 1 fatal, 2 empty observation window (nothing verified), 3 sample truncated.
 #   --freshness D    lookback window (default 1h; e.g. 10m, 24h)
 #   --project P      GCP project ID (defaults to terraform output project_id)
 #   --raw            output raw JSON
@@ -72,7 +75,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ -n $action ]] || die "no action given. Expected: mcp | all | audit | denied | who | types | unregistered | telemetry."
-[[ $limit =~ ^[0-9]+$ ]] || die "--limit must be a positive integer, got '$limit'"
+[[ $limit =~ ^[1-9][0-9]*$ ]] || die "--limit must be a positive integer, got '$limit'"
 [[ $freshness =~ ^[0-9]+[smhd]$ ]] || die "--freshness must look like 30m, 2h, or 7d, got '$freshness'"
 
 command -v gcloud >/dev/null 2>&1 || die "gcloud not found on PATH"
@@ -264,8 +267,10 @@ unregistered)
   registered="$(printf '%s\n' "$registered" | sed '/^$/d' | LC_ALL=C sort -u)"
 
   if [[ -z $observed ]]; then
-    note "no gateway SNI entries observed in the last ${freshness}."
-    exit 0
+    # Exit 2 keeps "nothing to check" distinct from exit 0 "checked, no gaps":
+    # an empty window is not a clean bill of health.
+    note "no gateway SNI entries observed in the last ${freshness}; nothing to verify (not a clean result)."
+    exit 2
   fi
 
   entries_read="$(printf '%s\n' "$observed_raw" | sed '/^$/d' | wc -l | tr -d ' ')"
@@ -292,7 +297,7 @@ unregistered)
         [[ -n $other ]] || continue
         obase="$(derive_service_id "$region" "$other")"
         if [[ $obase == "$base" ]]; then
-          printf '%-52s WARNING: service_id "%s" collides with %s\n' "" "$base" "$other"
+          printf '%-52s WARNING: service_id "%s" collides with %s; registering this host under that id would be a silent no-op (for_each key already taken)\n' "" "$base" "$other"
         fi
       done <<<"$registered"
     done <<<"$missing"
@@ -300,6 +305,7 @@ unregistered)
 
   if ((entries_read >= limit)); then
     note "WARNING: sample truncated at --limit ${limit}; rerun with higher --limit"
+    exit 3
   fi
   ;;
 
