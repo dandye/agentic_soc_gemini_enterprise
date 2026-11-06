@@ -14,6 +14,12 @@ ge_engine_id    = "<YOUR_GE_ENGINE_ID>"
 ge_location     = "global"
 bind_ge_app     = false
 create_ge_agent = false
+# Gemini Enterprise opt-in. Both default to false because binding mutates a
+# shared app: every agent in the app starts egressing through this gateway, and
+# agents whose hosts are not in the Agent Registry are denied until registered.
+# Rollback: set both back to false and run `terraform apply` (the destroy
+# provisioners run bind_ge_app.sh unbind and ge_agent.sh delete), or run
+# `just governance-ge-rollback` with the GE_* variables exported.
 
 # Gemini 3+ models on global Vertex AI endpoint
 orchestrator_model = "gemini-3.1-pro-preview"
