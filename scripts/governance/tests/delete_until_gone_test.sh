@@ -124,7 +124,7 @@ stage 200 '' 200 '{}' 404 '{"error":{"code":404}}'
 invoke "$PROJECT" "$URL_A"
 equal "exits 0" "$RC" "0"
 check "deletes it" "$CALLS" "-X DELETE ${URL_A}"
-check "reports delete accepted" "$OUT" "delete accepted: ${URL_A}"
+check "reports delete accepted" "$OUT" "delete accepted (HTTP 200): ${URL_A}"
 check "reports still present with elapsed time" "$OUT" "still present (0s/300s): ${URL_A}"
 check "confirms gone" "$OUT" "confirmed gone: ${URL_A}"
 equal "polled GET twice" "$(grep -c -- "-X GET ${URL_A}" <<<"$CALLS")" "2"
@@ -157,14 +157,52 @@ check "names the HTTP code" "$OUT" "delete failed (HTTP 403) for ${URL_A}"
 check "echoes the response body" "$OUT" "forbidden"
 refute "never polls after a hard failure" "$CALLS" "-X GET"
 
-echo "  DELETE 200, then GET 500 -> fails on unexpected poll status"
-stage 200 '' 500 '{"error":{"message":"backend"}}'
+echo "  DELETE 200, then GET 500, then GET 404 -> transient poll fault is retried"
+stage 200 '' 500 '{"error":{"message":"backend"}}' 404 '{}'
+invoke "$PROJECT" "$URL_A"
+equal "exits 0" "$RC" "0"
+check "reports the retry" "$OUT" "poll got HTTP 500, retrying (0s/300s): ${URL_A}"
+check "confirms gone after the retry" "$OUT" "confirmed gone: ${URL_A}"
+equal "polled GET twice" "$(grep -c -- "-X GET ${URL_A}" <<<"$CALLS")" "2"
+
+echo "  DELETE 200, then GET 401 -> fails on a non-retryable poll status"
+stage 200 '' 401 '{"error":{"message":"expired"}}'
 invoke "$PROJECT" "$URL_A"
 equal "exits 1" "$RC" "1"
-check "names the unexpected code" "$OUT" "unexpected HTTP 500 polling ${URL_A}"
-check "echoes the response body" "$OUT" "backend"
+check "names the unexpected code" "$OUT" "unexpected HTTP 401 polling ${URL_A}"
+check "echoes the response body" "$OUT" "expired"
 equal "polled GET once" "$(grep -c -- "-X GET ${URL_A}" <<<"$CALLS")" "1"
 equal "no sleep after a hard failure" "$SLEEPS" ""
+
+echo "  DELETE 202 (async accepted), then GET 404 -> success"
+stage 202 '{"name":"operations/1"}' 404 '{}'
+invoke "$PROJECT" "$URL_A"
+equal "exits 0" "$RC" "0"
+check "treats 202 as accepted" "$OUT" "delete accepted (HTTP 202): ${URL_A}"
+
+echo "  DELETE 429 then DELETE 200, then GET 404 -> rate-limited delete is retried"
+stage 429 '{"error":{"message":"rate"}}' 200 '' 404 '{}'
+invoke "$PROJECT" "$URL_A"
+equal "exits 0" "$RC" "0"
+check "reports the delete retry" "$OUT" "delete got HTTP 429, retrying (0s/300s): ${URL_A}"
+equal "sent DELETE twice" "$(grep -c -- "-X DELETE ${URL_A}" <<<"$CALLS")" "2"
+check "confirms gone" "$OUT" "confirmed gone: ${URL_A}"
+
+echo "  DELETE 503 forever with a 2s budget -> bounded, then hard failure"
+stage 503 '{}' 503 '{}' 503 '{}' 503 '{}'
+DG_WAIT_SECONDS=2 invoke "$PROJECT" "$URL_A"
+equal "exits 1" "$RC" "1"
+check "fails with the last code" "$OUT" "delete failed (HTTP 503) for ${URL_A}"
+equal "sent DELETE three times (0s, 1s, then budget exhausted)" "$(grep -c -- "-X DELETE ${URL_A}" <<<"$CALLS")" "3"
+
+echo "  every request carries a curl --max-time"
+stage 200 '' 404 '{}'
+invoke "$PROJECT" "$URL_A"
+equal "max-time on each call" "$(grep -c -- "--max-time 60" <<<"$ARGS")" "2"
+DG_CURL_MAX_TIME=7 invoke "$PROJECT" "$URL_A" >/dev/null 2>&1 || true
+stage 200 '' 404 '{}'
+DG_CURL_MAX_TIME=7 invoke "$PROJECT" "$URL_A"
+check "max-time is overridable" "$ARGS" "--max-time 7"
 
 echo "  GET never 404s -> bounded attempts, then timeout failure"
 # DG_WAIT_SECONDS=2 with DG_POLL_SECONDS=1 allows exactly two GET polls.

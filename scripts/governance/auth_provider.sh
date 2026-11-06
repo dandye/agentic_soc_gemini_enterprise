@@ -183,7 +183,7 @@ do_grant() {
           else ($b + [{role: $r, members: [$m]}])
           end
       )
-      | {bindings, etag}
+      | {version, bindings, etag}
       | with_entries(select(.value != null))
     ' <<<"$REQ_BODY")
 

@@ -323,6 +323,15 @@ key_leaks "echoed TF_VAR key"
 
 # --- grant -----------------------------------------------------------------
 
+echo "grant: a version 3 policy keeps its version and conditional binding"
+stage "$OK" '{"version":3,"etag":"V3","bindings":[{"role":"roles/viewer","members":["user:a@example.com"],"condition":{"title":"t","expression":"request.time < timestamp(\"2030-01-01T00:00:00Z\")"}}]}' "$OK" '{"etag":"V4"}'
+invoke grant
+equal "exits 0" "$RC" "0"
+equal "policy version is preserved" "$(jq -r '.policy.version' <<<"$BODIES")" "3"
+equal "conditional binding survives untouched" \
+  "$(jq -r '.policy.bindings[] | select(.role=="roles/viewer") | .condition.title' <<<"$BODIES")" "t"
+equal "the new binding is appended" "$(jq -r '.policy.bindings | length' <<<"$BODIES")" "2"
+
 echo "grant: empty policy -> one binding for exactly the one member"
 stage "$OK" '{"etag":"ACAB"}' "$OK" '{"etag":"BQDE"}'
 invoke grant

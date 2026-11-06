@@ -37,27 +37,57 @@ readonly ACCESS_TOKEN="$GOOGLE_OAUTH_ACCESS_TOKEN"
 
 REQ_CODE=""
 REQ_BODY=""
+DG_CURL_MAX_TIME=${DG_CURL_MAX_TIME:-60}
+
 req() {
   local method=$1 url=$2 out
-  out=$(curl -sS -X "$method" \
+  if ! out=$(curl -sS -X "$method" \
+    --max-time "$DG_CURL_MAX_TIME" \
     -H "Authorization: Bearer ${ACCESS_TOKEN}" \
     -H "X-Goog-User-Project: ${PROJECT_ID}" \
-    -w '\n%{http_code}' "$url")
+    -w '\n%{http_code}' "$url"); then
+    die "curl ${method} ${url} failed (network error or exceeded ${DG_CURL_MAX_TIME}s)"
+  fi
   REQ_CODE=${out##*$'\n'}
   REQ_BODY=${out%$'\n'*}
+}
+
+# HTTP codes that mean "not an answer yet, ask again": rate limiting and
+# transient upstream faults. Anything else that is not 200/404 is a real error.
+retryable() {
+  case "$1" in
+  429 | 500 | 502 | 503 | 504) return 0 ;;
+  *) return 1 ;;
+  esac
 }
 
 delete_until_gone() {
   local url=$1
 
-  req DELETE "$url"
-  case "$REQ_CODE" in
-  200) note "delete accepted: ${url}" ;;
-  404) note "already gone: ${url}" ;;
-  *) die "delete failed (HTTP ${REQ_CODE}) for ${url}: $REQ_BODY" ;;
-  esac
-
   local waited=0
+  while :; do
+    req DELETE "$url"
+    case "$REQ_CODE" in
+    200 | 202 | 204)
+      note "delete accepted (HTTP ${REQ_CODE}): ${url}"
+      break
+      ;;
+    404)
+      note "already gone: ${url}"
+      break
+      ;;
+    *)
+      if retryable "$REQ_CODE" && ((waited < DG_WAIT_SECONDS)); then
+        note "delete got HTTP ${REQ_CODE}, retrying (${waited}s/${DG_WAIT_SECONDS}s): ${url}"
+        sleep "$DG_POLL_SECONDS"
+        waited=$((waited + DG_POLL_SECONDS))
+        continue
+      fi
+      die "delete failed (HTTP ${REQ_CODE}) for ${url}: $REQ_BODY"
+      ;;
+    esac
+  done
+
   while ((waited < DG_WAIT_SECONDS)); do
     req GET "$url"
     case "$REQ_CODE" in
@@ -68,7 +98,13 @@ delete_until_gone() {
     200)
       note "still present (${waited}s/${DG_WAIT_SECONDS}s): ${url}"
       ;;
-    *) die "unexpected HTTP ${REQ_CODE} polling ${url}: $REQ_BODY" ;;
+    *)
+      if retryable "$REQ_CODE"; then
+        note "poll got HTTP ${REQ_CODE}, retrying (${waited}s/${DG_WAIT_SECONDS}s): ${url}"
+      else
+        die "unexpected HTTP ${REQ_CODE} polling ${url}: $REQ_BODY"
+      fi
+      ;;
     esac
     sleep "$DG_POLL_SECONDS"
     waited=$((waited + DG_POLL_SECONDS))

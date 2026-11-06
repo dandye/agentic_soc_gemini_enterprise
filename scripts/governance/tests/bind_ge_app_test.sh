@@ -92,7 +92,7 @@ invoke() {
       GE_PROJECT_NUMBER="$PROJECT_NUMBER" \
       GE_LOCATION="${GE_LOCATION:-us}" \
       GE_ENGINE_ID="$ENGINE_ID" \
-      GE_AGENT_GATEWAY="$GATEWAY" \
+      GE_AGENT_GATEWAY="${GE_AGENT_GATEWAY-$GATEWAY}" \
       bash "$TARGET" "$action" 2>&1
   )
   RC=$?
@@ -282,9 +282,23 @@ equal "sends an empty JSON object" "$(jq -c . <<<"$BODIES")" "{}"
 check "announces the clear" "$OUT" "clearing the egress gateway on ${ENGINE_ID}"
 check "confirms success" "$OUT" "ok: ${ENGINE_ID} no longer routes through an Agent Gateway"
 
-echo "unbind when bound to someone else's gateway -> still clears (no force needed)"
-stage "$OK" "$BOUND_OTHER" "$OK" "$UNBOUND"
+echo "unbind when bound to someone else's gateway and GE_AGENT_GATEWAY is set -> refuses"
+stage "$OK" "$BOUND_OTHER"
 invoke unbind
+equal "exits 1" "$RC" "1"
+check "names both gateways" "$OUT" "is bound to a different gateway (${OTHER_GATEWAY}), not ${GATEWAY}"
+check "says how to override" "$OUT" "set GE_FORCE_REBIND=1 to override"
+refute "issues no PATCH" "$CALLS" "-X PATCH"
+
+echo "unbind when bound to someone else's gateway with GE_FORCE_REBIND=1 -> clears"
+stage "$OK" "$BOUND_OTHER" "$OK" "$UNBOUND"
+invoke unbind "GE_FORCE_REBIND=1"
+equal "exits 0" "$RC" "0"
+check "PATCHes" "$CALLS" "-X PATCH ${ENGINE_URL}?updateMask=agentGatewaySetting "
+
+echo "unbind when bound to someone else's gateway and GE_AGENT_GATEWAY is unset -> clears (destroy provisioner path)"
+stage "$OK" "$BOUND_OTHER" "$OK" "$UNBOUND"
+invoke unbind "GE_AGENT_GATEWAY="
 equal "exits 0" "$RC" "0"
 check "PATCHes" "$CALLS" "-X PATCH ${ENGINE_URL}?updateMask=agentGatewaySetting "
 
