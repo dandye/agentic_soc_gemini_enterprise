@@ -31,7 +31,7 @@ The Google ADK evaluation framework provides qualitative and quantitative assess
 
 ## 2. Directory Layout & Test Suite
 
-The test suite in this worktree is located at [`test_agents/soc_triage_agent/`](file:///usr/local/google/home/dandye/Projects/agentic_soc_agentspace__worktrees/feat-adk-evals/test_agents/soc_triage_agent):
+The test suite is located at [`test_agents/soc_triage_agent/`](../test_agents/soc_triage_agent):
 
 ```text
 test_agents/soc_triage_agent/

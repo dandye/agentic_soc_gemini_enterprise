@@ -2,7 +2,7 @@
 type: "Documentation"
 title: "Agent Evaluation, Experimentation, and Optimization Framework"
 description: "Comprehensive guide to the repository-backed agent evaluation ledger, trajectory diffing, and hyperparameter optimization framework"
-resource: "file:///Users/dandye/Projects/agentic_soc_agentspace__worktrees/harvest_detection_reports/docs/evaluations.md"
+resource: "docs/evaluations.md"
 timestamp: "2026-06-17T08:05:00Z"
 provenance:
   source_type: "generative_ai"

@@ -1,0 +1,8 @@
+accessible-pygments==0.0.5
+linkify-it-py==2.2.0
+myst-parser==5.1.0
+pydata-sphinx-theme==0.24.0
+sphinx==9.1.1
+sphinx-copybutton==0.5.2
+sphinx-design==0.7.0
+sphinxcontrib-mermaid==2.1.1

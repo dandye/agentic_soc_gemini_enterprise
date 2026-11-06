@@ -8,7 +8,7 @@
 
 **Tech Stack:** Google Agent Development Kit (ADK), Vertex AI Agent Engine (`vertexai.Client.agent_engines.sandboxes`), Python 3.11+, pytest, pandas, numpy, Google GenAI SDK.
 
-**Spec:** [docs/superpowers/specs/2026-08-31-vertex-code-execution-sandbox-design.md](file:///usr/local/google/home/dandye/Projects/agentic_soc_agentspace__worktrees/feat-vertex-code-execution-sandbox/docs/superpowers/specs/2026-08-31-vertex-code-execution-sandbox-design.md)
+**Spec:** [docs/superpowers/specs/2026-08-31-vertex-code-execution-sandbox-design.md](../specs/2026-08-31-vertex-code-execution-sandbox-design.md)
 
 ## Global Constraints
 - Target workspace: `Projects/agentic_soc_agentspace__worktrees/feat-vertex-code-execution-sandbox/`
