@@ -18,11 +18,21 @@ TERRAFORM_DIR = REPO_ROOT / "terraform"
 GOVERNANCE_SCRIPTS_DIR = REPO_ROOT / "scripts" / "governance"
 
 
+# Importing a governed agent constructs its A2aAgent, which calls
+# aiplatform.init(); a project ID (no credentials) is enough for that to
+# succeed in a hermetic CI runner with no Application Default Credentials.
+_HERMETIC_ENV = {
+    "GOOGLE_CLOUD_PROJECT": "example-secops-project",
+    "GOOGLE_CLOUD_LOCATION": "us-central1",
+    "GOOGLE_GENAI_USE_VERTEXAI": "TRUE",
+}
+
+
 def _load_module(
     module_name: str, file_path: Path, env_overrides: dict[str, str]
 ) -> Any:
     """Loads a file-backed module under temporary environment variables."""
-    with patch.dict(os.environ, env_overrides, clear=False):
+    with patch.dict(os.environ, {**_HERMETIC_ENV, **env_overrides}, clear=False):
         spec = importlib.util.spec_from_file_location(module_name, file_path)
         assert spec is not None and spec.loader is not None
         module = importlib.util.module_from_spec(spec)
