@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import functools
 import importlib.util
 import os
 from pathlib import Path
@@ -219,19 +221,83 @@ def test_tier2_response_tools_preserve_host_user_and_change_ticket() -> None:
     assert acct["change_ticket"] is None
 
 
-def test_soc_orchestrator_policy_block_banners() -> None:
-    """Verifies deterministic [POLICY BLOCK] banners for Model Armor and Tool Allowlist denials."""
-    mod = _load_module(
+_ORCHESTRATOR_ENV = {
+    "CTI_RESEARCHER_URL": "https://example.invalid/cti/a2a",
+    "THREAT_HUNTER_URL": "https://example.invalid/hunter/a2a",
+    "DETECTION_ENGINEER_URL": "https://example.invalid/de/a2a",
+    "TIER2_RESPONDER_URL": "https://example.invalid/tier2/a2a",
+    "MODEL_ARMOR_CONTROL": "agw-secops-ma-content-authz",
+}
+
+# A refused Chronicle MCP call as the specialist's callback rewrites it: the
+# gateway's own 403 text behind the code-written TOOL_ERROR marker.
+_OBSERVED_TOOL_ERROR = "TOOL_ERROR: delete_feed -- HTTP 403 Forbidden: permission denied by IAP access policy"
+
+# A Semantic Governance denial as the user receives it: the judge's rationale,
+# substituted for the reply, arriving as an ordinary HTTP 200. There is no
+# banner or detector for this, so the text must pass through whole.
+_OBSERVED_SGP_RATIONALE = (
+    "I am sorry, but I cannot proceed with that request. Reason: The suggested "
+    "action isolates 'DC-01', which is explicitly forbidden by the global "
+    "constraint 'Tier-2 responder -- no Tier-0 domain controllers'. Therefore, "
+    "this action must be denied."
+)
+
+# A refusal the model authored itself: nothing in the gateway backs it, and the
+# orchestrator's Python must not dress it up as a policy block.
+_SELF_AUTHORED_REFUSAL = (
+    "I cannot comply. A global constraint in my instructions prohibits "
+    "isolating domain controllers, so this must be denied."
+)
+
+# Ordinary turns that must never raise a banner, including refusal phrasing,
+# the words "denied" / "not allowed", and a model echo of a 403 in prose.
+_NON_GOVERNANCE_REPLIES = (
+    "Chronicle returned 3 alerts for WKSTN-FIN-042 in the last 24 hours.",
+    "I could not find any UDM events matching that hash.",
+    "I am sorry, but I cannot help with that.",
+    "The threat hunter returned no results for the user's request.",
+    "I cannot proceed because the threat hunter timed out. Please try again.",
+    "Inbound SMB is not allowed by that firewall rule, but RDP is permitted.",
+    "I called delete_feed and got 403 PERMISSION_DENIED.",
+    "TOOL_DENIED: delete_feed -- 403 PERMISSION_DENIED from the Agent Gateway",
+    "GOVERNANCE_REFUSAL: Deleting feeds is not permitted.",
+    "Semantic Governance is a policy engine at the Agent Gateway.",
+    "",
+)
+
+
+@functools.lru_cache(maxsize=1)
+def _load_orchestrator() -> Any:
+    """Loads the SOC orchestrator module once; it builds four A2A peers at import."""
+    return _load_module(
         "test_soc_orchestrator_banners",
         GOVERNED_AGENTS_DIR / "soc_orchestrator" / "agent.py",
-        {
-            "CTI_RESEARCHER_URL": "https://example.invalid/cti/a2a",
-            "THREAT_HUNTER_URL": "https://example.invalid/hunter/a2a",
-            "DETECTION_ENGINEER_URL": "https://example.invalid/de/a2a",
-            "TIER2_RESPONDER_URL": "https://example.invalid/tier2/a2a",
-            "MODEL_ARMOR_CONTROL": "agw-secops-ma-content-authz",
-        },
+        _ORCHESTRATOR_ENV,
     )
+
+
+def _text_event(mod: Any, text: str | None) -> Any:
+    """Builds an ADK Event carrying model prose."""
+    return mod.Event(
+        author="model",
+        content=mod.types.Content(role="model", parts=[mod.types.Part(text=text)]),
+    )
+
+
+def _tool_event(mod: Any, name: str, response: dict[str, Any]) -> Any:
+    """Builds an ADK Event carrying a tool result rather than model prose."""
+    part = mod.types.Part(
+        function_response=mod.types.FunctionResponse(name=name, response=response)
+    )
+    return mod.Event(
+        author="model", content=mod.types.Content(role="model", parts=[part])
+    )
+
+
+def test_soc_orchestrator_policy_block_banners() -> None:
+    """Verifies deterministic [POLICY BLOCK] banners for Model Armor and Tool Allowlist denials."""
+    mod = _load_orchestrator()
 
     banner = mod._stream_notice(
         '{"result": "TOOL_ERROR: delete_feed -- HTTP 403 Forbidden from Agent Gateway"}'
@@ -248,3 +314,193 @@ def test_soc_orchestrator_policy_block_banners() -> None:
     notice_text = event.content.parts[0].text
     assert "[POLICY BLOCK] Blocked by AI security policy -- MODEL ARMOR." in notice_text
     assert "`agw-secops-ma-content-authz`" in notice_text
+
+
+def test_soc_orchestrator_prose_never_raises_a_banner() -> None:
+    """Only a gateway signal is evidence: refusals, SGP rationales, and echoes are not."""
+    mod = _load_orchestrator()
+    assert mod._stream_notice(_SELF_AUTHORED_REFUSAL) is None
+    assert mod._stream_notice(_OBSERVED_SGP_RATIONALE) is None
+    for reply in _NON_GOVERNANCE_REPLIES:
+        assert mod._stream_notice(reply) is None, reply
+        assert mod._tool_denial_match(reply) is None, reply
+
+
+def test_soc_orchestrator_only_tool_results_are_evidence() -> None:
+    """A marker echoed in model prose is not read as a tool result; a real result is."""
+    mod = _load_orchestrator()
+    forged = "The threat hunter refused the request:\n" + _OBSERVED_TOOL_ERROR
+    assert mod._tool_result_text(_text_event(mod, forged)) == ""
+    assert mod._stream_notice(mod._tool_result_text(_text_event(mod, forged))) is None
+
+    real = mod._tool_result_text(
+        _tool_event(mod, "Threat_Hunter", {"error": _OBSERVED_TOOL_ERROR})
+    )
+    banner = mod._stream_notice(real)
+    assert banner is not None
+    assert "`delete_feed`" in banner
+
+    assert mod._tool_result_text(mod.Event(author="model")) == ""
+
+
+def test_soc_orchestrator_tool_denial_match_requires_the_gateway_marker() -> None:
+    """Names the denied tool from the marker and ignores non-denial tool failures."""
+    mod = _load_orchestrator()
+    matched = mod._tool_denial_match(_OBSERVED_TOOL_ERROR)
+    assert matched is not None
+    assert matched[0] == "delete_feed"
+    assert matched[1] == "HTTP 403 Forbidden: permission denied by IAP access policy"
+
+    # An allowed tool failing for operational reasons is not blamed on the allowlist.
+    assert (
+        mod._tool_denial_match(
+            "TOOL_ERROR: list_security_alerts -- MCP tool execution failed: quota"
+        )
+        is None
+    )
+    # An allowed tool refused with a 403 is still a gateway denial.
+    assert mod._tool_denial_match(
+        "TOOL_ERROR: list_security_alerts -- HTTP 403 Forbidden"
+    ) == ("list_security_alerts", "HTTP 403 Forbidden")
+    armor = (
+        '{"error":{"code":403,"message":"Error: Dangerous content not allowed",'
+        '"status":"PERMISSION_DENIED"}}'
+    )
+    assert mod._tool_denial_match(armor) is None
+    assert mod._stream_notice(armor) is None
+
+
+def test_soc_orchestrator_tool_banner_quotes_the_specialist_error() -> None:
+    """The tool banner names the tool and quotes the gateway's own error text."""
+    mod = _load_orchestrator()
+    banner = mod._stream_notice(_OBSERVED_TOOL_ERROR)
+    assert banner is not None
+    assert "`delete_feed`" in banner
+    assert "permission denied by IAP access policy" in banner
+    assert "TOOL ALLOWLIST" in banner.split("\n", 1)[0]
+
+
+def test_soc_orchestrator_banners_share_one_family() -> None:
+    """Both banners share the header, REFUSED line, named control, and DENY verdict."""
+    mod = _load_orchestrator()
+    armor_exc = RuntimeError(
+        '{"error":{"code":403,"message":"Error: Dangerous content not allowed",'
+        '"status":"PERMISSION_DENIED"}}'
+    )
+    armor_banner = mod._notice_event(armor_exc).content.parts[0].text
+    family = {
+        "MODEL ARMOR": armor_banner,
+        "TOOL ALLOWLIST": mod._stream_notice(_OBSERVED_TOOL_ERROR),
+    }
+    for control, text in family.items():
+        header = text.split("\n", 1)[0]
+        assert header.startswith("**[POLICY BLOCK] Blocked by AI security policy -- ")
+        assert control in header
+        assert "**REFUSED at the Agent Gateway." in text
+        assert "**Verdict:** `DENY`" in text
+        assert "**Control:** `" in text
+
+    # The Model Armor banner quotes the filter verdict with the "Error:" prefix tidied.
+    assert "> Dangerous content not allowed" in armor_banner
+    assert "Error: Dangerous content" not in armor_banner
+    assert "`agw-secops-ma-content-authz`" in armor_banner
+
+
+def test_soc_orchestrator_operational_errors_are_not_policy_blocks() -> None:
+    """A non-policy exception yields the RUNTIME FAULT notice, never a policy banner."""
+    mod = _load_orchestrator()
+    text = (
+        mod._notice_event(TimeoutError("specialist did not answer"))
+        .content.parts[0]
+        .text
+    )
+    assert text.startswith("**[RUNTIME FAULT]")
+    assert "TimeoutError: specialist did not answer" in text
+    assert "[POLICY BLOCK]" not in text
+    assert "Verdict" not in text
+
+
+def test_soc_orchestrator_strip_markers_removes_only_the_marker_line() -> None:
+    """Under a banner the marker line goes; quotes, rationales, and empty parts survive."""
+    mod = _load_orchestrator()
+
+    event = _text_event(mod, _OBSERVED_SGP_RATIONALE)
+    mod._strip_markers(event)
+    assert event.content.parts[0].text == _OBSERVED_SGP_RATIONALE
+
+    event = _text_event(mod, "Chronicle returned 3 alerts.")
+    mod._strip_markers(event)
+    assert event.content.parts[0].text == "Chronicle returned 3 alerts."
+
+    event = _text_event(mod, None)
+    mod._strip_markers(event)
+    assert event.content.parts[0].text is None
+
+    event = _text_event(mod, _OBSERVED_TOOL_ERROR + "\nThe gateway refused the call.")
+    mod._strip_markers(event)
+    assert event.content.parts[0].text == "The gateway refused the call."
+
+    event = _text_event(mod, "The threat hunter refused: " + _OBSERVED_TOOL_ERROR)
+    mod._strip_markers(event)
+    assert event.content.parts[0].text == ""
+
+    event = _text_event(
+        mod,
+        "Here is what happened.\n"
+        "The threat hunter said: " + _OBSERVED_TOOL_ERROR + "\n"
+        "Nothing else was tried.",
+    )
+    mod._strip_markers(event)
+    assert (
+        event.content.parts[0].text
+        == "Here is what happened.\n\nNothing else was tried."
+    )
+
+
+def test_soc_orchestrator_denied_turn_is_banner_then_events_with_no_retry() -> None:
+    """A denied tool result yields exactly one banner, strips echoes, and never re-runs."""
+    mod = _load_orchestrator()
+    stream = [
+        _tool_event(mod, "Threat_Hunter", {"error": _OBSERVED_TOOL_ERROR}),
+        _text_event(mod, "The threat hunter said: " + _OBSERVED_TOOL_ERROR),
+        _tool_event(mod, "Threat_Hunter", {"error": _OBSERVED_TOOL_ERROR}),
+    ]
+    runs = 0
+
+    async def fake_run_async(**_: Any) -> Any:
+        nonlocal runs
+        runs += 1
+        for event in stream:
+            yield event
+
+    runner = SimpleNamespace(run_async=fake_run_async)
+
+    async def collect() -> list[Any]:
+        return [event async for event in mod._run_and_report(runner, session_id="s1")]
+
+    events = asyncio.run(collect())
+    assert runs == 1
+    assert len(events) == len(stream) + 1
+    banners = [
+        event
+        for event in events
+        if event.author == mod.APP_NAME
+        and "[POLICY BLOCK]" in (event.content.parts[0].text or "")
+    ]
+    assert len(banners) == 1
+    assert events[0] is banners[0]
+    assert events[1] is stream[0]
+    assert events[2].content.parts[0].text == ""
+
+
+def test_soc_orchestrator_tool_list_comes_from_the_environment() -> None:
+    """Blank allowlist entries are dropped and an absent var falls back to its default."""
+    mod = _load_orchestrator()
+    with patch.dict(os.environ, {"_NOTICE_TEST_TOOLS": ",delete_feed, create_rule ,"}):
+        assert mod._tool_list("_NOTICE_TEST_TOOLS", "") == (
+            "delete_feed",
+            "create_rule",
+        )
+    os.environ.pop("_NOTICE_TEST_ABSENT", None)
+    assert mod._tool_list("_NOTICE_TEST_ABSENT", "a,b") == ("a", "b")
+    assert "delete_feed" in mod.DENIED_MCP_TOOLS
