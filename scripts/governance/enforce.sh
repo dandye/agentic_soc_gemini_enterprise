@@ -5,6 +5,7 @@
 #   enforce.sh              switch to ENFORCED (denials return HTTP 403)
 #   enforce.sh dry-run      switch to DRY_RUN (denials logged only)
 #   enforce.sh --plan       show planned diff without applying
+#   enforce.sh status       print the current mode from terraform output
 
 set -euo pipefail
 
@@ -19,6 +20,7 @@ die() {
 
 mode="ENFORCED"
 plan_only=false
+status_only=false
 args=()
 
 while [[ $# -gt 0 ]]; do
@@ -26,6 +28,7 @@ while [[ $# -gt 0 ]]; do
   dry-run | dryrun | DRY_RUN) mode="DRY_RUN" ;;
   enforce | enforced | ENFORCED) mode="ENFORCED" ;;
   --plan) plan_only=true ;;
+  status | --status) status_only=true ;;
   -h | --help)
     sed -n '2,9p' "${BASH_SOURCE[0]}"
     exit 0
@@ -36,6 +39,11 @@ while [[ $# -gt 0 ]]; do
 done
 
 command -v terraform >/dev/null 2>&1 || die "terraform not found on PATH"
+
+if $status_only; then
+  cd "$TF_DIR"
+  exec terraform output authz_enforcement
+fi
 
 if [[ -z ${TF_VAR_gti_api_key:-} ]] &&
   ! grep -rqsE '^[[:space:]]*gti_api_key[[:space:]]*=' "$TF_DIR"/*.tfvars 2>/dev/null; then
