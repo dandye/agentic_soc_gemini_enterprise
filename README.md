@@ -18,6 +18,7 @@ Built with [Google ADK](https://google.github.io/adk-docs/) (Agent Development K
 - [Usage](#usage)
 - [RAG Corpus Management](#rag-corpus-management)
 - [Gemini Enterprise Integration](#gemini-enterprise-integration)
+- [Agent Governance](#agent-governance)
 - [CLI Reference](#cli-reference)
 - [Local Development](#local-development)
 - [Troubleshooting](#troubleshooting)
@@ -236,6 +237,21 @@ just rag-delete RAG_CORPUS_ID=projects/.../ragCorpora/...
 2. Click **Create App** > Select **Agent** type
 3. Copy App ID to `.env` as `GEM_ENT_APP_ID`
 4. Run `just gem-ent-register`
+
+## Agent Governance
+
+The `governed_agents/` and `terraform/` directories add a governed deployment of the SOC agents: a zero-tool `soc_orchestrator` and four narrow specialists (`cti_researcher`, `threat_hunter`, `detection_engineer`, `tier2_responder`), each running as a Reasoning Engine with its own workload identity, with all egress routed through a default-deny Agent Gateway. Per-tool CEL allowlists, inline Model Armor, a Semantic Governance crown-jewel policy, and a Cloud Monitoring dashboard enforce and evidence every decision.
+
+```bash
+just governance-init        # terraform init
+just governance-validate    # package agents, generate agent cards, terraform validate
+just governance-plan        # terraform plan against your terraform/terraform.tfvars
+just governance-test        # offline shell harnesses (no credentials needed)
+```
+
+- [Deploy, verify, and operate](docs/agent_governance.md)
+- [Design notes](docs/agent_governance_design.md)
+- [Troubleshooting](docs/agent_governance_troubleshooting.md)
 
 ## CLI Reference
 

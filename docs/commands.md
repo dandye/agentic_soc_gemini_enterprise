@@ -258,3 +258,23 @@ python manage.py chatops list
 python manage.py chatops deploy-app
 python manage.py chatops verify-config
 ```
+
+## 11. Agent Governance & Repository Hygiene
+
+Manage the governed SecOps agent stack (Agent Gateway, Agent Registry, Auth Manager, IAM v3 allowlists, Model Armor, Semantic Governance) and the public-repository hygiene gate. See [docs/agent_governance.md](agent_governance.md) for the full workflow.
+
+### using justfile:
+```bash
+just security-hygiene                            # Scan all Git-tracked files for secrets, Terraform state/tfvars, and internal jargon
+just security-hygiene-range rev_range="origin/main..HEAD"  # Audit commit messages and added diff lines across a branch range before opening a PR
+just governance-package agent="all"              # Package deterministic source archives for one or all governed SecOps agents
+just governance-cards                            # Generate A2A AgentCard JSON files into terraform/agentcards/
+just governance-init                             # Initialize Terraform providers in terraform/
+just governance-validate                         # Validate Terraform configuration after packaging and card generation
+just governance-plan                             # Run terraform plan against the governed SecOps stack
+just governance-enforce mode="status"            # Toggle IAP authorization enforcement mode (enforced | dry-run | status)
+just governance-logs action="audit" freshness="1h"  # Inspect Agent Gateway, IAP Data Access, and telemetry logs
+just governance-smoke-test case=""               # Run live A2A governance smoke tests against the deployed SOC Orchestrator
+just governance-test                             # Run every offline governance shell harness (no network, no credentials)
+just governance-lint                             # Lint governance shell scripts and check Terraform formatting
+```
