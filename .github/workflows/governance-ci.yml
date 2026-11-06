@@ -58,10 +58,15 @@ jobs:
       - name: Install pinned dependencies
         run: |
           pip install pytest==8.3.5
-          pip install -r governed_agents/soc_orchestrator/requirements.txt
-          pip install -r governed_agents/cti_researcher/requirements.txt
+          for agent in soc_orchestrator cti_researcher threat_hunter detection_engineer tier2_responder; do
+            pip install -r "governed_agents/${agent}/requirements.txt"
+          done
 
       - name: pytest
+        env:
+          GOOGLE_CLOUD_PROJECT: ci-placeholder-project
+          GOOGLE_CLOUD_LOCATION: us-central1
+          GOOGLE_GENAI_USE_VERTEXAI: 'TRUE'
         run: |
           python -m pytest -o addopts="" tests/test_governed_agents.py
 
@@ -82,8 +87,9 @@ jobs:
 
       - name: Install pinned agent dependencies (card generation imports the agents)
         run: |
-          pip install -r governed_agents/soc_orchestrator/requirements.txt
-          pip install -r governed_agents/cti_researcher/requirements.txt
+          for agent in soc_orchestrator cti_researcher threat_hunter detection_engineer tier2_responder; do
+            pip install -r "governed_agents/${agent}/requirements.txt"
+          done
 
       - name: fmt
         run: |
@@ -93,6 +99,9 @@ jobs:
         run: |
           bash scripts/governance/package_agent.sh all
           python scripts/governance/gen_agent_cards.py
+        env:
+          GOOGLE_CLOUD_PROJECT: ci-placeholder-project
+          GOOGLE_CLOUD_LOCATION: us-central1
 
       - name: validate
         run: |

@@ -24,8 +24,8 @@ readonly TARGET="${SCRIPT_DIR}/auth_provider.sh"
 readonly PROJECT_ID="example-project"
 readonly LOCATION="us-central1"
 readonly PROVIDER_ID="agw-secops-gti-api-key"
-readonly FAKE_KEY='FAKE-GTI-KEY-0001'
-readonly OTHER_KEY='FAKE-GTI-KEY-0002'
+readonly FAKE_KEY='FAKE-GTI-KEY-0001' # gitleaks:allow
+readonly OTHER_KEY='FAKE-GTI-KEY-0002' # gitleaks:allow
 readonly BASE="https://agentidentity.googleapis.com/v1"
 readonly PARENT="projects/${PROJECT_ID}/locations/${LOCATION}"
 readonly NAME="${PARENT}/authProviders/${PROVIDER_ID}"
@@ -462,7 +462,7 @@ key_leaks "no token"
 # --- the invariant, across every case --------------------------------------
 
 echo "key never appears in any case's combined stdout+stderr"
-refute "FAKE-GTI-KEY-0001 absent from all output" "$ALL_OUT" "$FAKE_KEY"
+refute "fake key absent from all output" "$ALL_OUT" "$FAKE_KEY"
 refute "the TF_VAR decoy is absent too" "$ALL_OUT" "$OTHER_KEY"
 equal "key never appears on any curl argv in any case" \
   "$(grep -l -- "$FAKE_KEY" "$WORK"/case-*/argv.log 2>/dev/null | wc -l | tr -d ' ')" "0"
