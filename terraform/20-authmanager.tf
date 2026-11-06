@@ -43,6 +43,7 @@ resource "terraform_data" "gti_auth_provider" {
       AUTH_PROVIDER_LOCATION     = var.region
       AUTH_PROVIDER_ID           = local.gti_auth_provider_id
       AUTH_PROVIDER_DESCRIPTION  = "Google Threat Intelligence (VirusTotal v3) API key retrieved at tool-call time by cti_researcher under its SPIFFE workload identity."
+      AUTH_PROVIDER_VERSION      = tostring(var.gti_api_key_version)
       AUTH_PROVIDER_WORKLOAD_IDS = jsonencode(var.gti_auth_provider_workload_ids)
       GTI_API_KEY                = var.gti_api_key
     }

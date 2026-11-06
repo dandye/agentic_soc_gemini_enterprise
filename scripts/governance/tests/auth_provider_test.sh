@@ -157,8 +157,21 @@ key_leaks() {
 }
 
 readonly OK='200'
+fingerprint() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    printf '%s' "$1" | sha256sum | awk '{print substr($1, 1, 12)}'
+  else
+    printf '%s' "$1" | shasum -a 256 | awk '{print substr($1, 1, 12)}'
+  fi
+}
+FAKE_FP=$(fingerprint "$FAKE_KEY")
+readonly FAKE_FP
+OTHER_FP=$(fingerprint "$OTHER_KEY")
+readonly OTHER_FP
 readonly BODY_LIVE="{\"name\":\"${NAME}\",\"deleted\":false}"
+readonly BODY_LIVE_MATCHING="{\"name\":\"${NAME}\",\"deleted\":false,\"description\":\"GTI key [v1 sha256:${FAKE_FP}]\"}"
 readonly BODY_SOFT_DELETED="{\"name\":\"${NAME}\",\"deleted\":true}"
+readonly BODY_SOFT_DELETED_MATCHING="{\"name\":\"${NAME}\",\"deleted\":true,\"description\":\"GTI key [v1 sha256:${FAKE_FP}]\"}"
 readonly NOT_FOUND='{"error":{"code":404,"status":"NOT_FOUND"}}'
 readonly FORBIDDEN='{"error":{"code":403,"status":"PERMISSION_DENIED"}}'
 
@@ -176,7 +189,8 @@ equal "exactly two HTTP calls" "$(grep -c 'https://' <<<"$CALLS")" "2"
 # Assert on the parsed value: jq -n pretty-prints, so raw text has whitespace.
 equal "sends the key at authProviderTypeParams.apiKey.apiKey (stdin only)" \
   "$(jq -r '.authProviderTypeParams.apiKey.apiKey' <<<"$BODIES")" "$FAKE_KEY"
-equal "sends the description" "$(jq -r '.description' <<<"$BODIES")" "GTI key"
+equal "sends the description with version and key fingerprint marker" \
+  "$(jq -r '.description' <<<"$BODIES")" "GTI key [v1 sha256:${FAKE_FP}]"
 refute "omits workloadIds when the list is empty" "$BODIES" '"workloadIds"'
 refute "does not send labels" "$BODIES" '"labels"'
 check "sends the bearer token" "$ARGV" "Authorization: Bearer fake-token"
@@ -187,10 +201,8 @@ refute "never calls gcloud when a token is set" "$GCLOUD_CALLS" "gcloud"
 check "settles after the write" "$SLEEPS" "sleep 5"
 key_leaks "create"
 
-echo "upsert: present -> PATCH in place (the version-bump rotation path)"
-# terraform_data replaces on var.gti_api_key_version, which re-runs upsert
-# against a live provider; that is a PATCH of the key, not a delete+create.
-stage "$OK" "$BODY_LIVE" "$OK" "$BODY_LIVE"
+echo "upsert: present without marker -> PATCH in place"
+stage "$OK" "$BODY_LIVE" "$OK" "$BODY_LIVE_MATCHING"
 invoke upsert
 equal "exits 0" "$RC" "0"
 check "PATCHes the resource with the two-field mask" "$CALLS" \
@@ -200,23 +212,53 @@ refute "does not delete" "$CALLS" "-X DELETE"
 refute "does not undelete a live provider" "$CALLS" ":undelete"
 equal "PATCH body carries the new key" \
   "$(jq -r '.authProviderTypeParams.apiKey.apiKey' <<<"$BODIES")" "$FAKE_KEY"
+equal "PATCH body writes the version and fingerprint marker" \
+  "$(jq -r '.description' <<<"$BODIES")" "GTI key [v1 sha256:${FAKE_FP}]"
 check "says it is updating" "$OUT" "updating ${NAME}"
 key_leaks "update"
 
-echo "upsert: present and unchanged -> still a single idempotent PATCH"
-# The shim cannot read the stored key back, so it cannot diff; a re-run with
-# the same key is one PATCH with identical content and no other side effect.
-stage "$OK" "$BODY_LIVE" "$OK" "$BODY_LIVE"
+echo "upsert: present and unchanged -> skips PATCH and settle"
+stage "$OK" "$BODY_LIVE_MATCHING"
 invoke upsert
 equal "exits 0" "$RC" "0"
-equal "exactly two HTTP calls (GET, PATCH)" "$(grep -c 'https://' <<<"$CALLS")" "2"
-equal "exactly one PATCH" "$(grep -c -- '-X PATCH' <<<"$CALLS")" "1"
+equal "exactly one HTTP call (GET only)" "$(grep -c 'https://' <<<"$CALLS")" "1"
+refute "no PATCH when version and fingerprint match" "$CALLS" "-X PATCH"
 refute "no create" "$CALLS" "-X POST"
-check "reports ok" "$OUT" "ok: ${NAME}"
+refute "does not settle when nothing changed" "$SLEEPS" "sleep"
+check "reports already up to date with marker" "$OUT" "ok: ${NAME} already up to date [v1 sha256:${FAKE_FP}]"
 key_leaks "unchanged"
 
-echo "upsert: soft-deleted -> :undelete, then PATCH"
-stage "$OK" "$BODY_SOFT_DELETED" "$OK" "$BODY_LIVE" "$OK" "$BODY_LIVE"
+echo "upsert: version bump (AUTH_PROVIDER_VERSION=2) -> PATCH in place"
+stage "$OK" "$BODY_LIVE_MATCHING" "$OK" "$BODY_LIVE"
+invoke upsert "AUTH_PROVIDER_VERSION=2"
+equal "exits 0" "$RC" "0"
+equal "two HTTP calls (GET, PATCH)" "$(grep -c 'https://' <<<"$CALLS")" "2"
+check "PATCHes on version bump" "$CALLS" "-X PATCH ${BASE}/${NAME}?updateMask=authProviderTypeParams,description"
+equal "updates marker to v2" "$(jq -r '.description' <<<"$BODIES")" "GTI key [v2 sha256:${FAKE_FP}]"
+key_leaks "version bump"
+
+echo "upsert: rotated key (fingerprint changed) -> PATCH in place"
+stage "$OK" "$BODY_LIVE_MATCHING" "$OK" "$BODY_LIVE"
+invoke upsert "GTI_API_KEY=${OTHER_KEY}"
+equal "exits 0" "$RC" "0"
+equal "two HTTP calls (GET, PATCH)" "$(grep -c 'https://' <<<"$CALLS")" "2"
+equal "sends rotated key" \
+  "$(jq -r '.authProviderTypeParams.apiKey.apiKey' <<<"$BODIES")" "$OTHER_KEY"
+equal "updates marker fingerprint" \
+  "$(jq -r '.description' <<<"$BODIES")" "GTI key [v1 sha256:${OTHER_FP}]"
+refute "rotated key not in stdout/stderr" "$OUT" "$OTHER_KEY"
+refute "rotated key not on curl argv" "$ARGV" "$OTHER_KEY"
+
+echo "upsert: workloadIds added when description matches -> PATCH in place"
+stage "$OK" "$BODY_LIVE_MATCHING" "$OK" "$BODY_LIVE_MATCHING"
+invoke upsert "AUTH_PROVIDER_WORKLOAD_IDS=[\"${MEMBER}\"]"
+equal "exits 0" "$RC" "0"
+check "PATCHes with workloadIds in mask" "$CALLS" \
+  "updateMask=authProviderTypeParams,description,workloadIds"
+key_leaks "workloadIds diff"
+
+echo "upsert: soft-deleted -> :undelete, then PATCH (even when description matches)"
+stage "$OK" "$BODY_SOFT_DELETED_MATCHING" "$OK" "$BODY_LIVE_MATCHING" "$OK" "$BODY_LIVE_MATCHING"
 invoke upsert
 equal "exits 0" "$RC" "0"
 check "says it is undeleting" "$OUT" "soft-deleted -- undeleting"

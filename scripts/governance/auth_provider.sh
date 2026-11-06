@@ -15,6 +15,8 @@
 #   AUTH_PROVIDER_PROJECT, AUTH_PROVIDER_LOCATION, AUTH_PROVIDER_ID
 #   AUTH_PROVIDER_MEMBER (for grant)
 #   GTI_API_KEY or TF_VAR_gti_api_key (for upsert)
+#   Optional: AUTH_PROVIDER_DESCRIPTION, AUTH_PROVIDER_VERSION (default 1),
+#             AUTH_PROVIDER_WORKLOAD_IDS (default [])
 #
 # Credential handling: the API key is never passed via CLI arguments, temporary
 # files, or stdout. Request bodies go to curl on stdin and error bodies pass
@@ -95,6 +97,17 @@ req_ai() { req "$1" "${AGENTIDENTITY_BASE}/$2" "${3-}"; }
 
 settle() { sleep 5; }
 
+key_fingerprint() {
+  # Pipe via builtin printf so the secret never enters /proc/*/cmdline.
+  if command -v sha256sum >/dev/null 2>&1; then
+    printf '%s' "$1" | sha256sum | awk '{print substr($1, 1, 12)}'
+  elif command -v shasum >/dev/null 2>&1; then
+    printf '%s' "$1" | shasum -a 256 | awk '{print substr($1, 1, 12)}'
+  else
+    die "required command not found: sha256sum or shasum"
+  fi
+}
+
 do_upsert() {
   if [[ -z ${GTI_API_KEY:-} ]]; then
     GTI_API_KEY=${TF_VAR_gti_api_key:-}
@@ -102,16 +115,25 @@ do_upsert() {
   [[ -n ${GTI_API_KEY:-} ]] ||
     die "no GTI API key supplied. Set GTI_API_KEY or TF_VAR_gti_api_key in the environment."
 
+  local fp version marker base_desc desc
+  fp=$(key_fingerprint "$GTI_API_KEY")
+  version=${AUTH_PROVIDER_VERSION:-1}
+  marker="[v${version} sha256:${fp}]"
+  base_desc=${AUTH_PROVIDER_DESCRIPTION:-}
+  desc="${base_desc:+${base_desc} }${marker}"
+
   local workload_ids=${AUTH_PROVIDER_WORKLOAD_IDS:-'[]'}
+  local has_wids=false
   local mask="authProviderTypeParams,description"
   if [[ $(jq 'length' <<<"$workload_ids") -gt 0 ]]; then
+    has_wids=true
     mask="${mask},workloadIds"
   fi
 
   local body
   body=$(jq -n \
     --arg key "$GTI_API_KEY" \
-    --arg desc "${AUTH_PROVIDER_DESCRIPTION:-}" \
+    --arg desc "$desc" \
     --argjson workloadIds "$workload_ids" \
     '{
        authProviderTypeParams: { apiKey: { apiKey: $key } },
@@ -123,11 +145,23 @@ do_upsert() {
 
   case "$REQ_CODE" in
   200)
+    local was_deleted=false
     if [[ $(jq -r '.deleted // false' <<<"$REQ_BODY") == "true" ]]; then
+      was_deleted=true
       note "$NAME is soft-deleted -- undeleting"
       req_ai POST "${NAME}:undelete" '{}'
       [[ $REQ_CODE == 200 ]] || die "undelete failed (HTTP $REQ_CODE): $(redact "$REQ_BODY")"
       settle
+    fi
+    if ! $was_deleted; then
+      local live_desc live_wids want_wids
+      live_desc=$(jq -r '.description // ""' <<<"$REQ_BODY")
+      live_wids=$(jq -c '(.workloadIds // []) | sort' <<<"$REQ_BODY")
+      want_wids=$(jq -c 'sort' <<<"$workload_ids")
+      if [[ $live_desc == "$desc" ]] && { ! $has_wids || [[ $live_wids == "$want_wids" ]]; }; then
+        note "ok: $NAME already up to date ${marker}"
+        return
+      fi
     fi
     note "updating $NAME"
     req_ai PATCH "${NAME}?updateMask=${mask}" "$body"
