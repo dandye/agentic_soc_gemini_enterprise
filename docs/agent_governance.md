@@ -317,14 +317,18 @@ terraform -chdir=terraform apply \
   -target='google_vertex_ai_reasoning_engine.threat_hunter' \
   -target='google_vertex_ai_reasoning_engine.detection_engineer' \
   -target='google_vertex_ai_reasoning_engine.tier2_responder' \
-  -target='google_vertex_ai_reasoning_engine.soc_orchestrator'
+  -target='google_vertex_ai_reasoning_engine.soc_orchestrator' \
+  -target='terraform_data.reasoning_engine_min_instances'
 terraform -chdir=terraform output agent_identities
 ```
 
 Expected: this is the slow stage (ten to twenty minutes). Because each engine
 depends on `google_iam_project_access_policy.google_apis` and its binding,
 Terraform also creates the org policy override, the 120 second wait, and the
-Google APIs access policy here. Afterwards `agent_identities` shows five SPIFFE
+Google APIs access policy here, then runs `reasoning_engine_scaling.sh ensure`
+for each engine so `min_instances = 0` is explicitly persisted on the Vertex AI
+REST API (working around `hashicorp/google-beta` omitting integer `0` as an
+empty SDKv2 value). Afterwards `agent_identities` shows five SPIFFE
 identities under `agents.global.org-<ORG_ID>.system.id.goog`.
 
 ### 6. Policies
@@ -484,7 +488,7 @@ bash scripts/governance/delete_until_gone.sh "$PROJECT_ID" "<RESOURCE_URL>"
 
 `DG_POLL_SECONDS` (default 5) and `DG_WAIT_SECONDS` (default 300) tune the loop.
 
-### The `deployment_spec` perpetual diff
+### The `deployment_spec` perpetual diff and `min_instances = 0` shim
 
 Every plan shows an in-place update on each Reasoning Engine's
 `spec.deployment_spec`. This is deliberate: `41-agents.tf` keeps
@@ -494,6 +498,17 @@ ensures the update mask includes it. Do not add `ignore_changes` for
 `deployment_spec`; a spec-only update that omits it prunes `deploymentSpec` on
 the service and clears `agent_gateway_config`, which detaches the agent from
 the gateway.
+
+In addition, `hashicorp/google-beta` treats integer `0` as empty in SDKv2
+(`tpgresource.IsEmptyValue`), so `min_instances = 0` is omitted from both
+`Create` and `Update` JSON bodies and any in-place `spec` update clears a
+previously set `0` back to the regional service default (`1` warm instance in
+`us-central1`). `terraform_data.reasoning_engine_min_instances` in
+`41-agents.tf` runs `scripts/governance/reasoning_engine_scaling.sh ensure`
+after each engine create or update (`triggers_replace` on `name`,
+`update_time`, and `min_instances`), issuing an idempotent field-masked
+`PATCH ?updateMask=spec.deploymentSpec.minInstances` and verifying that both
+`minInstances` and `agentGateway` remain persisted.
 
 ## Publish to Gemini Enterprise
 
@@ -596,7 +611,7 @@ Set `enable_semantic_governance = false` to avoid the last two rows.
 
 ## Tests
 
-`just governance-test` runs `scripts/governance/tests/run_all.sh`: nine offline
+`just governance-test` runs `scripts/governance/tests/run_all.sh`: ten offline
 harnesses that stub `gcloud`, `terraform`, and `curl` on `PATH`. No network, no
 credentials. It prints `ALL GREEN: <n> harnesses, <m> checks` or
 `FAILED: <k> of <n> harnesses`.
@@ -610,6 +625,7 @@ credentials. It prints `ALL GREEN: <n> harnesses, <m> checks` or
 | `ge_env_test.sh` | `ge_env.sh` derives shell-quoted `GE_*` exports from `terraform output -json`, honors caller overrides (`--force`), and fails cleanly when state is missing |
 | `multi_env_test.sh` | `.gitignore` blocks `terraform/backend.tf` and `environments/*.tfvars` while tracking `.example` templates, and `just governance-init` renders valid GCS backend blocks |
 | `package_agent_test.sh` | Archives put `agent.py` and `requirements.txt` at the root and are byte-identical for identical input |
+| `reasoning_engine_scaling_test.sh` | `reasoning_engine_scaling.sh` no-ops when live `minInstances` already matches `0`, field-mask patches omitted `minInstances` to `0`, polls the LRO, and verifies `agentGateway` retention |
 | `sgp_test.sh` | `sgp_gateway_config.sh` attach and detach branches manage the policy engine's gateway config as `65-semantic-governance.tf` expects |
 | `verify_logs_test.sh` | `verify_logs.sh` `unregistered`, `model-armor`, and `model-armor-blocked` actions format and diff log payloads accurately |
 

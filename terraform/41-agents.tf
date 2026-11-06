@@ -596,3 +596,30 @@ locals {
     soc_orchestrator   = google_vertex_ai_reasoning_engine.soc_orchestrator
   }
 }
+
+# hashicorp/google-beta omits min_instances = 0 from Create and Update JSON
+# payloads because SDKv2 tpgresource.IsEmptyValue treats integer 0 as empty,
+# leaving the Reasoning Engine on the service default (minScale = 1 warm
+# instance in us-central1) and clearing any previously patched 0 on subsequent
+# spec updates. Re-assert spec.deploymentSpec.minInstances via field-masked REST
+# PATCH whenever an engine is created, updated in-place, or min_instances changes.
+resource "terraform_data" "reasoning_engine_min_instances" {
+  for_each = local.agents
+
+  triggers_replace = [
+    each.value.name,
+    each.value.update_time,
+    tostring(var.min_instances),
+  ]
+
+  provisioner "local-exec" {
+    environment = {
+      RE_PROJECT_ID       = var.project_id
+      RE_REGION           = var.region
+      RE_ENGINE_NAME      = each.value.name
+      RE_MIN_INSTANCES    = tostring(var.min_instances)
+      RE_EXPECTED_GATEWAY = local.agent_gateway_name
+    }
+    command = "bash ${path.module}/../scripts/governance/reasoning_engine_scaling.sh ensure"
+  }
+}
