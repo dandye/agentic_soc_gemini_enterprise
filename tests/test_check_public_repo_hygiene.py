@@ -20,9 +20,24 @@ def test_allowed_templates_pass(tmp_path: pathlib.Path) -> None:
         '# Deploy into a test Google SecOps tenant\nproject_id = "your-project-id"\n',
         encoding="utf-8",
     )
+    env_tfvars_example = (
+        tmp_path / "terraform" / "environments" / "example.tfvars.example"
+    )
+    env_tfvars_example.parent.mkdir(parents=True)
+    env_tfvars_example.write_text(
+        'project_id = "<YOUR_PROJECT_ID>"\nmin_instances = 0\n',
+        encoding="utf-8",
+    )
+    backend_example = tmp_path / "terraform" / "backend.tf.example"
+    backend_example.write_text(
+        'terraform {\n  backend "gcs" {\n    bucket = "<YOUR_TFSTATE_BUCKET>"\n  }\n}\n',
+        encoding="utf-8",
+    )
 
     assert hygiene.scan_file(env_example, repo_root=tmp_path) == []
     assert hygiene.scan_file(tfvars_example, repo_root=tmp_path) == []
+    assert hygiene.scan_file(env_tfvars_example, repo_root=tmp_path) == []
+    assert hygiene.scan_file(backend_example, repo_root=tmp_path) == []
 
 
 def test_forbidden_paths_are_blocked() -> None:
@@ -33,7 +48,9 @@ def test_forbidden_paths_are_blocked() -> None:
         ".terraform/terraform.tfstate",
         "terraform/terraform.tfstate",
         "terraform/terraform.tfstate.backup",
+        "terraform/backend.tf",
         "terraform/prod.tfvars",
+        "terraform/environments/demo.tfvars",
         "terraform/prod.tfvars.json",
         "certs/client.pem",
         "certs/private.key",

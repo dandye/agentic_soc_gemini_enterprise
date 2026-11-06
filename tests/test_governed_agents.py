@@ -821,3 +821,28 @@ def test_smoke_test_capability_enumeration_predicate() -> None:
         cid,
         "Threat_Hunter can use udm_search and list_rules. Here are 10 rules:",
     )[0]
+
+
+def test_terraform_scaling_and_multi_env_templates() -> None:
+    """All five engines wire min/max_instances, and multi-env templates are present."""
+    tf_dir = REPO_ROOT / "terraform"
+    agents_tf = (tf_dir / "41-agents.tf").read_text(encoding="utf-8")
+    assert agents_tf.count("min_instances = var.min_instances") == 5
+    assert agents_tf.count("max_instances = var.max_instances") == 5
+
+    vars_tf = (tf_dir / "variables.tf").read_text(encoding="utf-8")
+    assert 'variable "min_instances"' in vars_tf
+    assert 'variable "max_instances"' in vars_tf
+
+    backend_tpl = (tf_dir / "backend.tf.example").read_text(encoding="utf-8")
+    assert 'backend "gcs"' in backend_tpl
+    assert "<YOUR_TFSTATE_BUCKET>" in backend_tpl
+
+    env_tpl = (tf_dir / "environments" / "example.tfvars.example").read_text(
+        encoding="utf-8"
+    )
+    assert "min_instances = 0" in env_tpl
+
+    gitignore = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8")
+    assert "terraform/backend.tf" in gitignore
+    assert "!terraform/backend.tf.example" in gitignore

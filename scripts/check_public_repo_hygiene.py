@@ -252,6 +252,18 @@ def check_forbidden_path(rel_path: str) -> Finding | None:
             remediation="Commit only `terraform.tfvars.example` with sanitized placeholders.",
         )
 
+    if norm.lower() == "terraform/backend.tf":
+        return Finding(
+            source=norm,
+            line_num=0,
+            rule_id="FORBIDDEN_PATH_BACKEND_TF",
+            message=f"Environment-specific backend configuration `{norm}` must not be committed.",
+            remediation=(
+                "Commit only `terraform/backend.tf.example` with `<YOUR_TFSTATE_BUCKET>` "
+                "placeholders; generate local `terraform/backend.tf` via `just governance-init bucket=...`."
+            ),
+        )
+
     if lower_name.endswith((".pem", ".key", ".p12", ".pfx")):
         return Finding(
             source=norm,

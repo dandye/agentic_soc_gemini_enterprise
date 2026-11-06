@@ -1,0 +1,22 @@
+# Optional GCS remote state backend for multi-environment or multi-worktree deployments.
+#
+# `terraform/backend.tf` is git-ignored and blocked by the public-repo hygiene gate so
+# environment-specific bucket names never enter Git history.
+#
+# Generate `terraform/backend.tf` and initialize providers in one step:
+#   TFSTATE_BUCKET="<YOUR_TFSTATE_BUCKET>"
+#   just governance-init bucket="$TFSTATE_BUCKET" prefix="agentic-soc-governance/dev"
+#
+# Migrate an existing local `terraform/terraform.tfstate` into GCS:
+#   TFSTATE_BUCKET="<YOUR_TFSTATE_BUCKET>"
+#   just governance-init bucket="$TFSTATE_BUCKET" prefix="agentic-soc-governance/dev" migrate=true
+#
+# Or copy this file manually to `terraform/backend.tf`, fill in `bucket` and `prefix`,
+# and run `terraform -chdir=terraform init` (add `-migrate-state` when moving local state).
+
+terraform {
+  backend "gcs" {
+    bucket = "<YOUR_TFSTATE_BUCKET>"
+    prefix = "agentic-soc-governance/default"
+  }
+}

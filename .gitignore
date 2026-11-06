@@ -60,6 +60,8 @@ docs/.aqua_goal_stripped.md
 *.tfvars.json
 !*.tfvars.example
 !*.tfvars.sample
+terraform/backend.tf
+!terraform/backend.tf.example
 override.tf
 override.tf.json
 *_override.tf

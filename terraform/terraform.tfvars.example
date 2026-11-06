@@ -27,6 +27,12 @@ tier2_model        = "gemini-3.1-pro-preview"
 specialist_model   = "gemini-3.5-flash"
 model_location     = "global"
 
+# Scale idle Reasoning Engines to zero ($0/hr idle memory; ~10-25s cold start).
+# Run `just governance-smoke-test` before a live demo to warm instances, or set
+# `min_instances = 1` (~$24/mo per engine) for always-warm capacity.
+min_instances = 0
+# max_instances = null
+
 # Governance enforcement modes
 authz_enforcement_mode       = "ENFORCED"
 enable_model_armor           = true
