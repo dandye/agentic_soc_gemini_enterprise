@@ -19,10 +19,9 @@ chronicle_region      = "us"
 region                = "us-central1"
 resource_prefix       = "agw-secops"
 
-# Scale idle Reasoning Engines to zero ($0/hr idle memory; ~10-25s cold start).
-# Warm up before live demos with `just governance-smoke-test`, or set to 1 for
-# always-warm instances (~$24/mo per engine).
-min_instances = 0
+# Keep one warm instance per Reasoning Engine (~$24/mo per engine) to avoid
+# cold-start timeouts/500s on live A2A calls. Set to `0` for $0/hr idle memory.
+min_instances = 1
 # max_instances = null
 
 # Optional Gemini Enterprise integration (defaults keep shared apps untouched)

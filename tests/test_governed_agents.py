@@ -874,7 +874,7 @@ def test_terraform_scaling_and_multi_env_templates() -> None:
     env_tpl = (tf_dir / "environments" / "example.tfvars.example").read_text(
         encoding="utf-8"
     )
-    assert "min_instances = 0" in env_tpl
+    assert "min_instances = 1" in env_tpl
 
     gitignore = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8")
     assert "terraform/backend.tf" in gitignore

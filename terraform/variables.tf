@@ -220,7 +220,7 @@ variable "trace_capture_message_content" {
 variable "min_instances" {
   description = "Minimum warm container instances per Reasoning Engine (`0` scales idle memory cost to $0/hr with a cold start on first request; `1` keeps one warm instance at ~$24/mo per engine)."
   type        = number
-  default     = 0
+  default     = 1
   nullable    = false
 
   validation {
