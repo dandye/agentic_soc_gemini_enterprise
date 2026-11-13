@@ -101,4 +101,4 @@ To validate Decision 1 against realistic security telemetry in the test Google S
 .venv/bin/python scripts/governance/benchmark_decision1.py --json-out /tmp/bench.json
 ```
 
-See [Agent Governance: Deploy, Verify, Operate](agent_governance.md) for deployment commands and [Agent governance design notes](agent_governance_design.md) for the underlying IAM v3, Model Armor, and Semantic Governance architecture.
+See [Case Study: Single-Pass Pre-Flight Routing and Live Alert Rubric Triage](gemini_decision_1_case_study.md) for sanitized `POST /v1beta/decisions` JSON payloads and the live `ntdsutil.exe` walkthrough, [Agent Governance: Deploy, Verify, Operate](agent_governance.md) for deployment commands, and [Agent governance design notes](agent_governance_design.md) for the underlying IAM v3, Model Armor, and Semantic Governance architecture.

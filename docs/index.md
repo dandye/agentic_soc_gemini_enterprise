@@ -60,6 +60,7 @@ troubleshooting
 agent_governance
 agent_governance_design
 gemini_decision_1
+gemini_decision_1_case_study
 agent_governance_troubleshooting
 ```
 
