@@ -1,17 +1,20 @@
 """Decision 1 pre-LLM UDM and alert noise-filtering callback for Threat Hunter.
 
-Evaluates individual Chronicle SIEM UDM events or security alerts returned by
-`udm_search` and `list_security_alerts` inside an ADK `after_tool_callback`
-before `threat_hunter_llm` sees the payload:
+Evaluates Chronicle SIEM UDM events or security alerts returned by `udm_search`
+and `list_security_alerts` inside an ADK `after_tool_callback` before
+`threat_hunter_llm` sees the payload. Events are batched in chunks of up to 15
+into a single shared Decision 1 forward pass (up to 60 indexed questions per
+RPC), capped at 60 evaluated events and a 15-second callback time budget:
   * P(true_positive) < 0.30: dropped and counted in `dropped_low_signal_count`
   * 0.30 <= P(true_positive) < 0.85: kept with `decision1_triage` metadata
   * P(true_positive) >= 0.85: kept and tagged `[HIGH_CONFIDENCE_ESCALATE]`
+  * Overflow beyond cap or budget: passed through in `passthrough_overflow_count`
 """
 
 from __future__ import annotations
 
 import json
-from concurrent.futures import ThreadPoolExecutor
+import time
 from typing import Any
 
 from decision_client import evaluate_decisions
@@ -27,7 +30,9 @@ _EVENT_LIST_KEYS = (
 )
 _DROP_THRESHOLD = 0.30
 _ESCALATE_THRESHOLD = 0.85
-_MAX_WORKERS = 8
+_BATCH_SIZE = 15
+_MAX_FILTER_EVENTS = 60
+_CALLBACK_BUDGET_SECONDS = 15.0
 
 _SEVERITY_CRITERIA = [
     "Informational or benign activity with no security impact.",
@@ -89,78 +94,102 @@ _NEXT_ACTION_CRITERIA = {
     ),
 }
 
-_EVENT_TRIAGE_QUESTIONS: dict[str, dict[str, Any]] = {
-    "severity": {
-        "type": "score",
-        "instructions": (
-            "Score the overall security severity of this Chronicle SIEM alert or UDM event."
-        ),
-        "criteria": _SEVERITY_CRITERIA,
-    },
-    "true_positive": {
-        "type": "noul",
-        "instructions": (
-            "Determine whether this alert or UDM event represents a true positive "
-            "security threat rather than benign administrative activity or a false positive."
-        ),
-    },
-    "mitre_tactic": {
-        "type": "choice",
-        "instructions": (
-            "Select the primary MITRE ATT&CK tactic represented by this alert or UDM event."
-        ),
-        "criteria": _MITRE_TACTIC_CRITERIA,
-    },
-    "next_action": {
-        "type": "choice",
-        "instructions": (
-            "Select the recommended next SOC triage action for this alert or UDM event."
-        ),
-        "criteria": _NEXT_ACTION_CRITERIA,
-    },
-}
+
+def _summarize_event(item: Any) -> str:
+    """Serializes a single UDM event or alert compactly for batched evaluation."""
+    if isinstance(item, str):
+        return item
+    return json.dumps(item, separators=(",", ":"), sort_keys=True)
 
 
-def _evaluate_single_event(item: Any) -> dict[str, Any]:
-    """Evaluates one UDM event or alert via Decision 1 without truncation."""
-    serialized = (
-        json.dumps(item, indent=2, sort_keys=True)
-        if not isinstance(item, str)
-        else item
-    )
-    input_text = (
-        "Evaluate the following Chronicle SIEM UDM event or security alert:\n\n"
-        f"{serialized}"
-    )
+def _build_batch_payload(
+    batch: list[Any],
+) -> tuple[str, dict[str, dict[str, Any]]]:
+    """Builds one shared Decision 1 input and indexed questions for a batch."""
+    sections = [
+        "Evaluate each indexed Chronicle SIEM UDM event or security alert below. "
+        "Answer each event's indexed questions (e0_*, e1_*, ...) independently."
+    ]
+    questions: dict[str, dict[str, Any]] = {}
+
+    for idx, item in enumerate(batch):
+        tag = f"e{idx}"
+        sections.append(f"\n[Event {tag}]\n{_summarize_event(item)}")
+        questions[f"{tag}_tp"] = {
+            "type": "noul",
+            "instructions": (
+                f"For Event {tag} only: determine whether it represents a true positive "
+                "security threat rather than benign administrative activity or a false positive."
+            ),
+        }
+        questions[f"{tag}_sev"] = {
+            "type": "score",
+            "instructions": (
+                f"For Event {tag} only: score its overall security severity."
+            ),
+            "criteria": _SEVERITY_CRITERIA,
+        }
+        questions[f"{tag}_tactic"] = {
+            "type": "choice",
+            "instructions": (
+                f"For Event {tag} only: select the primary MITRE ATT&CK tactic."
+            ),
+            "criteria": _MITRE_TACTIC_CRITERIA,
+        }
+        questions[f"{tag}_next"] = {
+            "type": "choice",
+            "instructions": (
+                f"For Event {tag} only: select the recommended next SOC triage action."
+            ),
+            "criteria": _NEXT_ACTION_CRITERIA,
+        }
+
+    return "\n".join(sections), questions
+
+
+def _evaluate_batch(
+    batch: list[Any],
+    timeout: float,
+) -> tuple[bool, list[dict[str, Any]]]:
+    """Evaluates a batch of up to 15 events in a single Decision 1 RPC.
+
+    Returns ``(enabled, per_event_results)``.
+    """
+    input_text, questions = _build_batch_payload(batch)
     result = evaluate_decisions(
         input_text=input_text,
-        questions=_EVENT_TRIAGE_QUESTIONS,
+        questions=questions,
+        timeout=timeout,
     )
     if not result.get("enabled", False):
-        return {"enabled": False}
+        return False, []
     if "error" in result:
-        return {"enabled": True, "error": result["error"]}
+        return True, [{"error": result["error"]} for _ in batch]
 
     answers = result.get("answers") or {}
-    severity_ans = answers.get("severity") or {}
-    raw_severity = float(severity_ans.get("score", 0.0))
-    shifted_severity = round(raw_severity + 1.0, 4)
-    severity_level = min(5, max(1, round(raw_severity) + 1))
+    parsed: list[dict[str, Any]] = []
+    for idx in range(len(batch)):
+        tag = f"e{idx}"
+        tp_ans = answers.get(f"{tag}_tp") or {}
+        severity_ans = answers.get(f"{tag}_sev") or {}
+        tactic_ans = answers.get(f"{tag}_tactic") or {}
+        action_ans = answers.get(f"{tag}_next") or {}
 
-    tp_ans = answers.get("true_positive") or {}
-    tp_prob = float(tp_ans.get("noul", 0.0))
+        raw_severity = float(severity_ans.get("score", 0.0))
+        shifted_severity = round(raw_severity + 1.0, 4)
+        severity_level = min(5, max(1, round(raw_severity) + 1))
+        tp_prob = float(tp_ans.get("noul", 0.0))
 
-    tactic_ans = answers.get("mitre_tactic") or {}
-    action_ans = answers.get("next_action") or {}
-
-    return {
-        "enabled": True,
-        "true_positive_probability": round(tp_prob, 4),
-        "severity": severity_level,
-        "severity_score": shifted_severity,
-        "mitre_tactic": tactic_ans.get("choice", "other_or_benign"),
-        "next_action": action_ans.get("choice", "enrich_cti"),
-    }
+        parsed.append(
+            {
+                "true_positive_probability": round(tp_prob, 4),
+                "severity": severity_level,
+                "severity_score": shifted_severity,
+                "mitre_tactic": tactic_ans.get("choice", "other_or_benign"),
+                "next_action": action_ans.get("choice", "enrich_cti"),
+            }
+        )
+    return True, parsed
 
 
 def _extract_event_list(
@@ -222,10 +251,12 @@ def _filter_udm_events_after_tool_callback(
 ) -> dict[str, Any] | None:
     """Filters `udm_search` and `list_security_alerts` output with Decision 1.
 
+    Evaluates up to 60 events in batches of 15 within a 15-second budget.
     Drops benign noise (`P(true_positive) < 0.30`) before `threat_hunter_llm`
     processes the tool response, attaches `decision1_triage` metadata to kept
-    events (`0.30 <= P(true_positive) < 0.85`), and tags high-confidence threats
-    (`P(true_positive) >= 0.85`) with `[HIGH_CONFIDENCE_ESCALATE]`.
+    events (`0.30 <= P(true_positive) < 0.85`), tags high-confidence threats
+    (`P(true_positive) >= 0.85`) with `[HIGH_CONFIDENCE_ESCALATE]`, and passes
+    through any overflow events beyond the cap or time budget.
     """
     del args, tool_context
     tool_name = getattr(tool, "name", "")
@@ -240,44 +271,60 @@ def _filter_udm_events_after_tool_callback(
     if not mode or not items:
         return None
 
-    with ThreadPoolExecutor(max_workers=min(_MAX_WORKERS, len(items))) as pool:
-        evaluations = list(pool.map(_evaluate_single_event, items))
-
-    if any(not ev.get("enabled", False) for ev in evaluations):
-        return None
+    to_evaluate = items[:_MAX_FILTER_EVENTS]
+    overflow_items = items[_MAX_FILTER_EVENTS:]
 
     kept_items: list[Any] = []
     dropped_low_signal_count = 0
     high_confidence_escalate_count = 0
+    passthrough_overflow_count = len(overflow_items)
 
-    for item, ev in zip(items, evaluations, strict=True):
-        if "error" in ev:
-            kept_items.append(_attach_triage_metadata(item, {"error": ev["error"]}))
-            continue
+    deadline = time.monotonic() + _CALLBACK_BUDGET_SECONDS
 
-        tp_prob = ev["true_positive_probability"]
-        if tp_prob < _DROP_THRESHOLD:
-            dropped_low_signal_count += 1
-            continue
+    for offset in range(0, len(to_evaluate), _BATCH_SIZE):
+        batch = to_evaluate[offset : offset + _BATCH_SIZE]
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            remaining_items = to_evaluate[offset:]
+            kept_items.extend(remaining_items)
+            passthrough_overflow_count += len(remaining_items)
+            break
 
-        triage_meta: dict[str, Any] = {
-            "true_positive_probability": tp_prob,
-            "severity": ev["severity"],
-            "severity_score": ev["severity_score"],
-            "mitre_tactic": ev["mitre_tactic"],
-            "next_action": ev["next_action"],
-        }
-        if tp_prob >= _ESCALATE_THRESHOLD:
-            triage_meta["tag"] = "[HIGH_CONFIDENCE_ESCALATE]"
-            high_confidence_escalate_count += 1
+        enabled, evaluations = _evaluate_batch(batch, timeout=remaining)
+        if not enabled:
+            return None
 
-        kept_items.append(_attach_triage_metadata(item, triage_meta))
+        for item, ev in zip(batch, evaluations, strict=True):
+            if "error" in ev:
+                kept_items.append(_attach_triage_metadata(item, {"error": ev["error"]}))
+                continue
+
+            tp_prob = ev["true_positive_probability"]
+            if tp_prob < _DROP_THRESHOLD:
+                dropped_low_signal_count += 1
+                continue
+
+            triage_meta: dict[str, Any] = {
+                "true_positive_probability": tp_prob,
+                "severity": ev["severity"],
+                "severity_score": ev["severity_score"],
+                "mitre_tactic": ev["mitre_tactic"],
+                "next_action": ev["next_action"],
+            }
+            if tp_prob >= _ESCALATE_THRESHOLD:
+                triage_meta["tag"] = "[HIGH_CONFIDENCE_ESCALATE]"
+                high_confidence_escalate_count += 1
+
+            kept_items.append(_attach_triage_metadata(item, triage_meta))
+
+    kept_items.extend(overflow_items)
 
     summary_fields = {
         "decision1_filter_applied": True,
         "dropped_low_signal_count": dropped_low_signal_count,
         "kept_event_count": len(kept_items),
         "high_confidence_escalate_count": high_confidence_escalate_count,
+        "passthrough_overflow_count": passthrough_overflow_count,
     }
 
     updated_response = dict(tool_response)

@@ -1188,38 +1188,40 @@ def test_threat_hunter_after_tool_callback_filters_noise_and_tags_escalations() 
     )
 
     def fake_eval_decisions(
-        input_text: str, questions: dict[str, Any]
+        input_text: str, questions: dict[str, Any], **_: Any
     ) -> dict[str, Any]:
         assert questions
-        if "benign_noise" in input_text:
-            return {
-                "enabled": True,
-                "answers": {
-                    "severity": {"type": "score", "score": 0.0},
-                    "true_positive": {"type": "noul", "noul": 0.12},
-                    "mitre_tactic": {"type": "choice", "choice": "other_or_benign"},
-                    "next_action": {"type": "choice", "choice": "dismiss"},
-                },
+        answers: dict[str, Any] = {}
+        indices = sorted(
+            {
+                int(qid.split("_", 1)[0][1:])
+                for qid in questions
+                if qid.startswith("e") and "_" in qid
             }
-        if "suspicious_mid" in input_text:
-            return {
-                "enabled": True,
-                "answers": {
-                    "severity": {"type": "score", "score": 2.0},
-                    "true_positive": {"type": "noul", "noul": 0.62},
-                    "mitre_tactic": {"type": "choice", "choice": "discovery"},
-                    "next_action": {"type": "choice", "choice": "enrich_cti"},
-                },
-            }
-        return {
-            "enabled": True,
-            "answers": {
-                "severity": {"type": "score", "score": 3.0},
-                "true_positive": {"type": "noul", "noul": 0.91},
-                "mitre_tactic": {"type": "choice", "choice": "credential_access"},
-                "next_action": {"type": "choice", "choice": "escalate_tier2"},
-            },
-        }
+        )
+        for idx in indices:
+            if "benign_noise" in input_text and idx == 0:
+                answers[f"e{idx}_sev"] = {"type": "score", "score": 0.0}
+                answers[f"e{idx}_tp"] = {"type": "noul", "noul": 0.12}
+                answers[f"e{idx}_tactic"] = {
+                    "type": "choice",
+                    "choice": "other_or_benign",
+                }
+                answers[f"e{idx}_next"] = {"type": "choice", "choice": "dismiss"}
+            elif "suspicious_mid" in input_text and idx == 1:
+                answers[f"e{idx}_sev"] = {"type": "score", "score": 2.0}
+                answers[f"e{idx}_tp"] = {"type": "noul", "noul": 0.62}
+                answers[f"e{idx}_tactic"] = {"type": "choice", "choice": "discovery"}
+                answers[f"e{idx}_next"] = {"type": "choice", "choice": "enrich_cti"}
+            else:
+                answers[f"e{idx}_sev"] = {"type": "score", "score": 3.0}
+                answers[f"e{idx}_tp"] = {"type": "noul", "noul": 0.91}
+                answers[f"e{idx}_tactic"] = {
+                    "type": "choice",
+                    "choice": "credential_access",
+                }
+                answers[f"e{idx}_next"] = {"type": "choice", "choice": "escalate_tier2"}
+        return {"enabled": True, "answers": answers}
 
     events = [
         {"id": "benign_noise"},
@@ -1235,6 +1237,7 @@ def test_threat_hunter_after_tool_callback_filters_noise_and_tags_escalations() 
         assert filtered["dropped_low_signal_count"] == 1
         assert filtered["kept_event_count"] == 2
         assert filtered["high_confidence_escalate_count"] == 1
+        assert filtered["passthrough_overflow_count"] == 0
         kept = filtered["events"]
         assert len(kept) == 2
         assert kept[0]["id"] == "suspicious_mid"
@@ -1259,6 +1262,35 @@ def test_threat_hunter_after_tool_callback_filters_noise_and_tags_escalations() 
         assert parsed_back["kept_event_count"] == 2
         assert parsed_back["high_confidence_escalate_count"] == 1
         assert len(parsed_back["securityAlerts"]) == 2
+
+    # Batching & overflow cap: 65 events -> 4 RPCs (60 evaluated), 5 passthrough overflow.
+    many_events = [{"id": f"evt_{i}"} for i in range(65)]
+    with patch.object(
+        mod, "evaluate_decisions", side_effect=fake_eval_decisions
+    ) as mock_batch_eval:
+        capped = mod._filter_udm_events_after_tool_callback(
+            SimpleNamespace(name="udm_search"), {}, None, {"events": many_events}
+        )
+        assert capped is not None
+        assert mock_batch_eval.call_count == 4
+        assert capped["passthrough_overflow_count"] == 5
+        assert capped["kept_event_count"] == 65
+
+    # Callback time-budget passthrough: stops after batch 1 when budget expires.
+    thirty_events = [{"id": f"evt_{i}"} for i in range(30)]
+    with (
+        patch.object(
+            mod, "evaluate_decisions", side_effect=fake_eval_decisions
+        ) as mock_budget_eval,
+        patch.object(mod.time, "monotonic", side_effect=[100.0, 100.1, 120.0]),
+    ):
+        budgeted = mod._filter_udm_events_after_tool_callback(
+            SimpleNamespace(name="udm_search"), {}, None, {"events": thirty_events}
+        )
+        assert budgeted is not None
+        assert mock_budget_eval.call_count == 1
+        assert budgeted["passthrough_overflow_count"] == 15
+        assert budgeted["kept_event_count"] == 30
 
 
 def test_cti_researcher_triage_unstructured_cti_artifact() -> None:
