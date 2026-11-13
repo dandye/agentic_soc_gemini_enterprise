@@ -101,4 +101,11 @@ To validate Decision 1 against realistic security telemetry in the test Google S
 .venv/bin/python scripts/governance/benchmark_decision1.py --json-out /tmp/bench.json
 ```
 
-See [Case Study: Single-Pass Pre-Flight Routing and Live Alert Rubric Triage](gemini_decision_1_case_study.md) for sanitized `POST /v1beta/decisions` JSON payloads and the live `ntdsutil.exe` walkthrough, [Agent Governance: Deploy, Verify, Operate](agent_governance.md) for deployment commands, and [Agent governance design notes](agent_governance_design.md) for the underlying IAM v3, Model Armor, and Semantic Governance architecture.
+See [Case Study: Single-Pass Pre-Flight Routing and Live Alert Rubric Triage](gemini_decision_1_case_study.md) for sanitized `POST /v1beta/decisions` JSON payloads and the live `ntdsutil.exe` walkthrough, or dive into the per-specialist guides:
+
+- [CTI IOC Triage (`cti_researcher`)](gemini_decision_1_cti_ioc_triage.md)
+- [Threat Hunting Alert Rubric (`threat_hunter`)](gemini_decision_1_threat_hunting.md)
+- [YARA-L 2.0 Rule Grading (`detection_engineer`)](gemini_decision_1_yaral2_grading.md)
+- [Advisory Containment Readiness (`tier2_responder`)](gemini_decision_1_containment_readiness.md)
+
+For deployment and architecture details, see [Agent Governance: Deploy, Verify, Operate](agent_governance.md) and [Agent governance design notes](agent_governance_design.md).

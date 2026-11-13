@@ -61,6 +61,10 @@ agent_governance
 agent_governance_design
 gemini_decision_1
 gemini_decision_1_case_study
+gemini_decision_1_cti_ioc_triage
+gemini_decision_1_threat_hunting
+gemini_decision_1_yaral2_grading
+gemini_decision_1_containment_readiness
 agent_governance_troubleshooting
 ```
 
