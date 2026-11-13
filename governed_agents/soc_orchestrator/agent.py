@@ -65,7 +65,7 @@ if not hasattr(A2AClientError, "status_code"):
 APP_NAME = "soc_orchestrator_agent"
 AGENT_VERSION = "1.0.0"
 
-MODEL = os.getenv("MODEL", "gemini-3.1-pro-preview")
+MODEL = os.getenv("ORCHESTRATOR_MODEL") or os.getenv("MODEL", "gemini-4-hydrogen")
 MODEL_LOCATION = os.getenv("MODEL_LOCATION", "global")
 
 CTI_RESEARCHER_URL = os.environ["CTI_RESEARCHER_URL"]

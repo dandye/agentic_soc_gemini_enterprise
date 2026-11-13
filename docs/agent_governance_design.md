@@ -340,8 +340,8 @@ look up, but only to `www.virustotal.com`, since no other external endpoint is g
   in `41-agents.tf`): if `deployment_spec` were ignored, a later spec-only update would be sent with
   `updateMask=spec`, which prunes `deploymentSpec` server-side and strips `agent_gateway_config`,
   silently taking the engine out from behind the gateway.
-- **`MODEL_LOCATION` is passed separately from the deploy region.** Gemini 3.x models
-  (`gemini-3.1-pro-preview`, `gemini-3.5-flash`) are served from the `global` endpoint, so each
+- **`MODEL_LOCATION` is passed separately from the deploy region.** Gemini models
+  (`gemini-4-hydrogen`, `gemini-4-carbon`, `gemini-3.8-flash`) are served from the `global` endpoint, so each
   agent builds its `Gemini` client with `client_kwargs={"location": MODEL_LOCATION}` while the
   engine itself deploys in `var.region`. This is also why both the regional and the global
   `aiplatform` hosts are registered.

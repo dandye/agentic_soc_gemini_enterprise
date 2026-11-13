@@ -41,7 +41,7 @@ GENERATE_URL_TMPL = (
     "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 )
 
-DEFAULT_GEN_MODEL = "gemini-3.5-flash"
+DEFAULT_GEN_MODEL = "gemini-3.8-flash"
 DEFAULT_DECISION_MODEL = "gemini-decision-1"
 
 # Pricing in USD per 1M tokens.
@@ -857,7 +857,7 @@ def _format_markdown(
         "",
         "### Estimated End-to-End Agent Savings (Decision 1 Fast Paths)",
         "",
-        f"- **Orchestrator short-circuit (`preflight`)**: {e2e_savings['preflight_short_circuited']}/{e2e_savings['preflight_calls']} calls bypassed `gemini-3.1-pro-preview` (~{e2e_savings['pro_tokens_saved']} tokens and ~{e2e_savings['pro_latency_saved_ms']:.0f} ms saved).",
+        f"- **Orchestrator short-circuit (`preflight`)**: {e2e_savings['preflight_short_circuited']}/{e2e_savings['preflight_calls']} calls bypassed `gemini-4-hydrogen` (~{e2e_savings['pro_tokens_saved']} tokens and ~{e2e_savings['pro_latency_saved_ms']:.0f} ms saved).",
         f"- **Pre-LLM UDM noise drop (`udm_filter`)**: {e2e_savings['udm_noise_dropped']}/{e2e_savings['udm_events_scored']} events dropped (`P(tp) < 0.30`), {e2e_savings['udm_high_conf_escalated']} fast-escalated (`P(tp) >= 0.85`), saving ~{e2e_savings['flash_tokens_saved_from_noise_drop']} downstream Flash input tokens.",
         "",
         "### Per-Question Mismatches",

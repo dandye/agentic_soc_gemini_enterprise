@@ -21,13 +21,13 @@ It evaluates **five structured questions** in a single forward pass:
 | `requires_immediate_hunt` | `noul` | Probability in `[0.0, 1.0]` (`>= 0.5` -> `true`) | Indicates whether internal SIEM/UDM threat hunting is warranted. |
 | `confidence_score` | `score` | `1.0–5.0` (0-indexed `0..4` shifted `+1.0`) | Triage confidence based on technical detail and corroboration in the artifact. |
 
-In the v2 live benchmark (`cti_artifact` workload), `gemini-decision-1` averaged **`257 ms`** mean latency—**`4.1x` faster** than `gemini-3.5-flash` (`thinkingBudget=0`) with **zero output tokens**.
+In the v3 live benchmark (`cti_artifact` workload), `gemini-decision-1` achieved **`100.0%` accuracy** (`177/177` overall vs. `96.6%` for `gemini-3.8-flash` `thinkingBudget=0`) and **`247.11 ms`** overall mean latency (**`13.0x` faster** than `gemini-3.8-flash`'s `3,218.01 ms`) with **zero output tokens**.
 
 ![Unstructured and multimodal CTI artifact triage flow using Gemini Decision 1](images/decision1/11_cti_ioc_classification.png)\
-*Figure 1. `triage_unstructured_cti_artifact` flow in `governed_agents/cti_researcher/gti_tools.py`, evaluating unstructured prose, PDFs (`type: "document"`), and screenshots (`type: "image"`) at `257 ms` mean latency (`4.1x` faster than `gemini-3.5-flash` `thinkingBudget=0`) with zero output tokens.*
+*Figure 1. `triage_unstructured_cti_artifact` flow in `governed_agents/cti_researcher/gti_tools.py`, evaluating unstructured prose, PDFs (`type: "document"`), and screenshots (`type: "image"`) with zero output tokens.*
 
-![Output tokens, cost, and end-to-end savings comparison between generative Flash and Gemini Decision 1](images/decision1/02_tokens_and_cost.png)\
-*Figure 2. Aggregate output tokens (`0` vs. `2,012`) and total cost (`$0.002369` vs. `$0.008517`, `3.6x` lower) comparing `gemini-decision-1` against `gemini-3.5-flash` (`thinkingBudget=0`) across governed SOC workloads.*
+![Output tokens, cost, and modeled end-to-end savings comparison between generative Flash and Gemini Decision 1](images/decision1/02_tokens_and_cost.png)\
+*Figure 2. Aggregate output tokens (`0` vs. `2,051`; `2.04x` input token footprint `23,694` vs. `11,622`) and total cost (`$0.002369` vs. `$0.008614`, `3.6x` lower) comparing `gemini-decision-1` against `gemini-3.8-flash` (`thinkingBudget=0`) across governed SOC workloads.*
 
 ## Auth Manager (300s TTL cache) and `AgentSkill` registration
 

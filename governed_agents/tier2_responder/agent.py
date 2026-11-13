@@ -36,7 +36,7 @@ from vertexai.agent_engines.templates.a2a import A2aAgent, create_agent_card
 APP_NAME = "tier2_responder_agent"
 AGENT_VERSION = "1.0.0"
 
-MODEL = os.getenv("MODEL", "gemini-3.1-pro-preview")
+MODEL = os.getenv("TIER2_MODEL") or os.getenv("MODEL", "gemini-4-carbon")
 MODEL_LOCATION = os.getenv("MODEL_LOCATION", "global")
 
 CHRONICLE_PROJECT_ID = os.environ["CHRONICLE_PROJECT_ID"]

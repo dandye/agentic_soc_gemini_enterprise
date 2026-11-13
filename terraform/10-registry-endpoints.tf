@@ -7,7 +7,7 @@
 # while global/multi-regional hosts (`aiplatform.googleapis.com`,
 # `aiplatform.us.rep.googleapis.com`) receive `${var.region}-g-...` so both
 # regional and global endpoints register side-by-side without colliding on
-# `service_id` (critical for `gemini-3.1-pro-preview` on `MODEL_LOCATION=global`).
+# `service_id` (critical for `gemini-4-hydrogen` on `MODEL_LOCATION=global`).
 
 locals {
   google_api_hosts_regional = [

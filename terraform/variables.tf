@@ -177,21 +177,21 @@ variable "ge_agent_sharing_scope" {
 # Models and runtime
 
 variable "orchestrator_model" {
-  description = "Gemini 3+ model ID used by `soc_orchestrator`."
+  description = "Gemini model ID used by `soc_orchestrator`."
   type        = string
-  default     = "gemini-3.1-pro-preview"
+  default     = "gemini-4-hydrogen"
 }
 
 variable "tier2_model" {
-  description = "Gemini 3+ model ID used by `tier2_responder`."
+  description = "Gemini model ID used by `tier2_responder`."
   type        = string
-  default     = "gemini-3.1-pro-preview"
+  default     = "gemini-4-carbon"
 }
 
 variable "specialist_model" {
-  description = "Gemini 3+ model ID used by `cti_researcher`, `threat_hunter`, and `detection_engineer`."
+  description = "Gemini model ID used by `cti_researcher`, `threat_hunter`, and `detection_engineer`."
   type        = string
-  default     = "gemini-3.5-flash"
+  default     = "gemini-3.8-flash"
 }
 
 variable "model_location" {

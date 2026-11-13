@@ -211,9 +211,9 @@ Every variable in `terraform/variables.tf`:
 | `ge_agent_display_name` | string | `"Governed SecOps Orchestrator"` | Display name in the agent picker |
 | `ge_agent_icon_path` | string | `""` | Optional repo-relative PNG or SVG icon |
 | `ge_agent_sharing_scope` | string | `"ALL_USERS"` | `ALL_USERS` or `RESTRICTED` visibility when published |
-| `orchestrator_model` | string | `"gemini-3.1-pro-preview"` | Model for `soc_orchestrator` |
-| `tier2_model` | string | `"gemini-3.1-pro-preview"` | Model for `tier2_responder` |
-| `specialist_model` | string | `"gemini-3.5-flash"` | Model for `cti_researcher`, `threat_hunter`, `detection_engineer` |
+| `orchestrator_model` | string | `"gemini-4-hydrogen"` | Model for `soc_orchestrator` |
+| `tier2_model` | string | `"gemini-4-carbon"` | Model for `tier2_responder` |
+| `specialist_model` | string | `"gemini-3.8-flash"` | Model for `cti_researcher`, `threat_hunter`, `detection_engineer` |
 | `model_location` | string | `"global"` | Vertex AI model endpoint location (`global`, `us`, `eu`) |
 | `python_version` | string | `"3.12"` | Python runtime for the Reasoning Engines |
 | `trace_capture_message_content` | bool | `true` | Set `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=EVENT_ONLY` |

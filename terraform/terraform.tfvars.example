@@ -21,10 +21,10 @@ create_ge_agent = false
 # provisioners run bind_ge_app.sh unbind and ge_agent.sh delete), or run
 # `just governance-ge-rollback` (auto-derives GE_* from terraform output).
 
-# Gemini 3+ models on global Vertex AI endpoint
-orchestrator_model = "gemini-3.1-pro-preview"
-tier2_model        = "gemini-3.1-pro-preview"
-specialist_model   = "gemini-3.5-flash"
+# Gemini models on global Vertex AI endpoint
+orchestrator_model = "gemini-4-hydrogen"
+tier2_model        = "gemini-4-carbon"
+specialist_model   = "gemini-3.8-flash"
 model_location     = "global"
 
 # Scale idle Reasoning Engines to zero ($0/hr idle memory; ~10-25s cold start).

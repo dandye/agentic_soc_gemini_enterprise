@@ -2,12 +2,12 @@
 
 The strongest demonstration of Gemini Decision 1 (`gemini-decision-1`) in this repository is how it **eliminates downstream LLM turns** rather than merely reformatting JSON:
 
-1. **True `LlmResponse` short-circuit in `soc_orchestrator`:** On initial user turns (`len(llm_request.contents) == 1`), `_preflight_before_model_callback` evaluates **6 heterogeneous questions** (`4 noul`, `1 choice`, `1` 0-indexed `score` shifted `+1.0`) in one `POST /v1beta/decisions` pass (`0` output tokens). When `workflow_mode == "single_specialist"` and exactly one specialist has `noul >= 0.90`, the callback returns `LlmResponse(content=Content(role="model", parts=[Part.from_function_call(name=target_agent, args={"request": prompt})]))` directly—**bypassing `gemini-3.1-pro-preview` on the initial routing turn**.
+1. **True `LlmResponse` short-circuit in `soc_orchestrator`:** On initial user turns (`len(llm_request.contents) == 1`), `_preflight_before_model_callback` evaluates **6 heterogeneous questions** (`4 noul`, `1 choice`, `1` 0-indexed `score` shifted `+1.0`) in one `POST /v1beta/decisions` pass (`0` output tokens). When `workflow_mode == "single_specialist"` and exactly one specialist has `noul >= 0.90`, the callback returns `LlmResponse(content=Content(role="model", parts=[Part(function_call=FunctionCall(name=target_agent, args={"request": prompt}), thought_signature=b"skip_thought_signature_validator")]))` directly—**bypassing `gemini-4-hydrogen` on the initial routing turn**.
 2. **Pre-LLM UDM noise filter in `threat_hunter`:** `_filter_udm_events_after_tool_callback` intercepts `udm_search` and `list_security_alerts` responses before `threat_hunter_llm` sees them, evaluating each event in parallel via `ThreadPoolExecutor` without `[:32000]` batch truncation. Benign OS/Defender DNS lookups (`P(true_positive) < 0.30`) are dropped before consuming Flash input tokens, while the replayed `RULES_SEARCH_WORKSHOP` `ntdsutil.exe` event (`frank.kolzig` on `activedir.stackedpads.local`) is retained and tagged `[HIGH_CONFIDENCE_ESCALATE]`.
 3. **Authoritative Gateway enforcement preserved:** `soc_orchestrator` never blocks or self-refuses; ambiguous or multi-stage turns fall back to a non-binding `[PREFLIGHT_ROUTING]` instruction, and `detection_engineer` validates YARA-L 2.0 rules directly via Chronicle OneMCP `validate_rule` (`success: true`, `usesUdm: true`).
 
 ![Pre-flight short-circuit routing and pre-LLM UDM noise filtering flow](images/decision1/05_preflight_and_advisory_flow.png)\
-*Figure 1. `soc_orchestrator` `LlmResponse` short-circuit bypassing `gemini-3.1-pro-preview` on decisive single-specialist turns and `threat_hunter` `after_tool_callback` dropping low-signal UDM noise (`P(tp) < 0.30`) before the LLM runs.*
+*Figure 1. `soc_orchestrator` `LlmResponse` short-circuit bypassing `gemini-4-hydrogen` on decisive single-specialist turns and `threat_hunter` `after_tool_callback` dropping low-signal UDM noise (`P(tp) < 0.30`) before `gemini-3.8-flash` runs.*
 
 ## Step 1: 6-question pre-flight routing (`soc_orchestrator`)
 
@@ -99,7 +99,7 @@ The strongest demonstration of Gemini Decision 1 (`gemini-decision-1`) in this r
 }
 ```
 
-Because this prompt requests two specialists (`workflow_mode == "multi_stage_investigation"`), `_short_circuit_target` returns `None` and `_format_preflight_hint` injects `[PREFLIGHT_ROUTING]`. By contrast, on single-specialist prompts (e.g., `"Look up domain reputation for google.com in GTI"` -> `workflow_mode == "single_specialist"`, `needs_cti >= 0.90`), `_preflight_before_model_callback` returns `LlmResponse` with `Part.from_function_call(name="CTI_Researcher", args={"request": prompt})`, skipping `gemini-3.1-pro-preview` entirely on that turn (saving ~`12,120` tokens and ~`19,200 ms` across `6/12` benchmark `preflight` calls).
+Because this prompt requests two specialists (`workflow_mode == "multi_stage_investigation"`), `_short_circuit_target` returns `None` and `_format_preflight_hint` injects `[PREFLIGHT_ROUTING]`. By contrast, on single-specialist prompts (e.g., `"Look up domain reputation for google.com in GTI"` -> `workflow_mode == "single_specialist"`, `needs_cti >= 0.90`), `_preflight_before_model_callback` returns `LlmResponse` with `FunctionCall(name="CTI_Researcher", args={"request": prompt})`, skipping `gemini-4-hydrogen` entirely on that turn (a modeled estimate of ~`12,120` tokens and ~`19,200 ms` saved across `6/12` benchmark `preflight` calls).
 
 ## Step 2: Pre-LLM UDM noise filtering and YARA-L 2.0 validation
 
@@ -117,6 +117,6 @@ Following routing, `soc_orchestrator` delegates over A2A to `Threat_Hunter` and 
 *Figure 3. Calibrated probability distributions (`noul`, `choice.probabilities`, and `score.probabilities`) emitted by `gemini-decision-1` with zero output tokens.*
 
 ![Latency comparison between generative Flash with thinkingBudget=0 and Gemini Decision 1](images/decision1/01_latency_comparison.png)\
-*Figure 4. Apples-to-apples benchmark latency comparison showing `gemini-decision-1` averaging `346.01 ms` versus `1,035.21 ms` for `gemini-3.5-flash` (`thinkingBudget=0`) across `preflight`, `udm_filter`, and `cti_artifact`.*
+*Figure 4. Apples-to-apples benchmark latency comparison showing `gemini-decision-1` averaging `247.11 ms` (`212.03 ms` p50) versus `3,218.01 ms` (`3,231.06 ms` p50) for `gemini-3.8-flash` (`thinkingBudget=0`) across `preflight`, `udm_filter`, and `cti_artifact`.*
 
 See [Gemini Decision 1 for Governed SOC Agents](gemini_decision_1.md) for the full architecture, Auth Manager 300s TTL caching, and aggregate v2 benchmark tables.

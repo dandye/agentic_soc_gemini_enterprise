@@ -15,7 +15,7 @@
 
 Based on `P(true_positive)`:
 
-- **`P(true_positive) < 0.30` (`_DROP_THRESHOLD`):** Dropped before `threat_hunter_llm` runs and counted in `dropped_low_signal_count`, saving downstream Flash input tokens (`9/18` events dropped in the v2 benchmark, saving ~`4,050` tokens).
+- **`P(true_positive) < 0.30` (`_DROP_THRESHOLD`):** Dropped before `threat_hunter_llm` (`gemini-3.8-flash`) runs and counted in `dropped_low_signal_count`, saving downstream Flash input tokens (a modeled estimate of ~`4,050` tokens saved from `9/18` noise drops in the v3 benchmark).
 - **`0.30 <= P(true_positive) < 0.85`:** Kept with `decision1_triage` metadata (`true_positive_probability`, `severity`, `severity_score`, `mitre_tactic`, `next_action`).
 - **`P(true_positive) >= 0.85` (`_ESCALATE_THRESHOLD`):** Kept with `decision1_triage` metadata and tagged `[HIGH_CONFIDENCE_ESCALATE]` (`escalation_tag`).
 

@@ -36,7 +36,7 @@ from vertexai.agent_engines.templates.a2a import A2aAgent, create_agent_card
 APP_NAME = "cti_researcher_agent"
 AGENT_VERSION = "1.0.0"
 
-MODEL = os.getenv("MODEL", "gemini-3.5-flash")
+MODEL = os.getenv("MODEL", "gemini-3.8-flash")
 MODEL_LOCATION = os.getenv("MODEL_LOCATION", "global")
 
 # Fail fast at container startup if the Auth Manager provider resource name was omitted.
