@@ -19,6 +19,13 @@ Configure Google Cloud APIs, Vertex AI Reasoning Engines, Secret Manager credent
 Deploy and verify the default-deny egress Agent Gateway, per-agent SPIFFE workload identities, IAM v3 CEL tool allowlists, inline Model Armor, and Semantic Governance policies.
 :::
 
+:::{grid-item-card} Gemini Decision 1 Triage & Routing
+:link: gemini_decision_1
+:link-type: doc
+
+Zero-output-token pre-flight routing, alert rubric triage, YARA-L 2.0 rule grading, and Auth Manager egress across all five governed SOC agents.
+:::
+
 :::{grid-item-card} Multi-Agent Architecture & Grounding
 :link: architecture
 :link-type: doc
@@ -52,6 +59,7 @@ troubleshooting
 
 agent_governance
 agent_governance_design
+gemini_decision_1
 agent_governance_troubleshooting
 ```
 

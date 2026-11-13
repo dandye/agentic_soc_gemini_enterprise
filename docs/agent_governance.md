@@ -16,7 +16,10 @@ access policies against the calling agent's SPIFFE workload identity, screens
 request and response bodies with Model Armor, and asks a Semantic Governance
 policy engine whether a containment action against a Tier-0 asset is allowed.
 No agent holds a static credential: the GTI API key lives in Agent Platform Auth
-Manager and is retrievable only by `cti_researcher`.
+Manager and is retrievable only by `cti_researcher`. See
+[Gemini Decision 1 for Governed SOC Agents](gemini_decision_1.md) for the
+`gemini-decision-1` pre-flight routing, rubric triage, and Auth Manager
+integration across all five engines.
 
 | Layer | What enforces it | Terraform file(s) |
 | --- | --- | --- |

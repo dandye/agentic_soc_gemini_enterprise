@@ -2,6 +2,7 @@
 
 Why the governed deployment under `terraform/` and `governed_agents/` is shaped the way it is.
 [agent_governance.md](agent_governance.md) is the deploy path;
+[gemini_decision_1.md](gemini_decision_1.md) covers `gemini-decision-1` routing, triage, and Auth Manager integration;
 [agent_governance_troubleshooting.md](agent_governance_troubleshooting.md) is what to do when a step fails.
 
 ## Architecture
