@@ -33,6 +33,8 @@ _ESCALATE_THRESHOLD = 0.85
 _BATCH_SIZE = 15
 _MAX_FILTER_EVENTS = 60
 _CALLBACK_BUDGET_SECONDS = 15.0
+_MAX_UDM_SEARCH_LIMIT = 25
+_MAX_UDM_SEARCH_CALLS = 2
 
 _SEVERITY_CRITERIA = [
     "Informational or benign activity with no security impact.",
@@ -232,6 +234,41 @@ def _extract_event_list(
                             return ("mcp_text_dict", val, key, parsed)
 
     return ("", [], None, None)
+
+
+def _cap_udm_search_args(
+    tool: Any,
+    args: dict[str, Any],
+    tool_context: Any,
+) -> dict[str, Any] | None:
+    """Clamps `udm_search` `limit` to 25 and caps calls per invocation at 2."""
+    if getattr(tool, "name", "") != "udm_search":
+        return None
+
+    if isinstance(args, dict):
+        raw_limit = args.get("limit")
+        if isinstance(raw_limit, int) and not isinstance(raw_limit, bool):
+            args["limit"] = min(max(1, raw_limit), _MAX_UDM_SEARCH_LIMIT)
+        else:
+            args["limit"] = _MAX_UDM_SEARCH_LIMIT
+
+    state = getattr(tool_context, "state", None)
+    if state is not None:
+        invocation_id = getattr(tool_context, "invocation_id", "default")
+        state_key = f"_udm_search_count_{invocation_id}"
+        count = int(state.get(state_key, 0))
+        if count >= _MAX_UDM_SEARCH_CALLS:
+            return {
+                "search_capped": True,
+                "message": (
+                    f"Reached the per-turn cap of {_MAX_UDM_SEARCH_CALLS} "
+                    "udm_search calls. Synthesize your findings concisely from "
+                    "the events already retrieved."
+                ),
+            }
+        state[state_key] = count + 1
+
+    return None
 
 
 def _attach_triage_metadata(item: Any, triage: dict[str, Any]) -> Any:

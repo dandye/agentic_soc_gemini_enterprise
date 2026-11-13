@@ -1293,6 +1293,42 @@ def test_threat_hunter_after_tool_callback_filters_noise_and_tags_escalations() 
         assert budgeted["kept_event_count"] == 30
 
 
+def test_threat_hunter_before_tool_callback_caps_udm_search() -> None:
+    """Verifies _cap_udm_search_args clamps limit <= 25 and caps udm_search at 2 calls."""
+    mod = _load_module(
+        "test_threat_hunter_cap",
+        GOVERNED_AGENTS_DIR / "threat_hunter" / "triage_tools.py",
+        {},
+    )
+    tool_ctx = SimpleNamespace(state={})
+    udm_tool = SimpleNamespace(name="udm_search")
+
+    # Non-udm_search tool is untouched.
+    other_args = {"limit": 100}
+    assert (
+        mod._cap_udm_search_args(
+            SimpleNamespace(name="list_security_alerts"), other_args, tool_ctx
+        )
+        is None
+    )
+    assert other_args["limit"] == 100
+
+    # Call 1 & 2: allowed and limit clamped to 25.
+    args1 = {"query": "principal.hostname = 'h1'", "limit": 200}
+    assert mod._cap_udm_search_args(udm_tool, args1, tool_ctx) is None
+    assert args1["limit"] == 25
+
+    args2 = {"query": "principal.hostname = 'h2'", "limit": 10}
+    assert mod._cap_udm_search_args(udm_tool, args2, tool_ctx) is None
+    assert args2["limit"] == 10
+
+    # Call 3+: capped with summary dict.
+    args3 = {"query": "principal.hostname = 'h3'", "limit": 50}
+    capped = mod._cap_udm_search_args(udm_tool, args3, tool_ctx)
+    assert capped is not None
+    assert capped["search_capped"] is True
+
+
 def test_cti_researcher_triage_unstructured_cti_artifact() -> None:
     """Verifies triage_unstructured_cti_artifact for text/plain, image/png, and application/pdf."""
     mod = _load_module(
