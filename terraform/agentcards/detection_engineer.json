@@ -28,21 +28,6 @@
       ]
     },
     {
-      "description": "Grades Chronicle SIEM YARA-L 2.0 UDM detection rules in a single pass for quality (1-5), false-positive risk, MITRE ATT&CK tactic, required YARA-L 2.0 sections, and validation readiness (distinct from standard file/payload YARA).",
-      "examples": [
-        "Grade this YARA-L 2.0 UDM rule for quality, false-positive risk, and MITRE tactic",
-        "Check if this draft YARA-L 2.0 rule has required sections before running validate_rule"
-      ],
-      "id": "grade_yaral2_rule",
-      "name": "YARA-L 2.0 rule quality and readiness grading",
-      "tags": [
-        "chronicle",
-        "yaral2",
-        "grading",
-        "detection-engineering"
-      ]
-    },
-    {
       "description": "Attempts parser activation/deactivation or feed deletion via Chronicle MCP (governed by Agent Gateway tool allowlist).",
       "examples": [
         "Deactivate parser parser-01 for WINDOWS_AD"

@@ -24,11 +24,11 @@ from google.adk.models.google_llm import Gemini
 from google.adk.runners import Runner
 from google.adk.sessions.in_memory_session_service import InMemorySessionService
 from gti_tools import (
-    classify_ioc_intelligence,
     get_threat_collection,
     lookup_domain_reputation,
     lookup_file_hash_reputation,
     lookup_ip_reputation,
+    triage_unstructured_cti_artifact,
 )
 from vertexai.agent_engines.templates.a2a import A2aAgent, create_agent_card
 
@@ -58,17 +58,19 @@ Intelligence (VirusTotal v3):
   * Domains and FQDNs: call `lookup_domain_reputation`
   * IPv4 and IPv6 addresses: call `lookup_ip_reputation`
   * Threat collections, campaigns, or actor IDs: call `get_threat_collection`
-  * Fast structured IOC triage: call `classify_ioc_intelligence` with the JSON
-    summaries returned by GTI lookups to score verdict, threat category,
-    confidence (1-5), immediate hunt urgency, and false-positive likelihood.
+  * Unstructured CTI artifacts (OSINT prose, threat reports, PDFs, or
+    screenshots): call `triage_unstructured_cti_artifact(content, mime_type)`
+    to classify actionability, threat category, 1-5 severity, immediate hunt
+    urgency, and 1-5 confidence in a single zero-output-token pass (pass base64
+    for non-text `mime_type` such as `application/pdf` or `image/png`).
 
 Operating rules:
-1. Always call the matching GTI tool for every indicator in the request. Never
-   invent detection counts, reputation scores, ASN owners, or threat labels from
-   memory.
-2. After enriching indicators with GTI tools, call `classify_ioc_intelligence`
-   for fast structured triage whenever a verdict, threat category, confidence
-   score, or hunt recommendation is needed.
+1. Always call the matching GTI tool for every structured indicator in the
+   request. Never invent detection counts, reputation scores, ASN owners, or
+   threat labels from memory.
+2. When given unstructured threat reports, OSINT prose, PDFs, or screenshots,
+   call `triage_unstructured_cti_artifact` instead of manually scoring them.
+   Do not call it on structured GTI/VirusTotal v3 integer vote counts.
 3. You have zero access to internal Chronicle SIEM telemetry, UDM logs, YARA-L 2.0
    detection rules, or endpoint containment tools by architectural design. If asked
    for internal log searches or host containment, state clearly that CTI Researcher
@@ -90,7 +92,7 @@ cti_llm = LlmAgent(
         lookup_domain_reputation,
         lookup_ip_reputation,
         get_threat_collection,
-        classify_ioc_intelligence,
+        triage_unstructured_cti_artifact,
     ],
 )
 
@@ -144,16 +146,19 @@ agent_card = create_agent_card(
             examples=["Fetch GTI collection details for a threat report ID"],
         ),
         AgentSkill(
-            id="classify_ioc_intelligence",
-            name="Structured IOC intelligence triage",
+            id="triage_unstructured_cti_artifact",
+            name="Unstructured CTI artifact triage",
             description=(
-                "Evaluates GTI indicator enrichment summaries in a single "
-                "zero-output-token pass to classify verdict, threat category, "
-                "1-5 confidence score, immediate hunt urgency, and false-positive "
-                "likelihood."
+                "Evaluates unstructured threat reports, OSINT prose, PDFs, or "
+                "screenshots in a single zero-output-token pass to extract "
+                "actionability, threat category, 1-5 severity, immediate hunt "
+                "urgency, and 1-5 confidence."
             ),
-            tags=["cti", "triage", "classification", "decision", "gti"],
-            examples=["Classify the GTI enrichment summary for this hash and domain"],
+            tags=["cti", "osint", "triage", "multimodal", "decision", "gti"],
+            examples=[
+                "Triage this unstructured OSINT threat report for actionability and hunt urgency",
+                "Evaluate this base64 threat advisory PDF or screenshot",
+            ],
         ),
     ],
 )

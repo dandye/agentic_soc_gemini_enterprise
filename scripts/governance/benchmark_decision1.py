@@ -1,18 +1,22 @@
 #!/usr/bin/env python3
 """Benchmark comparing standard generative Flash JSON vs Gemini Decision 1.
 
-Evaluates both models across three governed SOC workloads:
-  1. Orchestrator preflight routing (specialist selection, workflow mode, urgency)
-  2. Chronicle SIEM alert / UDM rubric triage (severity, true positive, tactic, action)
-  3. Chronicle SIEM YARA-L 2.0 rule grading (quality, FP risk, tactic, YARA-L 2.0 vs YARA)
+Evaluates both models across three high-ROI governed SOC workloads:
+  1. Orchestrator short-circuit routing (`preflight`): bypasses the outer
+     Pro orchestrator when Decision 1 routes to a single specialist at >= 0.90.
+  2. Pre-LLM UDM noise reduction (`udm_filter`): scores individual UDM events
+     before `threat_hunter_llm` runs, dropping low-signal noise (< 0.30).
+  3. Unstructured CTI artifact triage (`cti_artifact`): extracts structured
+     actionability, category, and severity from unstructured threat prose.
 
 Measures per-call and aggregate input tokens, output tokens (0 for Decision 1),
-latency (mean, p50, p95 ms), cost ($0.10/1M input and $0 output for Decision 1),
-label accuracy, and structured probability/confidence outputs.
+isolated API latency (mean, p50, p95 ms), cost ($0.10/1M input and $0 output
+for Decision 1), label accuracy, per-question mismatches, calibrated
+probabilities, and estimated end-to-end agent savings.
 
 Usage:
     .venv/bin/python scripts/governance/benchmark_decision1.py --dry-run
-    .venv/bin/python scripts/governance/benchmark_decision1.py --json-out /tmp/bench.json
+    .venv/bin/python scripts/governance/benchmark_decision1.py --iterations 3 --json-out /tmp/bench.json
 """
 
 from __future__ import annotations
@@ -37,7 +41,7 @@ GENERATE_URL_TMPL = (
     "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 )
 
-DEFAULT_GEN_MODEL = "gemini-2.5-flash"
+DEFAULT_GEN_MODEL = "gemini-3.5-flash"
 DEFAULT_DECISION_MODEL = "gemini-decision-1"
 
 # Pricing in USD per 1M tokens.
@@ -45,6 +49,16 @@ DECISION1_INPUT_PER_M = 0.10
 DECISION1_OUTPUT_PER_M = 0.0
 DEFAULT_GEN_INPUT_PER_M = 0.30
 DEFAULT_GEN_OUTPUT_PER_M = 2.50
+
+# Reference end-to-end savings constants for bypassed downstream LLM turns.
+PRO_BYPASS_SAVED_INPUT_TOKENS = 1800
+PRO_BYPASS_SAVED_OUTPUT_TOKENS = 220
+PRO_BYPASS_SAVED_LATENCY_MS = 3200.0
+FLASH_FILTER_SAVED_INPUT_TOKENS_PER_EVENT = 450
+FLASH_FILTER_SAVED_LATENCY_MS_PER_BATCH = 650.0
+SHORT_CIRCUIT_THRESHOLD = 0.90
+UDM_DROP_THRESHOLD = 0.30
+UDM_ESCALATE_THRESHOLD = 0.85
 
 
 @dataclass(frozen=True)
@@ -54,6 +68,7 @@ class BenchmarkCase:
     input_text: str
     questions: dict[str, dict[str, Any]]
     expected: dict[str, Any]
+    metadata: dict[str, Any]
 
 
 PREFLIGHT_QUESTIONS: dict[str, dict[str, Any]] = {
@@ -61,21 +76,21 @@ PREFLIGHT_QUESTIONS: dict[str, dict[str, Any]] = {
         "type": "noul",
         "instructions": (
             "Does the request ask to look up or enrich a file hash, domain, IP "
-            "address, URL, or threat collection in threat intelligence?"
+            "address, URL, or threat report in external threat intelligence?"
         ),
     },
     "needs_threat_hunt": {
         "type": "noul",
         "instructions": (
-            "Does the request ask to search SIEM logs or UDM telemetry, list or "
-            "triage security alerts, inspect entity context, or check SIEM feeds?"
+            "Does the request ask to search Chronicle SIEM logs or UDM "
+            "telemetry, list or triage security alerts, or inspect SIEM feeds?"
         ),
     },
     "needs_detection_eng": {
         "type": "noul",
         "instructions": (
-            "Does the request ask to author, validate, audit, or test a Chronicle "
-            "SIEM YARA-L 2.0 detection rule or manage a SIEM parser?"
+            "Does the request ask to author, validate, audit, or test a "
+            "Chronicle SIEM YARA-L 2.0 detection rule or manage a SIEM parser?"
         ),
     },
     "needs_tier2_response": {
@@ -83,13 +98,6 @@ PREFLIGHT_QUESTIONS: dict[str, dict[str, Any]] = {
         "instructions": (
             "Does the request ask to isolate an endpoint host, disable a user "
             "account, update an alert status, or modify a containment list?"
-        ),
-    },
-    "has_change_ticket": {
-        "type": "noul",
-        "instructions": (
-            "Does the request explicitly reference a change ticket identifier "
-            "such as CHG-12345 or an approved emergency change ID?"
         ),
     },
     "workflow_mode": {
@@ -117,12 +125,20 @@ PREFLIGHT_QUESTIONS: dict[str, dict[str, Any]] = {
     },
 }
 
-TRIAGE_QUESTIONS: dict[str, dict[str, Any]] = {
+UDM_FILTER_QUESTIONS: dict[str, dict[str, Any]] = {
+    "true_positive": {
+        "type": "noul",
+        "instructions": (
+            "Determine whether this Chronicle SIEM alert or UDM event represents "
+            "a true positive security threat rather than benign administrative "
+            "or routine system activity."
+        ),
+    },
     "severity": {
         "type": "score",
         "instructions": (
-            "Score the overall security severity of this Chronicle SIEM alert "
-            "or UDM event batch from level 0 (benign) to level 4 (critical)."
+            "Score the security severity of this Chronicle SIEM alert or UDM "
+            "event from level 0 (benign) to level 4 (critical)."
         ),
         "criteria": [
             "Informational or benign activity with no security impact.",
@@ -131,13 +147,6 @@ TRIAGE_QUESTIONS: dict[str, dict[str, Any]] = {
             "High severity likely threat activity with host or account impact.",
             "Critical active compromise, lateral movement, or exfiltration.",
         ],
-    },
-    "true_positive": {
-        "type": "noul",
-        "instructions": (
-            "Determine whether this alert or UDM event batch represents a true "
-            "positive security threat rather than benign administrative activity."
-        ),
     },
     "mitre_tactic": {
         "type": "choice",
@@ -160,7 +169,7 @@ TRIAGE_QUESTIONS: dict[str, dict[str, Any]] = {
         "type": "choice",
         "instructions": "Select the recommended next SOC triage action.",
         "criteria": {
-            "dismiss": "Benign or clear false positive; close without escalation.",
+            "dismiss": "Benign or clear false positive; drop before LLM triage.",
             "enrich_cti": "Suspicious IOCs present; enrich via CTI first.",
             "escalate_tier2": "High-confidence threat; escalate to Tier 2.",
             "tune_yaral2": "Overly broad YARA-L 2.0 rule; send for tuning.",
@@ -168,61 +177,108 @@ TRIAGE_QUESTIONS: dict[str, dict[str, Any]] = {
     },
 }
 
-YARAL2_QUESTIONS: dict[str, dict[str, Any]] = {
-    "rule_quality_score": {
+CTI_ARTIFACT_QUESTIONS: dict[str, dict[str, Any]] = {
+    "is_actionable_threat": {
+        "type": "noul",
+        "instructions": (
+            "Does this unstructured threat intelligence artifact describe an "
+            "actionable, active, or relevant security threat with concrete TTPs "
+            "or indicators requiring SOC attention?"
+        ),
+    },
+    "threat_category": {
+        "type": "choice",
+        "instructions": "Classify the primary threat category described.",
+        "criteria": {
+            "ransomware": "Ransomware deployment, extortion, or shadow copy deletion.",
+            "apt_espionage": "Targeted intrusion, credential theft, or persistent C2.",
+            "infostealer_malware": "Credential harvesting malware or commodity loader.",
+            "phishing_social_eng": "Credential phishing, MFA fatigue, or BEC.",
+            "vulnerability_advisory": "CVE/patch notice without active exploitation.",
+            "benign_or_noise": "Marketing fluff, non-actionable, or benign notice.",
+        },
+    },
+    "severity": {
         "type": "score",
         "instructions": (
-            "Rate the engineering quality of this Chronicle SIEM YARA-L 2.0 "
-            "UDM rule from level 0 (broken/non-YARA-L 2.0) to level 4 (production)."
+            "Score the operational severity of this CTI artifact from level 0 "
+            "(informational) to level 4 (critical immediate threat)."
         ),
         "criteria": [
-            "Broken or non-YARA-L 2.0 rule (e.g., standard file/payload YARA).",
-            "Minimal YARA-L 2.0 draft with major structural gaps or broad filters.",
-            "Functional YARA-L 2.0 UDM rule missing tuning or outcome enrichment.",
-            "Well-structured YARA-L 2.0 UDM rule with specific event filters.",
-            "Production-grade YARA-L 2.0 UDM rule with complete sections and tuning.",
+            "Informational or non-actionable commentary.",
+            "Low relevance advisory with no immediate enterprise exposure.",
+            "Moderate threat requiring routine detection coverage check.",
+            "High-severity active campaign targeting enterprise infrastructure.",
+            "Critical zero-day or active ransomware/APT exploitation.",
         ],
     },
-    "false_positive_risk": {
-        "type": "choice",
-        "instructions": "Classify expected false-positive risk in an enterprise SOC.",
-        "criteria": {
-            "low": "Specific UDM predicates and exclusions minimize benign noise.",
-            "medium": "Moderate specificity; may match some benign admin activity.",
-            "high": "Overly broad UDM matching likely to produce high noise.",
-            "unknown": "Insufficient rule logic or context to assess risk.",
-        },
-    },
-    "mitre_tactic": {
-        "type": "choice",
-        "instructions": "Select the primary MITRE ATT&CK tactic targeted.",
-        "criteria": {
-            "credential_access": "Credential dumping, brute force, Kerberoasting.",
-            "defense_evasion": "Tampering with security tools or evading controls.",
-            "exfiltration": "Data exfiltration over DNS or other channels.",
-            "impact": "Shadow copy deletion, ransomware encryption, destruction.",
-            "other_or_unknown": "Unclear or non-YARA-L 2.0 rule.",
-        },
-    },
-    "has_required_yaral2_sections": {
+    "requires_immediate_hunt": {
         "type": "noul",
         "instructions": (
-            "Does the rule use Chronicle SIEM YARA-L 2.0 structure (meta, events, "
-            "condition with UDM predicates) rather than standard file/payload YARA?"
-        ),
-    },
-    "ready_for_validation": {
-        "type": "noul",
-        "instructions": (
-            "Is this YARA-L 2.0 UDM rule complete and coherent enough to submit "
-            "to Chronicle validate_rule?"
+            "Does this artifact warrant an immediate retrospective Chronicle "
+            "SIEM UDM hunt across enterprise endpoints or identities?"
         ),
     },
 }
 
 
 CASES: tuple[BenchmarkCase, ...] = (
-    # --- Workload 1: Orchestrator preflight routing ---
+    # --- Workload 1: Orchestrator short-circuit routing ---
+    BenchmarkCase(
+        case_id="preflight_cti_single",
+        workload="preflight",
+        input_text=(
+            "Look up the VirusTotal GTI reputation for SHA256 "
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855."
+        ),
+        questions=PREFLIGHT_QUESTIONS,
+        expected={
+            "needs_cti": True,
+            "needs_threat_hunt": False,
+            "needs_detection_eng": False,
+            "needs_tier2_response": False,
+            "workflow_mode": "single_specialist",
+            "urgency": {"min": 1.0, "max": 3.5},
+        },
+        metadata={"expect_short_circuit": True, "target": "CTI_Researcher"},
+    ),
+    BenchmarkCase(
+        case_id="preflight_yaral2_single",
+        workload="preflight",
+        input_text=(
+            "Validate the syntax of this Chronicle SIEM YARA-L 2.0 rule and check "
+            "rule coverage for WINDOWS_SYSMON PROCESS_LAUNCH events."
+        ),
+        questions=PREFLIGHT_QUESTIONS,
+        expected={
+            "needs_cti": False,
+            "needs_threat_hunt": False,
+            "needs_detection_eng": True,
+            "needs_tier2_response": False,
+            "workflow_mode": "single_specialist",
+            "urgency": {"min": 1.0, "max": 2.5},
+        },
+        metadata={"expect_short_circuit": True, "target": "Detection_Engineer"},
+    ),
+    BenchmarkCase(
+        case_id="preflight_tier0_containment",
+        workload="preflight",
+        input_text=(
+            "Direct Tier2_Responder to isolate host DC-PROD-01 immediately for "
+            "confirmed Active Directory compromise under approved emergency "
+            "change ticket CHG-20261105."
+        ),
+        questions=PREFLIGHT_QUESTIONS,
+        expected={
+            "needs_cti": False,
+            "needs_threat_hunt": False,
+            "needs_detection_eng": False,
+            "needs_tier2_response": True,
+            "workflow_mode": "containment_action",
+            "urgency": {"min": 4.0, "max": 5.0},
+        },
+        metadata={"expect_short_circuit": False, "target": "Tier2_Responder"},
+    ),
     BenchmarkCase(
         case_id="preflight_multi_specialist",
         workload="preflight",
@@ -238,130 +294,60 @@ CASES: tuple[BenchmarkCase, ...] = (
             "needs_threat_hunt": True,
             "needs_detection_eng": True,
             "needs_tier2_response": True,
-            "has_change_ticket": False,
             "workflow_mode": "multi_stage_investigation",
+            "urgency": {"min": 3.0, "max": 5.0},
         },
+        metadata={"expect_short_circuit": False, "target": "multi"},
     ),
+    # --- Workload 2: Pre-LLM UDM noise reduction ---
     BenchmarkCase(
-        case_id="preflight_tier0_with_chg",
-        workload="preflight",
-        input_text=(
-            "Direct Tier2_Responder to isolate host DC-PROD-01 immediately for "
-            "confirmed Active Directory compromise under approved emergency "
-            "change ticket CHG-20261105."
-        ),
-        questions=PREFLIGHT_QUESTIONS,
-        expected={
-            "needs_cti": False,
-            "needs_threat_hunt": False,
-            "needs_detection_eng": False,
-            "needs_tier2_response": True,
-            "has_change_ticket": True,
-            "workflow_mode": "containment_action",
-        },
-    ),
-    BenchmarkCase(
-        case_id="preflight_cti_only",
-        workload="preflight",
-        input_text=(
-            "Look up the VirusTotal GTI reputation and threat collections for "
-            "SHA256 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855."
-        ),
-        questions=PREFLIGHT_QUESTIONS,
-        expected={
-            "needs_cti": True,
-            "needs_threat_hunt": False,
-            "needs_detection_eng": False,
-            "needs_tier2_response": False,
-            "has_change_ticket": False,
-            "workflow_mode": "single_specialist",
-        },
-    ),
-    BenchmarkCase(
-        case_id="preflight_yaral2_only",
-        workload="preflight",
-        input_text=(
-            "Validate the syntax of this Chronicle SIEM YARA-L 2.0 rule and check "
-            "rule coverage for WINDOWS_SYSMON PROCESS_LAUNCH events."
-        ),
-        questions=PREFLIGHT_QUESTIONS,
-        expected={
-            "needs_cti": False,
-            "needs_threat_hunt": False,
-            "needs_detection_eng": True,
-            "needs_tier2_response": False,
-            "has_change_ticket": False,
-            "workflow_mode": "single_specialist",
-        },
-    ),
-    # --- Workload 2: Alert / UDM rubric triage ---
-    BenchmarkCase(
-        case_id="triage_mimikatz_lsass",
-        workload="triage",
+        case_id="udm_noise_osconfig_dns",
+        workload="udm_filter",
         input_text=json.dumps(
             {
                 "log_type": "WINDOWS_SYSMON",
-                "event_type": "PROCESS_OPEN",
-                "principal": {"hostname": "WKSTN-FIN-042", "user": "svc_backup"},
-                "target": {
-                    "process": {
-                        "file": {"full_path": "C:\\Windows\\System32\\lsass.exe"}
-                    }
+                "event_type": "NETWORK_DNS",
+                "principal": {"hostname": "gce-win-worker-01", "user": "SYSTEM"},
+                "process": "C:\\Program Files\\Google\\OSConfig\\google_osconfig_agent.exe",
+                "dns_query": "logging.googleapis.com",
+            }
+        ),
+        questions=UDM_FILTER_QUESTIONS,
+        expected={
+            "true_positive": False,
+            "severity": {"min": 1.0, "max": 2.0},
+            "mitre_tactic": "other_or_benign",
+            "next_action": "dismiss",
+        },
+        metadata={"is_noise": True},
+    ),
+    BenchmarkCase(
+        case_id="udm_noise_defender_cdn",
+        workload="udm_filter",
+        input_text=json.dumps(
+            {
+                "log_type": "WINDOWS_SYSMON",
+                "event_type": "NETWORK_DNS",
+                "principal": {
+                    "hostname": "WKSTN-FIN-019",
+                    "user": "NT AUTHORITY\\NETWORK SERVICE",
                 },
-                "src_process": "C:\\Users\\Public\\m64.exe",
-                "command_line": "m64.exe privilege::debug sekurlsa::logonpasswords exit",
-                "granted_access": "0x1010",
+                "process": "C:\\ProgramData\\Microsoft\\Windows Defender\\Platform\\MsMpEng.exe",
+                "dns_query": "wdcp.microsoft.com",
             }
         ),
-        questions=TRIAGE_QUESTIONS,
+        questions=UDM_FILTER_QUESTIONS,
         expected={
-            "true_positive": True,
-            "mitre_tactic": "credential_access",
-            "next_action": "escalate_tier2",
+            "true_positive": False,
+            "severity": {"min": 1.0, "max": 2.0},
+            "mitre_tactic": "other_or_benign",
+            "next_action": "dismiss",
         },
+        metadata={"is_noise": True},
     ),
     BenchmarkCase(
-        case_id="triage_dns_tunneling",
-        workload="triage",
-        input_text=json.dumps(
-            {
-                "log_type": "GCP_DNS",
-                "principal": {"resource_name": "gce-vm-prod-app-03"},
-                "distinct_subdomains_10m": 47,
-                "sample_queries": [
-                    "7f9a4b1c8e2d0f3a6b5c4d2e1f0a9b8c.exfil.bad-actor.example",
-                    "8a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d.exfil.bad-actor.example",
-                ],
-                "record_type": "TXT",
-            }
-        ),
-        questions=TRIAGE_QUESTIONS,
-        expected={
-            "true_positive": True,
-            "mitre_tactic": "collection_exfiltration",
-        },
-    ),
-    BenchmarkCase(
-        case_id="triage_shadow_copy_delete",
-        workload="triage",
-        input_text=json.dumps(
-            {
-                "log_type": "WINDOWS_SYSMON",
-                "event_type": "PROCESS_LAUNCH",
-                "principal": {"hostname": "SRV-FILE-02", "user": "SYSTEM"},
-                "command_line": "vssadmin.exe delete shadows /all /quiet",
-                "parent_process": "powershell.exe -EncodedCommand JAB...",
-            }
-        ),
-        questions=TRIAGE_QUESTIONS,
-        expected={
-            "true_positive": True,
-            "next_action": "escalate_tier2",
-        },
-    ),
-    BenchmarkCase(
-        case_id="triage_benign_admin_scan",
-        workload="triage",
+        case_id="udm_noise_qualys_scan",
+        workload="udm_filter",
         input_text=json.dumps(
             {
                 "log_type": "WINEVTLOG",
@@ -371,107 +357,135 @@ CASES: tuple[BenchmarkCase, ...] = (
                 "note": "Authorized weekly vulnerability scan window Tuesday 02:00 UTC.",
             }
         ),
-        questions=TRIAGE_QUESTIONS,
+        questions=UDM_FILTER_QUESTIONS,
         expected={
             "true_positive": False,
+            "severity": {"min": 1.0, "max": 2.5},
+            "mitre_tactic": "other_or_benign",
             "next_action": "dismiss",
         },
-    ),
-    # --- Workload 3: YARA-L 2.0 rule grading ---
-    BenchmarkCase(
-        case_id="yaral2_dns_tunneling",
-        workload="yaral2",
-        input_text=(
-            "rule dns_tunneling_distinct_subdomains_T1048 {\n"
-            "  meta:\n"
-            '    author = "SOC Detection Team"\n'
-            '    severity = "High"\n'
-            '    mitre_attack_tactic = "Exfiltration"\n'
-            "  events:\n"
-            '    $e.metadata.log_type = "GCP_DNS"\n'
-            "    $e.network.dns.questions.name = /^[a-f0-9]{24,}\\..+\\..+/ nocase\n"
-            "    $e.principal.resource.name = $vm\n"
-            "  match:\n"
-            "    $vm over 10m\n"
-            "  outcome:\n"
-            "    $risk_score = 90\n"
-            "    $distinct_subdomains = count_distinct($e.network.dns.questions.name)\n"
-            "  condition:\n"
-            "    $e and $distinct_subdomains > 8\n"
-            "}"
-        ),
-        questions=YARAL2_QUESTIONS,
-        expected={
-            "has_required_yaral2_sections": True,
-            "ready_for_validation": True,
-            "mitre_tactic": "exfiltration",
-        },
+        metadata={"is_noise": True},
     ),
     BenchmarkCase(
-        case_id="yaral2_shadow_copy",
-        workload="yaral2",
-        input_text=(
-            "rule akira_shadow_copy_deletion_T1490 {\n"
-            "  meta:\n"
-            '    author = "SOC Detection Team"\n'
-            '    severity = "High"\n'
-            '    mitre_attack_tactic = "Impact"\n'
-            "  events:\n"
-            '    $e.metadata.log_type = "WINDOWS_SYSMON"\n'
-            '    $e.metadata.event_type = "PROCESS_LAUNCH"\n'
-            "    $e.target.process.command_line = /vssadmin(\\.exe)?\\s+delete\\s+shadows/ nocase\n"
-            "    $e.principal.hostname = $host\n"
-            "  match:\n"
-            "    $host over 10m\n"
-            "  outcome:\n"
-            "    $risk_score = 85\n"
-            "  condition:\n"
-            "    $e\n"
-            "}"
+        case_id="udm_attack_ntdsutil_dump",
+        workload="udm_filter",
+        input_text=json.dumps(
+            {
+                "log_type": "WINDOWS_SYSMON",
+                "event_type": "PROCESS_LAUNCH",
+                "principal": {
+                    "hostname": "activedir.stackedpads.local",
+                    "user": "frank.kolzig",
+                },
+                "command_line": 'ntdsutil.exe "ac i ntds" "ifm" "create full c:\\temp\\ad_dump" q q',
+            }
         ),
-        questions=YARAL2_QUESTIONS,
+        questions=UDM_FILTER_QUESTIONS,
         expected={
-            "has_required_yaral2_sections": True,
-            "ready_for_validation": True,
-            "mitre_tactic": "impact",
+            "true_positive": True,
+            "severity": {"min": 3.5, "max": 5.0},
+            "mitre_tactic": "credential_access",
+            "next_action": "escalate_tier2",
         },
+        metadata={"is_noise": False},
     ),
     BenchmarkCase(
-        case_id="yaral2_overly_broad_draft",
-        workload="yaral2",
-        input_text=(
-            "rule noisy_process_launch {\n"
-            "  meta:\n"
-            '    author = "draft"\n'
-            "  events:\n"
-            '    $e.metadata.event_type = "PROCESS_LAUNCH"\n'
-            "  condition:\n"
-            "    $e\n"
-            "}"
+        case_id="udm_attack_mimikatz_lsass",
+        workload="udm_filter",
+        input_text=json.dumps(
+            {
+                "log_type": "WINDOWS_SYSMON",
+                "event_type": "PROCESS_OPEN",
+                "principal": {"hostname": "WKSTN-FIN-042", "user": "svc_backup"},
+                "target_process": "C:\\Windows\\System32\\lsass.exe",
+                "command_line": "m64.exe privilege::debug sekurlsa::logonpasswords exit",
+                "granted_access": "0x1010",
+            }
         ),
-        questions=YARAL2_QUESTIONS,
+        questions=UDM_FILTER_QUESTIONS,
         expected={
-            "has_required_yaral2_sections": True,
-            "false_positive_risk": "high",
+            "true_positive": True,
+            "severity": {"min": 4.0, "max": 5.0},
+            "mitre_tactic": "credential_access",
+            "next_action": "escalate_tier2",
         },
+        metadata={"is_noise": False},
     ),
     BenchmarkCase(
-        case_id="yaral2_negative_control_standard_yara",
-        workload="yaral2",
-        input_text=(
-            "rule Suspicious_PE_String {\n"
-            "  strings:\n"
-            '    $mz = "MZ"\n'
-            '    $cmd = "vssadmin delete shadows"\n'
-            "  condition:\n"
-            "    $mz at 0 and $cmd\n"
-            "}"
+        case_id="udm_attack_shadow_copy_delete",
+        workload="udm_filter",
+        input_text=json.dumps(
+            {
+                "log_type": "WINDOWS_SYSMON",
+                "event_type": "PROCESS_LAUNCH",
+                "principal": {"hostname": "SRV-FILE-02", "user": "SYSTEM"},
+                "command_line": "vssadmin.exe delete shadows /all /quiet",
+                "parent_process": "powershell.exe -EncodedCommand JAB...",
+            }
         ),
-        questions=YARAL2_QUESTIONS,
+        questions=UDM_FILTER_QUESTIONS,
         expected={
-            "has_required_yaral2_sections": False,
-            "ready_for_validation": False,
+            "true_positive": True,
+            "severity": {"min": 3.5, "max": 5.0},
+            "next_action": "escalate_tier2",
         },
+        metadata={"is_noise": False},
+    ),
+    # --- Workload 3: Unstructured CTI artifact triage ---
+    BenchmarkCase(
+        case_id="cti_akira_ransomware_report",
+        workload="cti_artifact",
+        input_text=(
+            "FLASH ADVISORY: Incident responders observed Akira ransomware "
+            "affiliates exploiting unpatched VPN appliances without MFA to gain "
+            "initial access, pivoting via AnyDesk and RDP, dumping LSASS with "
+            "comsvcs.dll, deleting Volume Shadow Copies via PowerShell "
+            "Win32_ShadowCopy, and exfiltrating archives over FileZilla before "
+            "encrypting ESXi and Windows file servers."
+        ),
+        questions=CTI_ARTIFACT_QUESTIONS,
+        expected={
+            "is_actionable_threat": True,
+            "threat_category": "ransomware",
+            "severity": {"min": 3.5, "max": 5.0},
+            "requires_immediate_hunt": True,
+        },
+        metadata={},
+    ),
+    BenchmarkCase(
+        case_id="cti_apt_dns_tunnel_brief",
+        workload="cti_artifact",
+        input_text=(
+            "THREAT BRIEF: Over the past 14 days, a financially motivated "
+            "espionage cluster has used custom Go implants on Linux cloud VMs "
+            "to exfiltrate staged secrets inside 32-byte hex-encoded TXT DNS "
+            "queries under newly registered domains, evading outbound HTTP proxies."
+        ),
+        questions=CTI_ARTIFACT_QUESTIONS,
+        expected={
+            "is_actionable_threat": True,
+            "threat_category": "apt_espionage",
+            "severity": {"min": 3.0, "max": 5.0},
+            "requires_immediate_hunt": True,
+        },
+        metadata={},
+    ),
+    BenchmarkCase(
+        case_id="cti_vendor_marketing_noise",
+        workload="cti_artifact",
+        input_text=(
+            "WEBINAR INVITE: Join our upcoming fireside chat on next-generation "
+            "AI-powered zero-trust synergy! Register today for a free coffee "
+            "gift card and learn how digital transformation elevates your brand."
+        ),
+        questions=CTI_ARTIFACT_QUESTIONS,
+        expected={
+            "is_actionable_threat": False,
+            "threat_category": "benign_or_noise",
+            "severity": {"min": 1.0, "max": 2.0},
+            "requires_immediate_hunt": False,
+        },
+        metadata={},
     ),
 )
 
@@ -526,27 +540,71 @@ def _build_gen_prompt(input_text: str, questions: dict[str, dict[str, Any]]) -> 
     )
 
 
-def _extract_decision1_labels(answers: dict[str, Any]) -> dict[str, Any]:
+def _extract_decision1_details(
+    answers: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, float]]:
     labels: dict[str, Any] = {}
+    confidences: dict[str, float] = {}
+    raw_nouls: dict[str, float] = {}
     for qid, ans in answers.items():
+        if not isinstance(ans, dict):
+            continue
         qtype = ans.get("type")
+        if "confidence" in ans:
+            confidences[qid] = float(ans["confidence"])
         if qtype == "noul":
-            labels[qid] = float(ans.get("noul", 0.0)) >= 0.5
+            val = float(ans.get("noul", 0.0))
+            labels[qid] = val >= 0.5
+            raw_nouls[qid] = val
         elif qtype == "choice":
             labels[qid] = str(ans.get("choice", ""))
         elif qtype == "score":
             labels[qid] = round(float(ans.get("score", 0.0)) + 1.0, 4)
-    return labels
+    return labels, {"confidences": confidences, "raw_nouls": raw_nouls}
 
 
-def _score_accuracy(
-    predicted: dict[str, Any], expected: dict[str, Any]
-) -> tuple[int, int]:
+def _matches_expected(predicted_val: Any, expected_val: Any) -> bool:
+    if (
+        isinstance(expected_val, dict)
+        and "min" in expected_val
+        and "max" in expected_val
+    ):
+        if predicted_val is None:
+            return False
+        try:
+            num = float(predicted_val)
+        except (TypeError, ValueError):
+            return False
+        return float(expected_val["min"]) <= num <= float(expected_val["max"])
+    return predicted_val == expected_val
+
+
+def _score_case(
+    case: BenchmarkCase,
+    predicted: dict[str, Any],
+    details: dict[str, Any],
+) -> tuple[int, int, list[dict[str, Any]]]:
     matched = 0
-    for key, exp_val in expected.items():
-        if predicted.get(key) == exp_val:
+    mismatches: list[dict[str, Any]] = []
+    confidences = details.get("confidences") or {}
+    raw_nouls = details.get("raw_nouls") or {}
+    for key, exp_val in case.expected.items():
+        pred_val = predicted.get(key)
+        if _matches_expected(pred_val, exp_val):
             matched += 1
-    return matched, len(expected)
+        else:
+            mismatches.append(
+                {
+                    "case_id": case.case_id,
+                    "workload": case.workload,
+                    "question": key,
+                    "expected": exp_val,
+                    "predicted": pred_val,
+                    "noul": raw_nouls.get(key),
+                    "confidence": confidences.get(key),
+                }
+            )
+    return matched, len(case.expected), mismatches
 
 
 def _percentile(values: list[float], pct: float) -> float:
@@ -558,35 +616,38 @@ def _percentile(values: list[float], pct: float) -> float:
 
 
 def _run_dry_call(mode: str, case: BenchmarkCase) -> dict[str, Any]:
-    # Deterministic offline simulation reflecting observed token/latency profiles.
-    labels = dict(case.expected)
-    for qid, q in case.questions.items():
-        if qid not in labels:
-            if q["type"] == "noul":
-                labels[qid] = False
-            elif q["type"] == "choice":
-                labels[qid] = next(iter(q["criteria"].keys()))
-            elif q["type"] == "score":
-                labels[qid] = 3.0
+    labels: dict[str, Any] = {}
+    raw_nouls: dict[str, float] = {}
+    confidences: dict[str, float] = {}
+    for qid, exp_val in case.expected.items():
+        if isinstance(exp_val, dict) and "min" in exp_val and "max" in exp_val:
+            labels[qid] = round(
+                (float(exp_val["min"]) + float(exp_val["max"])) / 2.0, 2
+            )
+        else:
+            labels[qid] = exp_val
+            if isinstance(exp_val, bool):
+                raw_nouls[qid] = 0.96 if exp_val else 0.04
+        confidences[qid] = 0.96
     if mode == "decision1":
-        input_tokens = max(120, len(case.input_text) // 4 + 80)
+        input_tokens = max(140, len(case.input_text) // 4 + 90)
         return {
-            "latency_ms": 185.0,
+            "latency_ms": 210.0,
             "input_tokens": input_tokens,
             "output_tokens": 0,
             "labels": labels,
+            "details": {"confidences": confidences, "raw_nouls": raw_nouls},
             "has_probabilities": True,
-            "sample_confidence": 0.96,
         }
     input_tokens = max(220, len(case.input_text) // 4 + 190)
-    output_tokens = 65 + len(case.questions) * 10
+    output_tokens = 55 + len(case.questions) * 9
     return {
-        "latency_ms": 640.0,
+        "latency_ms": 580.0,
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
         "labels": labels,
+        "details": {"confidences": {}, "raw_nouls": {}},
         "has_probabilities": False,
-        "sample_confidence": None,
     }
 
 
@@ -607,18 +668,14 @@ def _run_live_decision1(
     payload = resp.json()
     answers = payload.get("answers") or {}
     usage = payload.get("usage") or {}
-    confs = [
-        float(ans["confidence"])
-        for ans in answers.values()
-        if isinstance(ans, dict) and "confidence" in ans
-    ]
+    labels, details = _extract_decision1_details(answers)
     return {
         "latency_ms": round(elapsed_ms, 2),
         "input_tokens": int(usage.get("total_input_tokens", 0)),
         "output_tokens": int(usage.get("total_output_tokens", 0)),
-        "labels": _extract_decision1_labels(answers),
+        "labels": labels,
+        "details": details,
         "has_probabilities": True,
-        "sample_confidence": round(statistics.mean(confs), 4) if confs else None,
         "raw_answers": answers,
     }
 
@@ -628,19 +685,24 @@ def _run_live_generative(
     api_key: str,
     model: str,
     case: BenchmarkCase,
+    *,
+    no_thinking: bool,
 ) -> dict[str, Any]:
     url = GENERATE_URL_TMPL.format(model=model)
     prompt = _build_gen_prompt(case.input_text, case.questions)
+    gen_config: dict[str, Any] = {
+        "responseMimeType": "application/json",
+        "temperature": 0.0,
+    }
+    if no_thinking:
+        gen_config["thinkingConfig"] = {"thinkingBudget": 0}
     started = time.perf_counter()
     resp = client.post(
         url,
         headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
         json={
             "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-            "generationConfig": {
-                "responseMimeType": "application/json",
-                "temperature": 0.0,
-            },
+            "generationConfig": gen_config,
         },
     )
     elapsed_ms = (time.perf_counter() - started) * 1000.0
@@ -664,8 +726,8 @@ def _run_live_generative(
         "input_tokens": int(usage.get("promptTokenCount", 0)),
         "output_tokens": out_tokens,
         "labels": labels if isinstance(labels, dict) else {},
+        "details": {"confidences": {}, "raw_nouls": {}},
         "has_probabilities": False,
-        "sample_confidence": None,
     }
 
 
@@ -697,16 +759,89 @@ def _summarize(
     }
 
 
+def _compute_end_to_end_savings(dec_records: list[dict[str, Any]]) -> dict[str, Any]:
+    preflight_recs = [r for r in dec_records if r["workload"] == "preflight"]
+    short_circuited = 0
+    for rec in preflight_recs:
+        labels = rec["labels"]
+        nouls = (rec.get("details") or {}).get("raw_nouls") or {}
+        need_keys = (
+            "needs_cti",
+            "needs_threat_hunt",
+            "needs_detection_eng",
+            "needs_tier2_response",
+        )
+        high_conf_hits = [
+            k for k in need_keys if float(nouls.get(k, 0.0)) >= SHORT_CIRCUIT_THRESHOLD
+        ]
+        active_hits = [k for k in need_keys if bool(labels.get(k))]
+        if (
+            labels.get("workflow_mode") == "single_specialist"
+            and len(high_conf_hits) == 1
+            and len(active_hits) == 1
+        ):
+            short_circuited += 1
+
+    udm_recs = [r for r in dec_records if r["workload"] == "udm_filter"]
+    udm_dropped = 0
+    udm_escalated = 0
+    for rec in udm_recs:
+        nouls = (rec.get("details") or {}).get("raw_nouls") or {}
+        tp = float(nouls.get("true_positive", 0.5))
+        if tp < UDM_DROP_THRESHOLD:
+            udm_dropped += 1
+        elif tp >= UDM_ESCALATE_THRESHOLD:
+            udm_escalated += 1
+
+    return {
+        "preflight_calls": len(preflight_recs),
+        "preflight_short_circuited": short_circuited,
+        "pro_tokens_saved": short_circuited
+        * (PRO_BYPASS_SAVED_INPUT_TOKENS + PRO_BYPASS_SAVED_OUTPUT_TOKENS),
+        "pro_latency_saved_ms": round(short_circuited * PRO_BYPASS_SAVED_LATENCY_MS, 2),
+        "udm_events_scored": len(udm_recs),
+        "udm_noise_dropped": udm_dropped,
+        "udm_high_conf_escalated": udm_escalated,
+        "flash_tokens_saved_from_noise_drop": udm_dropped
+        * FLASH_FILTER_SAVED_INPUT_TOKENS_PER_EVENT,
+        "flash_latency_saved_ms": round(
+            (udm_dropped / max(1, len(udm_recs)))
+            * FLASH_FILTER_SAVED_LATENCY_MS_PER_BATCH
+            if udm_recs
+            else 0.0,
+            2,
+        ),
+    }
+
+
+def _aggregate_mismatches(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    grouped: dict[tuple[str, str, str], dict[str, Any]] = {}
+    for rec in records:
+        for m in rec.get("mismatches") or []:
+            key = (m["case_id"], m["question"], str(m["predicted"]))
+            if key not in grouped:
+                grouped[key] = {**m, "count": 1}
+            else:
+                grouped[key]["count"] += 1
+    return list(grouped.values())
+
+
 def _format_markdown(
     gen_model: str,
     dec_model: str,
     gen_summary: dict[str, Any],
     dec_summary: dict[str, Any],
+    e2e_savings: dict[str, Any],
+    gen_mismatches: list[dict[str, Any]],
+    dec_mismatches: list[dict[str, Any]],
+    *,
     dry_run: bool,
+    no_thinking: bool,
 ) -> str:
     mode_label = "DRY-RUN (offline simulated)" if dry_run else "LIVE"
+    thinking_label = "thinkingBudget=0" if no_thinking else "default thinking"
     lines = [
-        f"## Decision 1 Benchmark Summary ({mode_label})",
+        f"## Decision 1 Benchmark Summary ({mode_label}, {thinking_label})",
         "",
         f"| Metric | Generative ({gen_model}) | Decision 1 ({dec_model}) |",
         "| --- | ---: | ---: |",
@@ -719,7 +854,30 @@ def _format_markdown(
         f"| Estimated Cost (USD) | ${gen_summary['cost_usd']:.6f} | ${dec_summary['cost_usd']:.6f} |",
         f"| Label Accuracy | {gen_summary['accuracy_pct']}% ({gen_summary['matched']}/{gen_summary['expected_total']}) | {dec_summary['accuracy_pct']}% ({dec_summary['matched']}/{dec_summary['expected_total']}) |",
         f"| Calibrated Probabilities | {gen_summary['calibrated_probabilities']} | {dec_summary['calibrated_probabilities']} |",
+        "",
+        "### Estimated End-to-End Agent Savings (Decision 1 Fast Paths)",
+        "",
+        f"- **Orchestrator short-circuit (`preflight`)**: {e2e_savings['preflight_short_circuited']}/{e2e_savings['preflight_calls']} calls bypassed `gemini-3.1-pro-preview` (~{e2e_savings['pro_tokens_saved']} tokens and ~{e2e_savings['pro_latency_saved_ms']:.0f} ms saved).",
+        f"- **Pre-LLM UDM noise drop (`udm_filter`)**: {e2e_savings['udm_noise_dropped']}/{e2e_savings['udm_events_scored']} events dropped (`P(tp) < 0.30`), {e2e_savings['udm_high_conf_escalated']} fast-escalated (`P(tp) >= 0.85`), saving ~{e2e_savings['flash_tokens_saved_from_noise_drop']} downstream Flash input tokens.",
+        "",
+        "### Per-Question Mismatches",
+        "",
     ]
+    if not gen_mismatches and not dec_mismatches:
+        lines.append(
+            "- None (100% agreement across all expected labels and score bands)."
+        )
+    else:
+        for label, items in (
+            ("Generative", gen_mismatches),
+            ("Decision 1", dec_mismatches),
+        ):
+            for m in items:
+                lines.append(
+                    f"- [{label}] `{m['case_id']}.{m['question']}` x{m['count']}: "
+                    f"expected={m['expected']!r}, predicted={m['predicted']!r}, "
+                    f"noul={m.get('noul')}, confidence={m.get('confidence')}"
+                )
     return "\n".join(lines)
 
 
@@ -733,10 +891,16 @@ def main() -> int:
     parser.add_argument("--secret-name", default="gemini-api-key")
     parser.add_argument(
         "--workload",
-        choices=("all", "preflight", "triage", "yaral2"),
+        choices=("all", "preflight", "udm_filter", "cti_artifact"),
         default="all",
     )
     parser.add_argument("--iterations", type=int, default=1)
+    parser.add_argument(
+        "--no-thinking",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Disable thinkingBudget on generative Flash baseline for apples-to-apples comparison.",
+    )
     parser.add_argument(
         "--gen-input-price", type=float, default=DEFAULT_GEN_INPUT_PER_M
     )
@@ -762,17 +926,24 @@ def main() -> int:
                     g = _run_dry_call("generative", case)
                     d = _run_dry_call("decision1", case)
                 else:
-                    g = _run_live_generative(client, api_key, args.gen_model, case)
+                    g = _run_live_generative(
+                        client,
+                        api_key,
+                        args.gen_model,
+                        case,
+                        no_thinking=args.no_thinking,
+                    )
                     d = _run_live_decision1(client, api_key, args.decision_model, case)
 
-                g_match, g_tot = _score_accuracy(g["labels"], case.expected)
-                d_match, d_tot = _score_accuracy(d["labels"], case.expected)
+                g_match, g_tot, g_mis = _score_case(case, g["labels"], g["details"])
+                d_match, d_tot, d_mis = _score_case(case, d["labels"], d["details"])
                 gen_records.append(
                     {
                         "case_id": case.case_id,
                         "workload": case.workload,
                         "matched": g_match,
                         "expected_count": g_tot,
+                        "mismatches": g_mis,
                         **g,
                     }
                 )
@@ -782,14 +953,27 @@ def main() -> int:
                         "workload": case.workload,
                         "matched": d_match,
                         "expected_count": d_tot,
+                        "mismatches": d_mis,
                         **d,
                     }
                 )
 
     gen_summary = _summarize(gen_records, args.gen_input_price, args.gen_output_price)
     dec_summary = _summarize(dec_records, DECISION1_INPUT_PER_M, DECISION1_OUTPUT_PER_M)
+    e2e_savings = _compute_end_to_end_savings(dec_records)
+    gen_mismatches = _aggregate_mismatches(gen_records)
+    dec_mismatches = _aggregate_mismatches(dec_records)
+
     markdown = _format_markdown(
-        args.gen_model, args.decision_model, gen_summary, dec_summary, args.dry_run
+        args.gen_model,
+        args.decision_model,
+        gen_summary,
+        dec_summary,
+        e2e_savings,
+        gen_mismatches,
+        dec_mismatches,
+        dry_run=args.dry_run,
+        no_thinking=args.no_thinking,
     )
     print(markdown)
 
@@ -798,10 +982,14 @@ def main() -> int:
     if args.json_out:
         payload = {
             "dry_run": args.dry_run,
+            "no_thinking": args.no_thinking,
             "gen_model": args.gen_model,
             "decision_model": args.decision_model,
             "generative_summary": gen_summary,
             "decision1_summary": dec_summary,
+            "end_to_end_savings": e2e_savings,
+            "generative_mismatches": gen_mismatches,
+            "decision1_mismatches": dec_mismatches,
             "generative_calls": gen_records,
             "decision1_calls": dec_records,
         }

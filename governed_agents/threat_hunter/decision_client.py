@@ -1,15 +1,16 @@
 """REST client for Gemini Decision 1 (`gemini-decision-1`) via httpx.
 
 Supports Agent Platform Auth Manager (`GEMINI_AUTH_PROVIDER`) with SPIFFE
-workload identity token exchange against `agentidentitycredentials.googleapis.com`,
-`GEMINI_API_KEY` environment fallback, and a graceful disabled no-op when
-neither credential source is configured.
+workload identity token exchange against `agentidentitycredentials.googleapis.com`
+and TTL caching, `GEMINI_API_KEY` environment fallback, a reusable module-level
+`httpx.Client`, and a graceful disabled no-op when unconfigured.
 """
 
 from __future__ import annotations
 
 import os
 import threading
+import time
 from typing import Any
 
 import google.auth
@@ -22,10 +23,35 @@ DECISION_MODEL = "gemini-decision-1"
 _AUTH_MANAGER_BASE = "https://agentidentitycredentials.googleapis.com/v1"
 _CLOUD_PLATFORM_SCOPE = "https://www.googleapis.com/auth/cloud-platform"
 _DEFAULT_TIMEOUT_SECONDS = 20.0
+_API_KEY_CACHE_TTL_SECONDS = 300.0
 
 _auth_lock = threading.Lock()
 _workload_credentials: Any = None
 _auth_request: Request | None = None
+_cached_api_key: str | None = None
+_cached_api_key_provider: str | None = None
+_cached_api_key_expires_at: float = 0.0
+
+_http_client_lock = threading.Lock()
+_http_client: httpx.Client | None = None
+
+
+def _get_http_client(timeout: float = _DEFAULT_TIMEOUT_SECONDS) -> httpx.Client:
+    """Returns a reusable module-level httpx.Client."""
+    global _http_client
+    with _http_client_lock:
+        if _http_client is None:
+            _http_client = httpx.Client(timeout=timeout)
+        return _http_client
+
+
+def clear_auth_cache() -> None:
+    """Clears the cached Auth Manager credential (for testing)."""
+    global _cached_api_key, _cached_api_key_provider, _cached_api_key_expires_at
+    with _auth_lock:
+        _cached_api_key = None
+        _cached_api_key_provider = None
+        _cached_api_key_expires_at = 0.0
 
 
 def _get_workload_bearer_token() -> str:
@@ -51,17 +77,28 @@ def _retrieve_api_key_from_auth_manager(
     timeout: float = _DEFAULT_TIMEOUT_SECONDS,
 ) -> str:
     """Exchanges the workload OAuth token for the Gemini API key via Auth Manager."""
+    global _cached_api_key, _cached_api_key_provider, _cached_api_key_expires_at
+    now = time.monotonic()
+    with _auth_lock:
+        if (
+            _cached_api_key
+            and _cached_api_key_provider == provider_name
+            and now < _cached_api_key_expires_at
+        ):
+            return _cached_api_key
+
     bearer_token = _get_workload_bearer_token()
     url = f"{_AUTH_MANAGER_BASE}/{provider_name.lstrip('/')}/credentials:retrieve"
-    with httpx.Client(timeout=timeout) as client:
-        response = client.post(
-            url,
-            headers={
-                "Authorization": f"Bearer {bearer_token}",
-                "Content-Type": "application/json",
-            },
-            json={"userId": user_id},
-        )
+    client = _get_http_client(timeout=timeout)
+    response = client.post(
+        url,
+        headers={
+            "Authorization": f"Bearer {bearer_token}",
+            "Content-Type": "application/json",
+        },
+        json={"userId": user_id},
+        timeout=timeout,
+    )
     if response.status_code >= 400:
         raise RuntimeError(
             f"Auth Manager returned HTTP {response.status_code}: "
@@ -73,6 +110,10 @@ def _retrieve_api_key_from_auth_manager(
         raise RuntimeError(
             f"Auth Manager provider {provider_name!r} returned an empty credential."
         )
+    with _auth_lock:
+        _cached_api_key = token
+        _cached_api_key_provider = provider_name
+        _cached_api_key_expires_at = time.monotonic() + _API_KEY_CACHE_TTL_SECONDS
     return token
 
 
@@ -137,15 +178,16 @@ def evaluate_decisions(
     }
 
     try:
-        with httpx.Client(timeout=timeout) as client:
-            response = client.post(
-                endpoint,
-                headers={
-                    "x-goog-api-key": api_key,
-                    "Content-Type": "application/json",
-                },
-                json=body,
-            )
+        client = _get_http_client(timeout=timeout)
+        response = client.post(
+            endpoint,
+            headers={
+                "x-goog-api-key": api_key,
+                "Content-Type": "application/json",
+            },
+            json=body,
+            timeout=timeout,
+        )
     except httpx.HTTPError as exc:
         return {
             "enabled": True,

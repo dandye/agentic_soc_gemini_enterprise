@@ -23,7 +23,7 @@ Deploy and verify the default-deny egress Agent Gateway, per-agent SPIFFE worklo
 :link: gemini_decision_1
 :link-type: doc
 
-Zero-output-token pre-flight routing, alert rubric triage, YARA-L 2.0 rule grading, and Auth Manager egress across all five governed SOC agents.
+Zero-output-token `LlmResponse` pre-flight short-circuit routing, pre-LLM UDM noise filtering, multimodal/unstructured CTI triage, and Auth Manager egress across the governed SOC stack.
 :::
 
 :::{grid-item-card} Multi-Agent Architecture & Grounding
@@ -63,8 +63,6 @@ gemini_decision_1
 gemini_decision_1_case_study
 gemini_decision_1_cti_ioc_triage
 gemini_decision_1_threat_hunting
-gemini_decision_1_yaral2_grading
-gemini_decision_1_containment_readiness
 agent_governance_troubleshooting
 ```
 

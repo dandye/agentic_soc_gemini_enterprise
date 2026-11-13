@@ -26,7 +26,7 @@ from google.adk.models.google_llm import Gemini
 from google.adk.runners import Runner
 from google.adk.sessions.in_memory_session_service import InMemorySessionService
 from secops_mcp import build_chronicle_toolset, chronicle_before_model_callback
-from triage_tools import score_alerts_rubric
+from triage_tools import _filter_udm_events_after_tool_callback
 from vertexai.agent_engines.templates.a2a import A2aAgent, create_agent_card
 
 
@@ -89,12 +89,15 @@ caller explicitly overrides them):
 Choose the Chronicle MCP tool matching what was asked:
   * Recent security alerts or alert queue inspection: `list_security_alerts`,
     `get_security_alert`, `fetch_alert_data`
-  * Fast zero-output-token rubric triage of fetched Chronicle alerts or UDM
-    event batches (severity 1-5, true-positive likelihood, MITRE ATT&CK tactic,
-    and next action `dismiss`, `enrich_cti`, `escalate_tier2`, or `tune_yaral2`):
-    `score_alerts_rubric`
   * UDM telemetry hunts (processes, DNS, network connections, logins):
     `udm_search` (or `translate_udm_query` when translating natural language to UDM)
+
+Note on automatic pre-LLM Decision 1 triage: `udm_search` and `list_security_alerts`
+results are automatically scored by Gemini Decision 1 before reaching you. Low-signal
+benign noise is dropped (`dropped_low_signal_count`), retained events include
+`decision1_triage` metadata (`severity` 1-5, `mitre_tactic`, `next_action`), and
+high-confidence threats are tagged `[HIGH_CONFIDENCE_ESCALATE]`. Report the dropped
+noise count and prioritize `[HIGH_CONFIDENCE_ESCALATE]` items first.
   * Raw unparsed log search: `search_raw_logs`
   * Host, user, IP, domain, or hash entity context in Chronicle: `search_entity`,
     `summarize_entity`, `get_ioc_match`
@@ -119,8 +122,9 @@ threat_hunter_llm = LlmAgent(
     model=Gemini(model=MODEL, client_kwargs={"location": MODEL_LOCATION}),
     description=DESCRIPTION,
     instruction=INSTRUCTION,
-    tools=[chronicle_tools, score_alerts_rubric],
+    tools=[chronicle_tools],
     before_model_callback=chronicle_before_model_callback,
+    after_tool_callback=_filter_udm_events_after_tool_callback,
 )
 
 
@@ -143,27 +147,21 @@ agent_card = create_agent_card(
             id="udm_threat_hunt",
             name="Chronicle UDM threat hunting and alert triage",
             description=(
-                "Searches Chronicle SIEM UDM events, lists recent security alerts, "
-                "summarizes host/user/IP entities, and checks IOC matches."
+                "Searches Chronicle SIEM UDM events, lists recent security alerts "
+                "(with automatic pre-LLM Decision 1 noise filtering and triage "
+                "scoring), summarizes host/user/IP entities, and checks IOC matches."
             ),
-            tags=["chronicle", "siem", "udm", "alerts", "threat-hunting"],
+            tags=[
+                "chronicle",
+                "siem",
+                "udm",
+                "alerts",
+                "threat-hunting",
+                "decision-1",
+            ],
             examples=[
                 "List the 5 most recent security alerts in Chronicle SIEM",
                 "Run a UDM search for recent network or process events",
-            ],
-        ),
-        AgentSkill(
-            id="score_alerts_rubric",
-            name="Chronicle alert and UDM batch rubric scoring",
-            description=(
-                "Evaluates Chronicle SIEM alerts or UDM event batches in a single "
-                "zero-output-token Gemini Decision 1 pass for severity (1-5), "
-                "true-positive likelihood, MITRE ATT&CK tactic, and next action."
-            ),
-            tags=["chronicle", "triage", "rubric", "decision-1", "mitre-attack"],
-            examples=[
-                "Score these 5 Chronicle security alerts for severity and next action",
-                "Triage this UDM event batch and recommend dismiss, enrich_cti, escalate_tier2, or tune_yaral2",
             ],
         ),
         AgentSkill(

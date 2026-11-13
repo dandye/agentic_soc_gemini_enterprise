@@ -165,45 +165,55 @@ def get_threat_collection(collection_id: str) -> dict[str, Any]:
     }
 
 
-def classify_ioc_intelligence(indicator_summaries_json: str) -> dict[str, Any]:
-    """Classifies GTI/IOC enrichment summaries in a single Decision 1 pass."""
-    cleaned = (indicator_summaries_json or "").strip()
+def triage_unstructured_cti_artifact(
+    content: str, mime_type: str = "text/plain"
+) -> dict[str, Any]:
+    """Triages unstructured CTI prose, OSINT reports, PDFs, or screenshots."""
+    cleaned = (content or "").strip()
     if not cleaned:
         return {
             "enabled": False,
-            "error": "indicator_summaries_json must not be empty.",
+            "error": "content must not be empty.",
         }
 
-    questions = {
-        "verdict": choice_question(
-            instructions=(
-                "Classify the overall threat verdict for the summarized GTI/IOC "
-                "indicator data."
-            ),
-            criteria={
-                "malicious": (
-                    "Confirmed malicious indicator with strong multi-engine "
-                    "detections, malware family attribution, or active C2/exploit "
-                    "infrastructure."
-                ),
-                "suspicious": (
-                    "Partially flagged or anomalous indicator with moderate "
-                    "detections, newly observed domain, or ambiguous threat context."
-                ),
-                "benign": (
-                    "Clean or well-known legitimate infrastructure with zero or "
-                    "negligible detections and trusted ownership."
-                ),
-                "unknown": (
-                    "Insufficient intelligence, indicator not found in GTI, or "
-                    "conflicting data that prevents classification."
+    cleaned_mime = (mime_type or "text/plain").strip().lower()
+    if cleaned_mime.startswith("text/"):
+        decision_input: str | list[dict[str, Any]] = (
+            f"Unstructured CTI artifact ({cleaned_mime}):\n{cleaned}"
+        )
+    else:
+        if cleaned_mime.startswith("image/"):
+            part_type = "image"
+        elif cleaned_mime.startswith("audio/"):
+            part_type = "audio"
+        elif cleaned_mime.startswith("video/"):
+            part_type = "video"
+        else:
+            part_type = "document"
+        decision_input = [
+            {
+                "type": "text",
+                "text": (
+                    f"Triage this unstructured CTI artifact ({cleaned_mime}) "
+                    "for threat intelligence and SOC actionability."
                 ),
             },
+            {
+                "type": part_type,
+                "data": cleaned,
+                "mime_type": cleaned_mime,
+            },
+        ]
+
+    questions = {
+        "is_actionable_threat": noul_question(
+            "True if the artifact describes a concrete, actionable cyber "
+            "threat, active campaign, or malicious infrastructure relevant to "
+            "SOC defense; false if informational, benign, or unactionable."
         ),
         "threat_category": choice_question(
             instructions=(
-                "Select the primary threat category represented by the indicator "
-                "intelligence."
+                "Select the primary threat category described in the artifact."
             ),
             criteria={
                 "malware_delivery": (
@@ -232,35 +242,42 @@ def classify_ioc_intelligence(indicator_summaries_json: str) -> dict[str, Any]:
                 ),
             },
         ),
-        "confidence_score": score_question(
+        "severity": score_question(
             instructions=(
-                "Rate classification confidence from lowest (level 0) to highest "
-                "(level 4) based on detection consensus and threat context."
+                "Rate operational threat severity from lowest (level 0) to "
+                "critical (level 4) based on impact and urgency."
             ),
             criteria=[
-                "Very low confidence: indicator not found, conflicting signals, or minimal context.",
-                "Low confidence: isolated weak detection with no threat family attribution.",
-                "Moderate confidence: multiple suspicious signals or moderate detections without clear attribution.",
-                "High confidence: strong multi-engine consensus, consistent tags, or known threat label.",
-                "Very high confidence: overwhelming malicious consensus, explicit malware or campaign attribution, and corroborating metadata.",
+                "Informational or benign: no active threat or operational impact.",
+                "Low severity: minor reconnaissance or low-impact opportunistic activity.",
+                "Moderate severity: suspicious campaign or commodity malware requiring standard triage.",
+                "High severity: confirmed active malware, C2, or targeted intrusion activity.",
+                "Critical severity: active ransomware, zero-day exploitation, or crown-jewel compromise.",
             ],
         ),
         "requires_immediate_hunt": noul_question(
-            "True if the indicator intelligence warrants immediate internal "
-            "SIEM/UDM threat hunting across endpoints, network logs, or DNS "
-            "telemetry; false otherwise."
+            "True if the artifact warrants immediate internal SIEM/UDM threat "
+            "hunting across endpoints, network logs, or DNS telemetry; false "
+            "otherwise."
         ),
-        "false_positive_likely": noul_question(
-            "True if detections are likely a false positive such as a dual-use "
-            "admin tool, shared CDN/cloud IP, or isolated vendor heuristic; "
-            "false otherwise."
+        "confidence_score": score_question(
+            instructions=(
+                "Rate triage confidence from lowest (level 0) to highest "
+                "(level 4) based on technical detail and corroboration in the "
+                "artifact."
+            ),
+            criteria=[
+                "Very low confidence: vague, unreadable, or minimal threat context.",
+                "Low confidence: unverified claims with sparse technical indicators.",
+                "Moderate confidence: plausible threat reporting with partial technical detail.",
+                "High confidence: detailed TTPs, IOCs, or clear malware/campaign attribution.",
+                "Very high confidence: comprehensive technical evidence with corroborated attribution.",
+            ],
         ),
     }
 
     decision = evaluate_decisions(
-        input_text=(
-            "GTI / VirusTotal v3 indicator enrichment summaries:\n" f"{cleaned}"
-        ),
+        input_text=decision_input,
         questions=questions,
     )
     if not decision.get("enabled"):
@@ -275,34 +292,38 @@ def classify_ioc_intelligence(indicator_summaries_json: str) -> dict[str, Any]:
         }
 
     answers = decision.get("answers", {})
-    verdict_ans = answers.get("verdict") or {}
+    actionable_ans = answers.get("is_actionable_threat") or {}
     category_ans = answers.get("threat_category") or {}
-    confidence_ans = answers.get("confidence_score") or {}
+    severity_ans = answers.get("severity") or {}
     hunt_ans = answers.get("requires_immediate_hunt") or {}
-    fp_ans = answers.get("false_positive_likely") or {}
+    confidence_ans = answers.get("confidence_score") or {}
 
-    raw_score = confidence_ans.get("score")
+    raw_severity = severity_ans.get("score")
+    severity = round(float(raw_severity) + 1.0, 2) if raw_severity is not None else None
+    raw_confidence = confidence_ans.get("score")
     confidence_score = (
-        round(float(raw_score) + 1.0, 2) if raw_score is not None else None
+        round(float(raw_confidence) + 1.0, 2) if raw_confidence is not None else None
     )
 
+    actionable_prob = actionable_ans.get("noul")
     hunt_prob = hunt_ans.get("noul")
-    fp_prob = fp_ans.get("noul")
 
     return {
         "enabled": True,
-        "verdict": verdict_ans.get("choice", "unknown"),
-        "verdict_confidence": verdict_ans.get("confidence"),
+        "mime_type": cleaned_mime,
+        "is_actionable_threat": (
+            bool(float(actionable_prob) >= 0.5)
+            if actionable_prob is not None
+            else False
+        ),
+        "is_actionable_threat_probability": actionable_prob,
         "threat_category": category_ans.get("choice", "other_or_unknown"),
         "threat_category_confidence": category_ans.get("confidence"),
-        "confidence_score": confidence_score,
+        "severity": severity,
         "requires_immediate_hunt": (
             bool(float(hunt_prob) >= 0.5) if hunt_prob is not None else False
         ),
         "requires_immediate_hunt_probability": hunt_prob,
-        "false_positive_likely": (
-            bool(float(fp_prob) >= 0.5) if fp_prob is not None else False
-        ),
-        "false_positive_likely_probability": fp_prob,
+        "confidence_score": confidence_score,
         "usage": decision.get("usage", {}),
     }

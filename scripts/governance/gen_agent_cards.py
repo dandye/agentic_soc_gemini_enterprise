@@ -50,7 +50,6 @@ PLACEHOLDER_ENV = {
 _SIBLING_MODULES = (
     "agent",
     "decision_client",
-    "detection_tools",
     "gti_tools",
     "response_tools",
     "secops_mcp",

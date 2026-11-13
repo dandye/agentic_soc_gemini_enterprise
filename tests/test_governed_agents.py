@@ -954,13 +954,12 @@ def test_decision_client_api_key_request_and_score_shift() -> None:
 
     env_patch = {k: v for k, v in os.environ.items() if k != "GEMINI_AUTH_PROVIDER"}
     env_patch["GEMINI_API_KEY"] = fake_key
+    client_instance = MagicMock()
+    client_instance.post.return_value = mock_resp
     with (
         patch.dict(os.environ, env_patch, clear=True),
-        patch.object(mod.httpx, "Client") as client_cls,
+        patch.object(mod, "_get_http_client", return_value=client_instance),
     ):
-        client_instance = MagicMock()
-        client_instance.post.return_value = mock_resp
-        client_cls.return_value.__enter__.return_value = client_instance
 
         res = mod.evaluate_decisions("Enrich hash abcdef1234", questions)
         assert res["enabled"] is True
@@ -981,8 +980,8 @@ def test_decision_client_api_key_request_and_score_shift() -> None:
         ]
 
 
-def test_decision_client_auth_provider_and_http_error_resilience() -> None:
-    """Verifies GEMINI_AUTH_PROVIDER exchange and graceful handling of HTTP failures."""
+def test_decision_client_auth_provider_ttl_cache_and_http_error_resilience() -> None:
+    """Verifies GEMINI_AUTH_PROVIDER TTL caching, client reuse, and HTTP error resilience."""
     mod = _load_module(
         "test_decision_client_auth_provider",
         GOVERNED_AGENTS_DIR / "soc_orchestrator" / "decision_client.py",
@@ -1003,31 +1002,34 @@ def test_decision_client_auth_provider_and_http_error_resilience() -> None:
         "answers": {"q": {"type": "noul", "noul": 0.75, "confidence": 0.8}}
     }
 
+    fake_client = MagicMock()
+    fake_client.post.side_effect = [auth_resp, decision_resp, decision_resp]
+
     with (
         patch.dict(os.environ, {"GEMINI_AUTH_PROVIDER": provider}, clear=False),
         patch.object(mod, "_get_gcp_access_token", return_value="gcp-bearer"),
-        patch.object(mod.httpx, "Client") as client_cls,
+        patch.object(mod, "_get_http_client", return_value=fake_client),
     ):
-        client_instance = MagicMock()
-        client_instance.post.side_effect = [auth_resp, decision_resp]
-        client_cls.return_value.__enter__.return_value = client_instance
-
-        res = mod.evaluate_decisions(
+        res1 = mod.evaluate_decisions(
             "Check IP 203.0.113.5", {"q": mod.noul_question("Q?")}
         )
-        assert res["enabled"] is True
-        assert res["answers"]["q"]["noul"] == 0.75
-        assert client_instance.post.call_count == 2
-        auth_call, dec_call = client_instance.post.call_args_list
+        res2 = mod.evaluate_decisions(
+            "Check IP 203.0.113.6", {"q": mod.noul_question("Q?")}
+        )
+        assert res1["enabled"] is True
+        assert res1["answers"]["q"]["noul"] == 0.75
+        assert res2["enabled"] is True
+        assert res2["answers"]["q"]["noul"] == 0.75
+        # 1 Auth Manager POST (cached via TTL) + 2 Decisions POSTs = 3 total calls.
+        assert fake_client.post.call_count == 3
+        auth_call, dec_call_1, dec_call_2 = fake_client.post.call_args_list
         assert "credentials:retrieve" in auth_call.args[0]
         assert auth_call.kwargs["headers"]["Authorization"] == "Bearer gcp-bearer"
-        assert dec_call.kwargs["headers"]["x-goog-api-key"] == exchanged_key
+        assert dec_call_1.kwargs["headers"]["x-goog-api-key"] == exchanged_key
+        assert dec_call_2.kwargs["headers"]["x-goog-api-key"] == exchanged_key
 
         # HTTP error resilience: never raises, returns enabled=True + error.
-        client_instance.post.side_effect = [
-            auth_resp,
-            mod.httpx.ConnectError("gateway unreachable"),
-        ]
+        fake_client.post.side_effect = [mod.httpx.ConnectError("gateway unreachable")]
         err_res = mod.evaluate_decisions(
             "Check IP 203.0.113.5", {"q": mod.noul_question("Q?")}
         )
@@ -1037,32 +1039,31 @@ def test_decision_client_auth_provider_and_http_error_resilience() -> None:
         assert exchanged_key not in str(err_res)
 
 
-def test_soc_orchestrator_preflight_callback_injects_hint_and_never_blocks() -> None:
-    """Pre-flight callback injects [PREFLIGHT_ROUTING] on user turns, skips tool turns, and never blocks."""
+def test_soc_orchestrator_preflight_callback_short_circuits_and_falls_back() -> None:
+    """Pre-flight callback short-circuits decisive single-specialist turns and falls back otherwise."""
     mod = _load_orchestrator()
 
-    # 1. User text turn with Decision 1 enabled -> injects [PREFLIGHT_ROUTING] and returns None.
-    appended: list[list[str]] = []
-    llm_request = SimpleNamespace(
+    # 1. Initial turn + single_specialist + noul >= 0.90 -> short-circuits with LlmResponse(function_call).
+    prompt = "Isolate WKSTN-FIN-042 under CHG-10492"
+    initial_req = SimpleNamespace(
         contents=[
             SimpleNamespace(
                 role="user",
-                parts=[SimpleNamespace(text="Isolate WKSTN-FIN-042 under CHG-10492")],
+                parts=[SimpleNamespace(text=prompt)],
             )
         ],
-        append_instructions=lambda items: appended.append(list(items)),
+        append_instructions=MagicMock(),
     )
-    fake_decision = {
+    decisive_reply = {
         "enabled": True,
         "answers": {
-            "needs_cti": {"type": "noul", "noul": 0.10, "confidence": 0.90},
-            "needs_threat_hunt": {"type": "noul", "noul": 0.25, "confidence": 0.85},
-            "needs_detection_eng": {"type": "noul", "noul": 0.05, "confidence": 0.95},
+            "needs_cti": {"type": "noul", "noul": 0.05, "confidence": 0.95},
+            "needs_threat_hunt": {"type": "noul", "noul": 0.10, "confidence": 0.90},
+            "needs_detection_eng": {"type": "noul", "noul": 0.02, "confidence": 0.98},
             "needs_tier2_response": {"type": "noul", "noul": 0.96, "confidence": 0.93},
-            "has_change_ticket": {"type": "noul", "noul": 0.98, "confidence": 0.99},
             "workflow_mode": {
                 "type": "choice",
-                "choice": "containment_action",
+                "choice": "single_specialist",
                 "confidence": 0.94,
             },
             "urgency": {
@@ -1074,21 +1075,67 @@ def test_soc_orchestrator_preflight_callback_injects_hint_and_never_blocks() -> 
         },
     }
 
-    async def fake_aeval(*_: Any, **__: Any) -> dict[str, Any]:
-        return fake_decision
+    async def fake_decisive(*_: Any, **__: Any) -> dict[str, Any]:
+        return decisive_reply
 
-    with patch.object(mod, "aevaluate_decisions", side_effect=fake_aeval):
-        ret = asyncio.run(mod._preflight_before_model_callback(None, llm_request))
+    with patch.object(mod, "aevaluate_decisions", side_effect=fake_decisive):
+        ret = asyncio.run(mod._preflight_before_model_callback(None, initial_req))
+    assert ret is not None
+    assert ret.turn_complete is True
+    short_part = ret.content.parts[0]
+    assert short_part.thought_signature == b"skip_thought_signature_validator"
+    fc = short_part.function_call
+    assert fc.name == "Tier2_Responder"
+    assert fc.args == {"request": prompt}
+    initial_req.append_instructions.assert_not_called()
+
+    # 2. Multi-stage or below-threshold -> injects [PREFLIGHT_ROUTING] and returns None.
+    appended: list[list[str]] = []
+    multi_req = SimpleNamespace(
+        contents=[
+            SimpleNamespace(
+                role="user",
+                parts=[SimpleNamespace(text="Enrich hash and hunt UDM")],
+            )
+        ],
+        append_instructions=lambda items: appended.append(list(items)),
+    )
+    multi_reply = {
+        "enabled": True,
+        "answers": {
+            "needs_cti": {"type": "noul", "noul": 0.92, "confidence": 0.91},
+            "needs_threat_hunt": {"type": "noul", "noul": 0.88, "confidence": 0.87},
+            "needs_detection_eng": {"type": "noul", "noul": 0.05, "confidence": 0.95},
+            "needs_tier2_response": {"type": "noul", "noul": 0.10, "confidence": 0.90},
+            "workflow_mode": {
+                "type": "choice",
+                "choice": "multi_stage_investigation",
+                "confidence": 0.90,
+            },
+            "urgency": {
+                "type": "score",
+                "raw_score": 2.0,
+                "score": 3.0,
+                "confidence": 0.85,
+            },
+        },
+    }
+
+    async def fake_multi(*_: Any, **__: Any) -> dict[str, Any]:
+        return multi_reply
+
+    with patch.object(mod, "aevaluate_decisions", side_effect=fake_multi):
+        ret = asyncio.run(mod._preflight_before_model_callback(None, multi_req))
     assert ret is None
     assert len(appended) == 1
     hint = appended[0][0]
     assert "[PREFLIGHT_ROUTING]" in hint
-    assert "workflow_mode=containment_action" in hint
-    assert "urgency=4.00/5.00" in hint
-    assert "has_change_ticket=yes" in hint
-    assert "Tier2_Responder" in hint
+    assert "workflow_mode=multi_stage_investigation" in hint
+    assert "urgency=3.00/5.00" in hint
+    assert "CTI_Researcher" in hint
+    assert "Threat_Hunter" in hint
 
-    # 2. Tool-response turn -> skips Decision 1 call and returns None.
+    # 3. Tool-response turn -> skips Decision 1 call and returns None.
     tool_turn_req = SimpleNamespace(
         contents=[
             SimpleNamespace(
@@ -1108,245 +1155,195 @@ def test_soc_orchestrator_preflight_callback_injects_hint_and_never_blocks() -> 
     mock_aeval.assert_not_called()
     tool_turn_req.append_instructions.assert_not_called()
 
-    # 3. Decision 1 exception -> never blocks, returns None.
+    # 4. Decision 1 exception -> never blocks, returns None.
     with patch.object(
         mod, "aevaluate_decisions", side_effect=RuntimeError("decisions backend down")
     ):
-        ret = asyncio.run(mod._preflight_before_model_callback(None, llm_request))
+        ret = asyncio.run(mod._preflight_before_model_callback(None, initial_req))
     assert ret is None
 
 
-def test_cti_researcher_classify_ioc_intelligence() -> None:
-    """Verifies classify_ioc_intelligence handles empty, disabled, and scored Decision 1 replies."""
-    sys.modules.pop("decision_client", None)
-    mod = _load_module(
-        "test_cti_gti_classify",
-        GOVERNED_AGENTS_DIR / "cti_researcher" / "gti_tools.py",
-        {"GTI_AUTH_PROVIDER": "projects/p/locations/us-central1/authProviders/gti"},
-    )
-    empty_res = mod.classify_ioc_intelligence("   ")
-    assert empty_res["enabled"] is False
-    assert "error" in empty_res
-
-    with patch.object(
-        mod,
-        "evaluate_decisions",
-        return_value={"enabled": False, "reason": "unconfigured", "answers": {}},
-    ):
-        assert (
-            mod.classify_ioc_intelligence('{"domain": "bad.example"}')["enabled"]
-            is False
-        )
-
-    with patch.object(
-        mod,
-        "evaluate_decisions",
-        return_value={
-            "enabled": True,
-            "answers": {
-                "verdict": {
-                    "type": "choice",
-                    "choice": "malicious",
-                    "confidence": 0.95,
-                },
-                "threat_category": {
-                    "type": "choice",
-                    "choice": "command_and_control",
-                    "confidence": 0.89,
-                },
-                "confidence_score": {"type": "score", "raw_score": 3.0, "score": 4.0},
-                "requires_immediate_hunt": {"type": "noul", "noul": 0.91},
-                "false_positive_likely": {"type": "noul", "noul": 0.08},
-            },
-            "usage": {"inputTokens": 200},
-        },
-    ):
-        # Note: classify_ioc_intelligence adds +1.0 to confidence_ans.get("score"),
-        # matching raw_score semantics if evaluate_decisions returns raw score or shifted score.
-        res = mod.classify_ioc_intelligence('{"domain": "c2.example", "malicious": 14}')
-        assert res["enabled"] is True
-        assert res["verdict"] == "malicious"
-        assert res["threat_category"] == "command_and_control"
-        assert res["confidence_score"] == 5.0
-        assert res["requires_immediate_hunt"] is True
-        assert res["false_positive_likely"] is False
-
-
-def test_threat_hunter_score_alerts_rubric() -> None:
-    """Verifies score_alerts_rubric parses severity (1-5), true_positive, mitre_tactic, and next_action."""
-    sys.modules.pop("decision_client", None)
+def test_threat_hunter_after_tool_callback_filters_noise_and_tags_escalations() -> None:
+    """Verifies _filter_udm_events_after_tool_callback drops <0.30, keeps 0.30-0.85, and tags >=0.85."""
     mod = _load_module(
         "test_threat_hunter_triage",
         GOVERNED_AGENTS_DIR / "threat_hunter" / "triage_tools.py",
         {},
     )
-    assert "error" in mod.score_alerts_rubric("")
+    # Non-filtered tool and error responses pass through unchanged (None).
+    assert (
+        mod._filter_udm_events_after_tool_callback(
+            SimpleNamespace(name="list_feeds"), None, None, {"events": [{"id": 1}]}
+        )
+        is None
+    )
+    assert (
+        mod._filter_udm_events_after_tool_callback(
+            SimpleNamespace(name="udm_search"),
+            None,
+            None,
+            {"isError": True, "events": [{"id": 1}]},
+        )
+        is None
+    )
 
-    with patch.object(
-        mod,
-        "evaluate_decisions",
-        return_value={"enabled": False, "reason": "unset", "answers": {}},
-    ):
-        assert mod.score_alerts_rubric('{"alert": "test"}')["enabled"] is False
-
-    with patch.object(
-        mod,
-        "evaluate_decisions",
-        return_value={
+    def fake_eval_decisions(
+        input_text: str, questions: dict[str, Any]
+    ) -> dict[str, Any]:
+        assert questions
+        if "benign_noise" in input_text:
+            return {
+                "enabled": True,
+                "answers": {
+                    "severity": {"type": "score", "score": 0.0},
+                    "true_positive": {"type": "noul", "noul": 0.12},
+                    "mitre_tactic": {"type": "choice", "choice": "other_or_benign"},
+                    "next_action": {"type": "choice", "choice": "dismiss"},
+                },
+            }
+        if "suspicious_mid" in input_text:
+            return {
+                "enabled": True,
+                "answers": {
+                    "severity": {"type": "score", "score": 2.0},
+                    "true_positive": {"type": "noul", "noul": 0.62},
+                    "mitre_tactic": {"type": "choice", "choice": "discovery"},
+                    "next_action": {"type": "choice", "choice": "enrich_cti"},
+                },
+            }
+        return {
             "enabled": True,
             "answers": {
-                "severity": {"type": "score", "score": 3.0, "confidence": 0.88},
-                "true_positive": {"type": "noul", "noul": 0.91, "confidence": 0.90},
-                "mitre_tactic": {
-                    "type": "choice",
-                    "choice": "command_and_control",
-                    "confidence": 0.85,
-                },
-                "next_action": {
-                    "type": "choice",
-                    "choice": "escalate_tier2",
-                    "confidence": 0.82,
-                },
+                "severity": {"type": "score", "score": 3.0},
+                "true_positive": {"type": "noul", "noul": 0.91},
+                "mitre_tactic": {"type": "choice", "choice": "credential_access"},
+                "next_action": {"type": "choice", "choice": "escalate_tier2"},
             },
-            "usage": {"inputTokens": 150},
-        },
-    ):
-        res = mod.score_alerts_rubric(
-            '{"rule": "Suspicious Beacon", "host": "WKSTN-01"}'
+        }
+
+    events = [
+        {"id": "benign_noise"},
+        {"id": "suspicious_mid"},
+        {"id": "ntdsutil_critical"},
+    ]
+    with patch.object(mod, "evaluate_decisions", side_effect=fake_eval_decisions):
+        filtered = mod._filter_udm_events_after_tool_callback(
+            SimpleNamespace(name="udm_search"), {}, None, {"events": events}
         )
-        assert res["enabled"] is True
-        assert res["severity_score"] == 4.0
-        assert res["severity_level"] == 4
-        assert res["true_positive"]["likely"] is True
-        assert res["mitre_tactic"] == "command_and_control"
-        assert res["next_action"] == "escalate_tier2"
+        assert filtered is not None
+        assert filtered["decision1_filter_applied"] is True
+        assert filtered["dropped_low_signal_count"] == 1
+        assert filtered["kept_event_count"] == 2
+        assert filtered["high_confidence_escalate_count"] == 1
+        kept = filtered["events"]
+        assert len(kept) == 2
+        assert kept[0]["id"] == "suspicious_mid"
+        assert "tag" not in kept[0]["decision1_triage"]
+        assert kept[0]["decision1_triage"]["severity_score"] == 3.0
+        assert kept[1]["id"] == "ntdsutil_critical"
+        assert kept[1]["decision1_triage"]["tag"] == "[HIGH_CONFIDENCE_ESCALATE]"
+        assert kept[1]["decision1_triage"]["severity_score"] == 4.0
+
+        # MCP content[0].text JSON payload is also filtered and re-serialized.
+        mcp_payload = {
+            "content": [
+                {"type": "text", "text": json.dumps({"securityAlerts": events})}
+            ]
+        }
+        mcp_filtered = mod._filter_udm_events_after_tool_callback(
+            SimpleNamespace(name="list_security_alerts"), {}, None, mcp_payload
+        )
+        assert mcp_filtered is not None
+        parsed_back = json.loads(mcp_filtered["content"][0]["text"])
+        assert parsed_back["dropped_low_signal_count"] == 1
+        assert parsed_back["kept_event_count"] == 2
+        assert parsed_back["high_confidence_escalate_count"] == 1
+        assert len(parsed_back["securityAlerts"]) == 2
 
 
-def test_detection_engineer_grade_yaral2_rule() -> None:
-    """Verifies grade_yaral2_rule enforces YARA-L 2.0 context and returns structured scores."""
-    sys.modules.pop("decision_client", None)
+def test_cti_researcher_triage_unstructured_cti_artifact() -> None:
+    """Verifies triage_unstructured_cti_artifact for text/plain, image/png, and application/pdf."""
     mod = _load_module(
-        "test_detection_tools",
-        GOVERNED_AGENTS_DIR / "detection_engineer" / "detection_tools.py",
-        {},
+        "test_cti_gti_triage",
+        GOVERNED_AGENTS_DIR / "cti_researcher" / "gti_tools.py",
+        {"GTI_AUTH_PROVIDER": "projects/p/locations/us-central1/authProviders/gti"},
     )
-    empty = mod.grade_yaral2_rule("   ")
-    assert empty["enabled"] is False
-    assert empty["rule_language"] == "YARA-L 2.0 (Chronicle SIEM UDM)"
-    assert "error" in empty
+    empty_res = mod.triage_unstructured_cti_artifact("   ")
+    assert empty_res["enabled"] is False
+    assert "error" in empty_res
 
-    sample_rule = """
-    rule suspicious_powershell {
-      meta:
-        author = "secops"
-      events:
-        $e.metadata.event_type = "PROCESS_LAUNCH"
-      condition:
-        $e
+    mock_reply = {
+        "enabled": True,
+        "answers": {
+            "is_actionable_threat": {"type": "noul", "noul": 0.94},
+            "threat_category": {
+                "type": "choice",
+                "choice": "command_and_control",
+                "confidence": 0.90,
+            },
+            "severity": {"type": "score", "score": 3.0},
+            "requires_immediate_hunt": {"type": "noul", "noul": 0.89},
+            "confidence_score": {"type": "score", "score": 3.0},
+        },
+        "usage": {"inputTokens": 210},
     }
-    """
-    with patch.object(
-        mod,
-        "evaluate_decisions",
-        return_value={
-            "enabled": True,
-            "model": "gemini-decision-1",
-            "answers": {
-                "rule_quality_score": {
-                    "type": "score",
-                    "score": 3.0,
-                    "confidence": 0.9,
-                },
-                "false_positive_risk": {
-                    "type": "choice",
-                    "choice": "medium",
-                    "confidence": 0.8,
-                },
-                "mitre_tactic": {
-                    "type": "choice",
-                    "choice": "execution",
-                    "confidence": 0.92,
-                },
-                "has_required_yaral2_sections": {"type": "noul", "noul": 0.97},
-                "ready_for_validation": {"type": "noul", "noul": 0.89},
-            },
-            "usage": {"inputTokens": 180},
-        },
-    ) as mock_eval:
-        res = mod.grade_yaral2_rule(
-            sample_rule, coverage_context="Windows EDR process telemetry"
+
+    with patch.object(mod, "evaluate_decisions", return_value=mock_reply) as mock_eval:
+        text_res = mod.triage_unstructured_cti_artifact(
+            "OSINT advisory: C2 beacon observed on 198.51.100.10", "text/plain"
         )
-        assert res["enabled"] is True
-        assert res["rule_language"] == "YARA-L 2.0 (Chronicle SIEM UDM)"
-        assert res["rule_quality_score"] == 4.0
-        assert res["false_positive_risk"] == "medium"
-        assert res["mitre_tactic"] == "execution"
-        assert res["has_required_yaral2_sections"] is True
-        assert res["ready_for_validation"] is True
-        prompt_sent = mock_eval.call_args.args[0]
-        assert "YARA-L 2.0" in prompt_sent
-        assert "standard file/payload YARA" in prompt_sent
+        assert text_res["enabled"] is True
+        assert text_res["mime_type"] == "text/plain"
+        assert text_res["is_actionable_threat"] is True
+        assert text_res["threat_category"] == "command_and_control"
+        assert text_res["severity"] == 4.0
+        assert text_res["confidence_score"] == 4.0
+        assert text_res["requires_immediate_hunt"] is True
+        assert isinstance(mock_eval.call_args.kwargs["input_text"], str)
+
+        img_res = mod.triage_unstructured_cti_artifact("iVBORw0KGgo=", "image/png")
+        assert img_res["mime_type"] == "image/png"
+        img_parts = mock_eval.call_args.kwargs["input_text"]
+        assert isinstance(img_parts, list)
+        assert img_parts[1]["type"] == "image"
+        assert img_parts[1]["mime_type"] == "image/png"
+
+        pdf_res = mod.triage_unstructured_cti_artifact(
+            "JVBERi0xLjQ=", "application/pdf"
+        )
+        assert pdf_res["mime_type"] == "application/pdf"
+        pdf_parts = mock_eval.call_args.kwargs["input_text"]
+        assert isinstance(pdf_parts, list)
+        assert pdf_parts[1]["type"] == "document"
+        assert pdf_parts[1]["mime_type"] == "application/pdf"
 
 
-def test_tier2_assess_containment_readiness_is_strictly_advisory() -> None:
-    """assess_containment_readiness returns advisory metadata and never blocks Tier-0 containment."""
-    sys.modules.pop("decision_client", None)
-    mod = _load_module(
-        "test_tier2_readiness",
-        GOVERNED_AGENTS_DIR / "tier2_responder" / "response_tools.py",
-        {},
+def test_detection_engineer_and_tier2_responder_clean_baseline() -> None:
+    """detection_engineer and tier2_responder stay on clean baseline with no Decision 1 tools."""
+    env = {
+        "CHRONICLE_PROJECT_ID": "example-proj",
+        "CHRONICLE_CUSTOMER_ID": "00000000-0000-0000-0000-000000000000",
+        "CHRONICLE_REGION": "us",
+    }
+    de_mod = _load_module(
+        "test_de_baseline",
+        GOVERNED_AGENTS_DIR / "detection_engineer" / "agent.py",
+        env,
     )
-    with patch.object(
-        mod,
-        "decide",
-        return_value={
-            "enabled": False,
-            "reason": "Decisions API unconfigured",
-            "answers": {},
-        },
-    ):
-        disabled = mod.assess_containment_readiness(
-            "DC-PROD-01", "isolate_endpoint_host", "Suspected DCSync"
-        )
-        assert disabled["advisory_only"] is True
-        assert disabled["decision_model_enabled"] is False
+    de_tool_names = [
+        getattr(t, "__name__", str(t)) for t in de_mod.detection_engineer_llm.tools
+    ]
+    assert "grade_yaral2_rule" not in de_tool_names
+    assert not (
+        GOVERNED_AGENTS_DIR / "detection_engineer" / "detection_tools.py"
+    ).exists()
 
-    with patch.object(
-        mod,
-        "decide",
-        return_value={
-            "enabled": True,
-            "model": "gemini-decision-1",
-            "answers": {
-                "asset_tier": {
-                    "type": "choice",
-                    "choice": "tier0_crown_jewel",
-                    "confidence": 0.98,
-                },
-                "evidence_sufficiency": {
-                    "type": "score",
-                    "score": 3.0,
-                    "confidence": 0.85,
-                },
-                "has_change_ticket": {"type": "noul", "noul": 0.04},
-                "requires_human_approval": {"type": "noul", "noul": 0.97},
-            },
-            "usage": {"inputTokens": 140},
-        },
-    ):
-        advisory = mod.assess_containment_readiness(
-            "DC-PROD-01",
-            "isolate_endpoint_host",
-            "Confirmed DCSync from unauthorized host",
-        )
-        assert advisory["advisory_only"] is True
-        assert advisory["decision_model_enabled"] is True
-        assert advisory["asset_tier"] == "tier0_crown_jewel"
-        assert advisory["evidence_sufficiency_score"] == 4.0
-        assert advisory["has_change_ticket_noul"] == 0.04
-        assert advisory["requires_human_approval_noul"] == 0.97
-        assert "Semantic Governance" in advisory["enforcement_note"]
-
-    # Containment itself is never blocked in Python.
-    iso = mod.isolate_endpoint_host("DC-PROD-01", "Confirmed DCSync")
-    assert iso["status"] == "ISOLATED"
+    t2_mod = _load_module(
+        "test_t2_baseline",
+        GOVERNED_AGENTS_DIR / "tier2_responder" / "agent.py",
+        env,
+    )
+    t2_tool_names = [getattr(t, "__name__", str(t)) for t in t2_mod.tier2_llm.tools]
+    assert "assess_containment_readiness" not in t2_tool_names
+    assert "isolate_endpoint_host" in t2_tool_names
+    assert "disable_compromised_account" in t2_tool_names

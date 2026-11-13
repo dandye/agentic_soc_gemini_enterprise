@@ -2,16 +2,19 @@
 
 Uses `httpx` directly so `google-adk==2.13.0` / `google-genai==2.34.0` dependency
 pins remain untouched. Supports Agent Platform Auth Manager (`GEMINI_AUTH_PROVIDER`)
-via `google.auth.default()` + `agentidentitycredentials.googleapis.com`, or direct
-`GEMINI_API_KEY` environment fallback, and returns a graceful disabled response
-when neither is configured so hermetic CI and unit tests never fail.
+via `google.auth.default()` + `agentidentitycredentials.googleapis.com` with TTL
+caching and shared `httpx` connection pooling, or direct `GEMINI_API_KEY` env
+fallback, and returns a graceful disabled response when neither is configured.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import threading
+import time
+import weakref
 from typing import Any
 
 import anyio.to_thread
@@ -26,12 +29,22 @@ DECISION_MODEL = os.getenv("GEMINI_DECISION_MODEL", "gemini-decision-1")
 _AUTH_MANAGER_BASE_URL = "https://agentidentitycredentials.googleapis.com/v1"
 _CLOUD_PLATFORM_SCOPE = "https://www.googleapis.com/auth/cloud-platform"
 _DEFAULT_TIMEOUT_SECONDS = float(os.getenv("GEMINI_DECISION_TIMEOUT_SECONDS", "15"))
+_AUTH_TOKEN_TTL_SECONDS = float(os.getenv("GEMINI_AUTH_TOKEN_TTL_SECONDS", "300"))
 
 logger = logging.getLogger("google_adk." + __name__)
 
 _credentials_lock = threading.Lock()
 _credentials: Any = None
 _transport_request: Any = None
+
+_auth_cache_lock = threading.Lock()
+_cached_auth_tokens: dict[str, tuple[str, float]] = {}
+
+_http_client_lock = threading.Lock()
+_http_client: httpx.Client | None = None
+_async_clients: weakref.WeakKeyDictionary[
+    asyncio.AbstractEventLoop, httpx.AsyncClient
+] = weakref.WeakKeyDictionary()
 
 
 def noul_question(instructions: str) -> dict[str, Any]:
@@ -55,6 +68,25 @@ def score_question(instructions: str, criteria: list[str]) -> dict[str, Any]:
         "instructions": instructions,
         "criteria": list(criteria),
     }
+
+
+def _get_http_client() -> httpx.Client:
+    """Returns a shared module-level `httpx.Client` for connection reuse."""
+    global _http_client
+    with _http_client_lock:
+        if _http_client is None or _http_client.is_closed:
+            _http_client = httpx.Client(timeout=_DEFAULT_TIMEOUT_SECONDS)
+        return _http_client
+
+
+def _get_async_http_client() -> httpx.AsyncClient:
+    """Returns a loop-scoped `httpx.AsyncClient` for connection reuse."""
+    loop = asyncio.get_running_loop()
+    client = _async_clients.get(loop)
+    if client is None or client.is_closed:
+        client = httpx.AsyncClient(timeout=_DEFAULT_TIMEOUT_SECONDS)
+        _async_clients[loop] = client
+    return client
 
 
 def _get_gcp_access_token() -> str:
@@ -96,22 +128,52 @@ def _extract_auth_manager_token(payload: dict[str, Any], provider_name: str) -> 
     return token
 
 
+def _get_cached_auth_token(provider_name: str) -> str | None:
+    now = time.monotonic()
+    with _auth_cache_lock:
+        entry = _cached_auth_tokens.get(provider_name)
+        if entry is not None:
+            token, expires_at = entry
+            if now < expires_at:
+                return token
+            _cached_auth_tokens.pop(provider_name, None)
+    return None
+
+
+def _store_cached_auth_token(provider_name: str, token: str) -> None:
+    if _AUTH_TOKEN_TTL_SECONDS <= 0:
+        return
+    expires_at = time.monotonic() + _AUTH_TOKEN_TTL_SECONDS
+    with _auth_cache_lock:
+        _cached_auth_tokens[provider_name] = (token, expires_at)
+
+
 def _retrieve_auth_manager_key(provider_name: str, timeout: float) -> str:
+    cached = _get_cached_auth_token(provider_name)
+    if cached is not None:
+        return cached
     bearer = _get_gcp_access_token()
     url, headers, body = _auth_manager_request_args(provider_name, bearer)
-    with httpx.Client(timeout=timeout) as client:
-        response = client.post(url, headers=headers, json=body)
-        response.raise_for_status()
-        return _extract_auth_manager_token(response.json(), provider_name)
+    response = _get_http_client().post(url, headers=headers, json=body, timeout=timeout)
+    response.raise_for_status()
+    token = _extract_auth_manager_token(response.json(), provider_name)
+    _store_cached_auth_token(provider_name, token)
+    return token
 
 
 async def _aretrieve_auth_manager_key(provider_name: str, timeout: float) -> str:
+    cached = _get_cached_auth_token(provider_name)
+    if cached is not None:
+        return cached
     bearer = await anyio.to_thread.run_sync(_get_gcp_access_token)
     url, headers, body = _auth_manager_request_args(provider_name, bearer)
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        response = await client.post(url, headers=headers, json=body)
-        response.raise_for_status()
-        return _extract_auth_manager_token(response.json(), provider_name)
+    response = await _get_async_http_client().post(
+        url, headers=headers, json=body, timeout=timeout
+    )
+    response.raise_for_status()
+    token = _extract_auth_manager_token(response.json(), provider_name)
+    _store_cached_auth_token(provider_name, token)
+    return token
 
 
 def _resolve_api_key(timeout: float) -> str | None:
@@ -214,10 +276,11 @@ def evaluate_decisions(
         "Content-Type": "application/json",
     }
     try:
-        with httpx.Client(timeout=timeout) as client:
-            response = client.post(DECISIONS_API_URL, headers=headers, json=body)
-            response.raise_for_status()
-            return _parse_answers(response.json())
+        response = _get_http_client().post(
+            DECISIONS_API_URL, headers=headers, json=body, timeout=timeout
+        )
+        response.raise_for_status()
+        return _parse_answers(response.json())
     except Exception as exc:  # noqa: BLE001
         logger.warning("Decision 1 request failed: %s", type(exc).__name__)
         return {
@@ -270,10 +333,11 @@ async def aevaluate_decisions(
         "Content-Type": "application/json",
     }
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            response = await client.post(DECISIONS_API_URL, headers=headers, json=body)
-            response.raise_for_status()
-            return _parse_answers(response.json())
+        response = await _get_async_http_client().post(
+            DECISIONS_API_URL, headers=headers, json=body, timeout=timeout
+        )
+        response.raise_for_status()
+        return _parse_answers(response.json())
     except Exception as exc:  # noqa: BLE001
         logger.warning("Decision 1 async request failed: %s", type(exc).__name__)
         return {

@@ -315,14 +315,19 @@ CRITICAL GOVERNANCE RULES:
    emojis anywhere in your output.
 """
 
+_SHORT_CIRCUIT_THRESHOLD = float(os.getenv("PREFLIGHT_SHORT_CIRCUIT_THRESHOLD", "0.90"))
+
 _PREFLIGHT_QUESTIONS: dict[str, dict[str, Any]] = {
     "needs_cti": noul_question(
         "Does the request ask to look up or enrich a file hash, domain, IP address, "
-        "URL, or threat collection/campaign in threat intelligence?"
+        "URL, or threat collection/campaign in external Google Threat Intelligence "
+        "(GTI / VirusTotal)?"
     ),
     "needs_threat_hunt": noul_question(
-        "Does the request ask to search SIEM logs or UDM telemetry, list or triage "
-        "security alerts, inspect entity context, or check/manage SIEM feeds?"
+        "Does the request ask to search Chronicle SIEM logs or UDM telemetry, list or "
+        "triage SIEM security alerts, inspect SIEM entity context, or check/manage "
+        "SIEM feeds? Answer false for pure external GTI/VirusTotal reputation "
+        "lookups that do not mention SIEM, UDM, alerts, or feeds."
     ),
     "needs_detection_eng": noul_question(
         "Does the request ask to author, validate, audit, or test a Chronicle SIEM "
@@ -331,10 +336,6 @@ _PREFLIGHT_QUESTIONS: dict[str, dict[str, Any]] = {
     "needs_tier2_response": noul_question(
         "Does the request ask to isolate or quarantine an endpoint host, disable a "
         "user account, update an alert status, or modify a containment reference list?"
-    ),
-    "has_change_ticket": noul_question(
-        "Does the request explicitly reference a change ticket identifier such as "
-        "CHG-12345 or an approved emergency change ID?"
     ),
     "workflow_mode": choice_question(
         "Select the most appropriate orchestration workflow mode for this request.",
@@ -384,6 +385,24 @@ def _extract_latest_user_prompt(llm_request: LlmRequest) -> str | None:
     return "\n".join(texts) or None
 
 
+def _short_circuit_target(result: dict[str, Any]) -> str | None:
+    """Returns a single specialist AgentTool name when Decision 1 is decisive."""
+    if not result.get("enabled") or result.get("error"):
+        return None
+    answers = result.get("answers") or {}
+    mode = str((answers.get("workflow_mode") or {}).get("choice") or "")
+    if mode != "single_specialist":
+        return None
+    high_confidence = [
+        label
+        for qid, label in _SPECIALIST_ROUTING_LABELS
+        if float((answers.get(qid) or {}).get("noul", 0.0)) >= _SHORT_CIRCUIT_THRESHOLD
+    ]
+    if len(high_confidence) == 1:
+        return high_confidence[0]
+    return None
+
+
 def _format_preflight_hint(result: dict[str, Any]) -> str | None:
     """Formats a concise non-binding `[PREFLIGHT_ROUTING]` hint from Decision 1."""
     if not result.get("enabled") or result.get("error"):
@@ -405,9 +424,6 @@ def _format_preflight_hint(result: dict[str, Any]) -> str | None:
     urgency = float(urgency_ans.get("score", 1.0))
     urgency_conf = float(urgency_ans.get("confidence", 0.0))
 
-    chg_noul = float((answers.get("has_change_ticket") or {}).get("noul", 0.0))
-    has_chg = "yes" if chg_noul >= 0.5 else "no"
-
     scores = ", ".join(
         f"{label}={float((answers.get(qid) or {}).get('noul', 0.0)):.2f}"
         for qid, label in _SPECIALIST_ROUTING_LABELS
@@ -418,7 +434,6 @@ def _format_preflight_hint(result: dict[str, Any]) -> str | None:
         "(non-binding; never refuse or block based on this): "
         f"workflow_mode={mode} (conf={mode_conf:.2f}), "
         f"urgency={urgency:.2f}/5.00 (conf={urgency_conf:.2f}), "
-        f"has_change_ticket={has_chg} ({chg_noul:.2f}), "
         f"recommended_specialists=[{specialists_str}], "
         f"specialist_scores={{{scores}}}."
     )
@@ -427,7 +442,7 @@ def _format_preflight_hint(result: dict[str, Any]) -> str | None:
 async def _preflight_before_model_callback(
     callback_context: CallbackContext, llm_request: LlmRequest
 ) -> LlmResponse | None:
-    """Runs non-blocking Decision 1 pre-flight routing and injects context hint."""
+    """Short-circuits high-confidence single-specialist turns or injects routing hint."""
     del callback_context
     prompt = _extract_latest_user_prompt(llm_request)
     if not prompt:
@@ -437,6 +452,28 @@ async def _preflight_before_model_callback(
     except Exception:  # noqa: BLE001
         logger.debug("pre-flight Decision 1 pass failed; proceeding without hint")
         return None
+
+    contents = getattr(llm_request, "contents", None) or []
+    is_initial_turn = len(contents) == 1
+    target_agent = _short_circuit_target(result) if is_initial_turn else None
+    if target_agent is not None:
+        logger.info("pre-flight Decision 1 short-circuiting to %s", target_agent)
+        return LlmResponse(
+            content=types.Content(
+                role="model",
+                parts=[
+                    types.Part(
+                        function_call=types.FunctionCall(
+                            name=target_agent,
+                            args={"request": prompt},
+                        ),
+                        thought_signature=b"skip_thought_signature_validator",
+                    )
+                ],
+            ),
+            turn_complete=True,
+        )
+
     hint = _format_preflight_hint(result)
     if hint:
         llm_request.append_instructions([hint])

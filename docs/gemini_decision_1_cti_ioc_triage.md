@@ -1,32 +1,35 @@
-# CTI IOC Intelligence Triage with Gemini Decision 1
+# CTI Unstructured & Multimodal Triage with Gemini Decision 1
 
-In `governed_agents/cti_researcher/`, the Cyber Threat Intelligence (CTI) Researcher specialist combines external Google Threat Intelligence (VirusTotal v3) indicator lookups with `classify_ioc_intelligence(indicator_summaries_json)` to evaluate indicator enrichment reports in **one zero-output-token forward pass** using Gemini Decision 1 (`gemini-decision-1` on `https://generativelanguage.googleapis.com/v1beta/decisions`).
+In `governed_agents/cti_researcher/`, the Cyber Threat Intelligence (CTI) Researcher specialist pairs deterministic Google Threat Intelligence (VirusTotal v3) indicator lookups with `triage_unstructured_cti_artifact(content, mime_type="text/plain")` to evaluate **unstructured threat prose, OSINT reports, PDFs, and screenshots** in **one zero-output-token forward pass** using Gemini Decision 1 (`gemini-decision-1` on `https://generativelanguage.googleapis.com/v1beta/decisions`).
 
 By architectural design (`terraform/50-policies-egress.tf`), `cti_researcher` is laterally isolated to external threat intelligence: its SPIFFE workload identity is permitted egress only to `https://www.virustotal.com`, `generativelanguage.googleapis.com`, `agentidentitycredentials.googleapis.com`, and Vertex AI, with zero access to internal Chronicle SIEM/SOAR MCP endpoints or containment tools.
 
-## Single-pass IOC classification (`classify_ioc_intelligence`)
+## Multimodal and unstructured CTI triage (`triage_unstructured_cti_artifact`)
 
-After enriching a file hash, domain, IP address, or threat collection with `lookup_file_hash_reputation`, `lookup_domain_reputation`, `lookup_ip_reputation`, or `get_threat_collection`, the agent passes the summarized JSON payload to `classify_ioc_intelligence(indicator_summaries_json)` in `governed_agents/cti_researcher/gti_tools.py`.
+While structured GTI/VirusTotal v3 detection counts are already deterministic, analysts frequently paste raw OSINT advisories, incident PDFs, or dashboard screenshots. `triage_unstructured_cti_artifact(content, mime_type="text/plain")` in `governed_agents/cti_researcher/gti_tools.py` routes those artifacts to `evaluate_decisions`:
 
-If `indicator_summaries_json` is empty, the tool returns `{"enabled": False, "error": "indicator_summaries_json must not be empty."}` without making an API call. Otherwise, it batches **five structured questions** into a single `evaluate_decisions(...)` request:
+- **Text artifacts (`text/*`):** Passed directly as a formatted string.
+- **Binary/multimodal artifacts (`image/*`, `application/pdf`, `audio/*`, `video/*`):** Normalized in `decision_client.py` into the `v1beta/decisions` multimodal `input` schema (`{"type": "text", "text": ...}` plus `{"type": "image"|"document"|"audio"|"video", "data": "<base64>", "mime_type": "..."}`).
+
+It evaluates **five structured questions** in a single forward pass:
 
 | Question key | Type | Output / Range | Purpose in CTI triage |
 | --- | --- | --- | --- |
-| `verdict` | `choice` | `malicious`, `suspicious`, `benign`, `unknown` | Overall threat classification plus calibrated `verdict_confidence`. |
+| `is_actionable_threat` | `noul` | Probability in `[0.0, 1.0]` (`>= 0.5` -> `true`) | Distinguishes concrete, actionable threats from informational or benign content. |
 | `threat_category` | `choice` | `malware_delivery`, `command_and_control`, `phishing_credential_theft`, `scanning_exploitation`, `benign_infrastructure`, `other_or_unknown` | Primary threat category plus calibrated `threat_category_confidence`. |
-| `confidence_score` | `score` | `1.0–5.0` (0-indexed `0..4` shifted `+1.0`) | Operational confidence rating based on multi-engine consensus and threat context. |
-| `requires_immediate_hunt` | `noul` | Probability in `[0.0, 1.0]` (`>= 0.5` -> `true`) | Indicates whether internal SIEM/UDM threat hunting is warranted; preserves `requires_immediate_hunt_probability`. |
-| `false_positive_likely` | `noul` | Probability in `[0.0, 1.0]` (`>= 0.5` -> `true`) | Flags likely false positives (dual-use admin tools, shared CDNs, isolated vendor heuristics); preserves `false_positive_likely_probability`. |
+| `severity` | `score` | `1.0–5.0` (0-indexed `0..4` shifted `+1.0`) | Operational threat severity from informational (`1`) to critical (`5`). |
+| `requires_immediate_hunt` | `noul` | Probability in `[0.0, 1.0]` (`>= 0.5` -> `true`) | Indicates whether internal SIEM/UDM threat hunting is warranted. |
+| `confidence_score` | `score` | `1.0–5.0` (0-indexed `0..4` shifted `+1.0`) | Triage confidence based on technical detail and corroboration in the artifact. |
 
-Because `score_question` defines a 0-indexed list of five rubric levels (`0` = very low confidence through `4` = very high confidence), `classify_ioc_intelligence` shifts the returned expected score by `+1.0` (`round(float(raw_score) + 1.0, 2)`) to align with the 1–5 operational confidence scale expected by `soc_orchestrator` and analysts.
+In the v2 live benchmark (`cti_artifact` workload), `gemini-decision-1` averaged **`257 ms`** mean latency—**`4.1x` faster** than `gemini-3.5-flash` (`thinkingBudget=0`) with **zero output tokens**.
 
-![Single-pass CTI IOC classification workflow showing GTI v3 enrichment feeding five Decision 1 questions with zero output tokens](images/decision1/11_cti_ioc_classification.png)\
-*Figure 1. Single-pass `classify_ioc_intelligence` flow in `governed_agents/cti_researcher/gti_tools.py`, evaluating GTI/VirusTotal v3 summaries across `verdict`, `threat_category`, `confidence_score` (shifted `+1.0` to `1–5`), `requires_immediate_hunt`, and `false_positive_likely` with zero output tokens.*
+![Unstructured and multimodal CTI artifact triage flow using Gemini Decision 1](images/decision1/11_cti_ioc_classification.png)\
+*Figure 1. `triage_unstructured_cti_artifact` flow in `governed_agents/cti_researcher/gti_tools.py`, evaluating unstructured prose, PDFs (`type: "document"`), and screenshots (`type: "image"`) at `257 ms` mean latency (`4.1x` faster than `gemini-3.5-flash` `thinkingBudget=0`) with zero output tokens.*
 
-![Output tokens and cost comparison between generative Flash JSON and Gemini Decision 1](images/decision1/02_tokens_and_cost.png)\
-*Figure 2. Aggregate output tokens (`0` vs. `20,006`) and total cost (`$0.002489` vs. `$0.053869`) comparing `gemini-decision-1` against `gemini-2.5-flash` JSON generation across governed SOC workloads.*
+![Output tokens, cost, and end-to-end savings comparison between generative Flash and Gemini Decision 1](images/decision1/02_tokens_and_cost.png)\
+*Figure 2. Aggregate output tokens (`0` vs. `2,012`) and total cost (`$0.002369` vs. `$0.008517`, `3.6x` lower) comparing `gemini-decision-1` against `gemini-3.5-flash` (`thinkingBudget=0`) across governed SOC workloads.*
 
-## Auth Manager and `AgentSkill` registration
+## Auth Manager (300s TTL cache) and `AgentSkill` registration
 
 ### Runtime credential retrieval (`AuthProviderCredentialsServiceClient`)
 
@@ -35,57 +38,59 @@ No static API keys are stored in Terraform state or container environment variab
 1. **`GTI_AUTH_PROVIDER` (`<prefix>-gti-api-key`):** Holds the VirusTotal v3 API key and grants `roles/agentidentity.user` exclusively to `cti_researcher`.
 2. **`GEMINI_AUTH_PROVIDER` (`<prefix>-gemini-api-key`):** Holds the Gemini Decisions API key and grants `roles/agentidentity.user` to all five governed Reasoning Engines.
 
-At tool-call time, `governed_agents/cti_researcher/decision_client.py` resolves the Gemini credential in `_get_gemini_api_key()`:
+At tool-call time, `governed_agents/cti_researcher/decision_client.py` resolves the Gemini credential in `_get_gemini_api_key()` with a **300-second in-memory TTL cache** (`GEMINI_AUTH_TOKEN_TTL_SECONDS`) and a shared module-level `httpx.Client` (`_get_http_client()`):
 
-- When `GEMINI_AUTH_PROVIDER` is set, it initializes a thread-safe `AuthProviderCredentialsServiceClient(transport="rest")` (guarded by `_creds_lock`) and calls `retrieve_credentials(RetrieveCredentialsRequest(auth_provider=provider_name, user_id="cti_researcher"))` against `agentidentitycredentials.googleapis.com` using the agent's SPIFFE workload identity.
+- When `GEMINI_AUTH_PROVIDER` is set, it calls `retrieve_credentials(RetrieveCredentialsRequest(auth_provider=provider_name, user_id="cti_researcher"))` against `agentidentitycredentials.googleapis.com` using the agent's SPIFFE workload identity.
 - If `GEMINI_AUTH_PROVIDER` is unset, it falls back to `GEMINI_API_KEY`; if neither is configured, `evaluate_decisions` returns `{"enabled": False, ...}` so hermetic unit tests run without network access.
 
 ### A2A `AgentSkill` registration
 
-In `governed_agents/cti_researcher/agent.py`, `classify_ioc_intelligence` is attached to `cti_llm.tools` and advertised on the A2A `AgentCard` (`create_agent_card`, materialized in `terraform/agentcards/cti_researcher.json`) alongside the three GTI lookup skills (`enrich_file_hash`, `enrich_network_ioc`, `inspect_threat_collection`):
+In `governed_agents/cti_researcher/agent.py`, `triage_unstructured_cti_artifact` is attached to `cti_llm.tools` and advertised on the A2A `AgentCard` (`create_agent_card`, materialized in `terraform/agentcards/cti_researcher.json`) alongside the three GTI lookup skills (`enrich_file_hash`, `enrich_network_ioc`, `inspect_threat_collection`):
 
 ```python
 AgentSkill(
-    id="classify_ioc_intelligence",
-    name="Structured IOC intelligence triage",
+    id="triage_unstructured_cti_artifact",
+    name="Unstructured and multimodal CTI artifact triage",
     description=(
-        "Evaluates GTI indicator enrichment summaries in a single "
-        "zero-output-token pass to classify verdict, threat category, "
-        "1-5 confidence score, immediate hunt urgency, and false-positive "
-        "likelihood."
+        "Evaluates unstructured threat prose, OSINT reports, PDFs, or "
+        "screenshots in a single zero-output-token pass to classify "
+        "actionability, threat category, 1-5 severity, immediate hunt "
+        "urgency, and 1-5 confidence."
     ),
-    tags=["cti", "triage", "classification", "decision", "gti"],
-    examples=["Classify the GTI enrichment summary for this hash and domain"],
+    tags=["cti", "triage", "multimodal", "decision", "osint"],
+    examples=["Triage this OSINT advisory PDF or threat screenshot"],
 )
 ```
 
 ![Agent card skill matrix across all five governed Reasoning Engines](images/decision1/09_live_agent_cards_skills.png)\
-*Figure 3. Skill matrix across `terraform/agentcards/*.json` highlighting the `classify_ioc_intelligence` `AgentSkill` on `cti_researcher_agent` alongside the Decision 1 skills on the other governed specialists.*
+*Figure 3. Skill matrix across `terraform/agentcards/*.json` highlighting `triage_unstructured_cti_artifact` on `cti_researcher_agent` alongside `preflight_routing_triage`, `threat_hunter` `after_tool_callback` filtering, and clean `detection_engineer` and `tier2_responder` baselines.*
 
-## Sanitized `POST /v1beta/decisions` payload and `case_1_happy_path`
+## Sanitized `POST /v1beta/decisions` multimodal payload
 
-During the live `just governance-smoke-test` run (`scripts/governance/smoke_test.py`), `case_1_happy_path` instructs `soc_orchestrator` to ask `CTI_Researcher` to look up the GTI domain reputation for `google.com`. `CTI_Researcher` invokes `lookup_domain_reputation("google.com")` followed by `classify_ioc_intelligence`.
-
-### Sanitized `POST /v1beta/decisions` request
+### Sanitized request (`image/png` or `application/pdf` artifact)
 
 ```json
 {
   "model": "gemini-decision-1",
-  "input": "GTI / VirusTotal v3 indicator enrichment summaries:\n{\"indicator\": \"google.com\", \"indicator_type\": \"domain\", \"found\": true, \"reputation\": 1200, \"malicious_detections\": 0, \"suspicious_detections\": 0, \"harmless_detections\": 85, \"undetected_engines\": 9, \"popular_threat_label\": null, \"tags\": [\"top-1000\"], \"as_owner\": \"GOOGLE\"}",
+  "input": [
+    {
+      "type": "text",
+      "text": "Triage this unstructured CTI artifact (image/png) for threat intelligence and SOC actionability."
+    },
+    {
+      "type": "image",
+      "data": "<BASE64_ENCODED_ARTIFACT>",
+      "mime_type": "image/png"
+    }
+  ],
   "questions": {
-    "verdict": {
-      "type": "choice",
-      "instructions": "Classify the overall threat verdict for the summarized GTI/IOC indicator data.",
-      "criteria": {
-        "malicious": "Confirmed malicious indicator with strong multi-engine detections, malware family attribution, or active C2/exploit infrastructure.",
-        "suspicious": "Partially flagged or anomalous indicator with moderate detections, newly observed domain, or ambiguous threat context.",
-        "benign": "Clean or well-known legitimate infrastructure with zero or negligible detections and trusted ownership.",
-        "unknown": "Insufficient intelligence, indicator not found in GTI, or conflicting data that prevents classification."
-      }
+    "is_actionable_threat": {
+      "type": "noul",
+      "instructions": "True if the artifact describes a concrete, actionable cyber threat, active campaign, or malicious infrastructure relevant to SOC defense; false if informational, benign, or unactionable."
     },
     "threat_category": {
       "type": "choice",
-      "instructions": "Select the primary threat category represented by the indicator intelligence.",
+      "instructions": "Select the primary threat category described in the artifact.",
       "criteria": {
         "malware_delivery": "Payload hosting, dropper, downloader, or malicious executable distribution.",
         "command_and_control": "Command-and-control server, beaconing domain/IP, or covert exfiltration channel.",
@@ -95,84 +100,67 @@ During the live `just governance-smoke-test` run (`scripts/governance/smoke_test
         "other_or_unknown": "Threat category does not match the above options or insufficient data is present."
       }
     },
-    "confidence_score": {
+    "severity": {
       "type": "score",
-      "instructions": "Rate classification confidence from lowest (level 0) to highest (level 4) based on detection consensus and threat context.",
+      "instructions": "Rate operational threat severity from lowest (level 0) to critical (level 4) based on impact and urgency.",
       "criteria": [
-        "Very low confidence: indicator not found, conflicting signals, or minimal context.",
-        "Low confidence: isolated weak detection with no threat family attribution.",
-        "Moderate confidence: multiple suspicious signals or moderate detections without clear attribution.",
-        "High confidence: strong multi-engine consensus, consistent tags, or known threat label.",
-        "Very high confidence: overwhelming malicious consensus, explicit malware or campaign attribution, and corroborating metadata."
+        "Informational or benign: no active threat or operational impact.",
+        "Low severity: minor reconnaissance or low-impact opportunistic activity.",
+        "Moderate severity: suspicious campaign or commodity malware requiring standard triage.",
+        "High severity: confirmed active malware, C2, or targeted intrusion activity.",
+        "Critical severity: active ransomware, zero-day exploitation, or crown-jewel compromise."
       ]
     },
     "requires_immediate_hunt": {
       "type": "noul",
-      "instructions": "True if the indicator intelligence warrants immediate internal SIEM/UDM threat hunting across endpoints, network logs, or DNS telemetry; false otherwise."
+      "instructions": "True if the artifact warrants immediate internal SIEM/UDM threat hunting across endpoints, network logs, or DNS telemetry; false otherwise."
     },
-    "false_positive_likely": {
-      "type": "noul",
-      "instructions": "True if detections are likely a false positive such as a dual-use admin tool, shared CDN/cloud IP, or isolated vendor heuristic; false otherwise."
+    "confidence_score": {
+      "type": "score",
+      "instructions": "Rate triage confidence from lowest (level 0) to highest (level 4) based on technical detail and corroboration in the artifact.",
+      "criteria": [
+        "Very low confidence: vague, unreadable, or minimal threat context.",
+        "Low confidence: unverified claims with sparse technical indicators.",
+        "Moderate confidence: plausible threat reporting with partial technical detail.",
+        "High confidence: detailed TTPs, IOCs, or clear malware/campaign attribution.",
+        "Very high confidence: comprehensive technical evidence with corroborated attribution."
+      ]
     }
   }
 }
 ```
 
-### Sanitized `POST /v1beta/decisions` response
+### Sanitized response
 
 ```json
 {
   "answers": {
-    "verdict": {
-      "type": "choice",
-      "choice": "benign",
-      "confidence": 0.9962,
-      "probabilities": {
-        "benign": 0.9962,
-        "unknown": 0.0021,
-        "suspicious": 0.0012,
-        "malicious": 0.0005
-      }
-    },
+    "is_actionable_threat": { "type": "noul", "noul": 0.9410, "confidence": 0.9410 },
     "threat_category": {
       "type": "choice",
-      "choice": "benign_infrastructure",
-      "confidence": 0.9941,
+      "choice": "command_and_control",
+      "confidence": 0.9125,
       "probabilities": {
-        "benign_infrastructure": 0.9941,
-        "other_or_unknown": 0.0042,
-        "phishing_credential_theft": 0.0008,
-        "malware_delivery": 0.0004,
-        "command_and_control": 0.0003,
-        "scanning_exploitation": 0.0002
+        "command_and_control": 0.9125,
+        "malware_delivery": 0.0540,
+        "phishing_credential_theft": 0.0180,
+        "scanning_exploitation": 0.0095,
+        "other_or_unknown": 0.0040,
+        "benign_infrastructure": 0.0020
       }
     },
-    "confidence_score": {
-      "type": "score",
-      "score": 3.88,
-      "confidence": 0.8920
-    },
-    "requires_immediate_hunt": {
-      "type": "noul",
-      "noul": 0.0038,
-      "confidence": 0.9962
-    },
-    "false_positive_likely": {
-      "type": "noul",
-      "noul": 0.0145,
-      "confidence": 0.9855
-    }
+    "severity": { "type": "score", "score": 2.95, "confidence": 0.8510 },
+    "requires_immediate_hunt": { "type": "noul", "noul": 0.9180, "confidence": 0.9180 },
+    "confidence_score": { "type": "score", "score": 3.12, "confidence": 0.8740 }
   },
   "usage": {
-    "promptTokenCount": 298,
+    "promptTokenCount": 518,
     "candidatesTokenCount": 0,
-    "totalTokenCount": 298
+    "totalTokenCount": 518
   }
 }
 ```
 
-### Live `case_1_happy_path` result
+`triage_unstructured_cti_artifact` shifts `severity` (`2.95` + `1.0` = `3.95 / 5.0`) and `confidence_score` (`3.12` + `1.0` = `4.12 / 5.0`), sets `is_actionable_threat: true` and `requires_immediate_hunt: true`, and returns `threat_category: "command_and_control"` with `candidatesTokenCount: 0`.
 
-In the live `case_1_happy_path` smoke test, `classify_ioc_intelligence` shifts `confidence_score` (`3.88` + `1.0` = `4.88 / 5.0`) and returns a **`Benign`** verdict (`benign_infrastructure`) with `requires_immediate_hunt: false`, confirming that no further internal SIEM hunt action is required—all with `candidatesTokenCount: 0`.
-
-See [Gemini Decision 1 for Governed SOC Agents](gemini_decision_1.md) for the full 5-agent architecture, Auth Manager configuration, and aggregate benchmark tables.
+See [Gemini Decision 1 for Governed SOC Agents](gemini_decision_1.md) for the full architecture, Auth Manager configuration, and aggregate v2 benchmark tables.

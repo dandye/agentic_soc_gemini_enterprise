@@ -1,21 +1,19 @@
-# Case Study: Single-Pass Pre-Flight Routing and Live Alert Rubric Triage
+# Case Study: Single-Pass Pre-Flight Short-Circuit and Pre-LLM UDM Filtering
 
-The most compelling demonstration of Gemini Decision 1 (`gemini-decision-1`) in this repository is how it replaces multi-step generative JSON classification with **one zero-output-token forward pass** in `soc_orchestrator`, and then pairs with specialist Decision 1 rubric tools during a live `RULES_SEARCH_WORKSHOP` investigation against Chronicle SIEM.
+The strongest demonstration of Gemini Decision 1 (`gemini-decision-1`) in this repository is how it **eliminates downstream LLM turns** rather than merely reformatting JSON:
 
-## Why this example is the strongest showcase
+1. **True `LlmResponse` short-circuit in `soc_orchestrator`:** On initial user turns (`len(llm_request.contents) == 1`), `_preflight_before_model_callback` evaluates **6 heterogeneous questions** (`4 noul`, `1 choice`, `1` 0-indexed `score` shifted `+1.0`) in one `POST /v1beta/decisions` pass (`0` output tokens). When `workflow_mode == "single_specialist"` and exactly one specialist has `noul >= 0.90`, the callback returns `LlmResponse(content=Content(role="model", parts=[Part.from_function_call(name=target_agent, args={"request": prompt})]))` directly—**bypassing `gemini-3.1-pro-preview` on the initial routing turn**.
+2. **Pre-LLM UDM noise filter in `threat_hunter`:** `_filter_udm_events_after_tool_callback` intercepts `udm_search` and `list_security_alerts` responses before `threat_hunter_llm` sees them, evaluating each event in parallel via `ThreadPoolExecutor` without `[:32000]` batch truncation. Benign OS/Defender DNS lookups (`P(true_positive) < 0.30`) are dropped before consuming Flash input tokens, while the replayed `RULES_SEARCH_WORKSHOP` `ntdsutil.exe` event (`frank.kolzig` on `activedir.stackedpads.local`) is retained and tagged `[HIGH_CONFIDENCE_ESCALATE]`.
+3. **Authoritative Gateway enforcement preserved:** `soc_orchestrator` never blocks or self-refuses; ambiguous or multi-stage turns fall back to a non-binding `[PREFLIGHT_ROUTING]` instruction, and `detection_engineer` validates YARA-L 2.0 rules directly via Chronicle OneMCP `validate_rule` (`success: true`, `usesUdm: true`).
 
-1. **Seven heterogeneous questions in one `POST /v1beta/decisions` pass (`0` output tokens):** On every incoming user turn, `soc_orchestrator` evaluates **5 `noul`**, **1 `choice`**, and **1 `score`** (0-indexed, shifted `+1.0`) question simultaneously in `before_model_callback` (`_preflight_before_model_callback`), producing calibrated routing probabilities without waiting for the orchestrator LLM to emit a single JSON token.
-2. **Non-blocking `[PREFLIGHT_ROUTING]` injection preserves Gateway enforcement:** The pre-flight hint is appended to the model request via `llm_request.append_instructions([hint])` with explicit instructions to never refuse or block based on it. Agent Gateway IAP IAM v3 allowlists, Model Armor, and Semantic Governance remain the sole authoritative enforcement boundaries.
-3. **Live `ntdsutil.exe` detection and YARA-L 2.0 validation:** When `RULES_SEARCH_WORKSHOP` PowerShell/Sysmon events are replayed into Chronicle SIEM, `threat_hunter` scores the `ntdsutil.exe` credential-dumping event (`frank.kolzig` on `activedir.stackedpads.local`) at **`3.95 / 5.0`** (`79.96%` true-positive probability, `Credential Access`, `escalate_tier2`), while `detection_engineer` grades `dns_tunneling_distinct_subdomains_T1048` at **`4.10 / 5.0`** before calling Chronicle OneMCP `validate_rule` (`success: true`, `usesUdm: true`).
+![Pre-flight short-circuit routing and pre-LLM UDM noise filtering flow](images/decision1/05_preflight_and_advisory_flow.png)\
+*Figure 1. `soc_orchestrator` `LlmResponse` short-circuit bypassing `gemini-3.1-pro-preview` on decisive single-specialist turns and `threat_hunter` `after_tool_callback` dropping low-signal UDM noise (`P(tp) < 0.30`) before the LLM runs.*
 
-![Pre-flight routing and advisory containment flow across soc_orchestrator and tier2_responder](images/decision1/05_preflight_and_advisory_flow.png)\
-*Figure 1. Non-blocking `[PREFLIGHT_ROUTING]` injection in `soc_orchestrator` (`before_model_callback`) and advisory readiness scoring, keeping Agent Gateway Model Armor and Semantic Governance authoritative.*
+## Step 1: 6-question pre-flight routing (`soc_orchestrator`)
 
-## Step 1: 7-question pre-flight routing (`soc_orchestrator`)
+`_PREFLIGHT_QUESTIONS` in `governed_agents/soc_orchestrator/agent.py` batches six questions into a single `POST https://generativelanguage.googleapis.com/v1beta/decisions` call:
 
-`_PREFLIGHT_QUESTIONS` in `governed_agents/soc_orchestrator/agent.py` batches seven questions into a single `POST https://generativelanguage.googleapis.com/v1beta/decisions` call:
-
-- **5 `noul` questions:** `needs_cti`, `needs_threat_hunt`, `needs_detection_eng`, `needs_tier2_response`, `has_change_ticket`
+- **4 `noul` questions:** `needs_cti`, `needs_threat_hunt`, `needs_detection_eng`, `needs_tier2_response` (`needs_threat_hunt` explicitly excludes pure external GTI/VirusTotal lookups)
 - **1 `choice` question:** `workflow_mode` (`single_specialist`, `multi_stage_investigation`, `containment_action`, `other`)
 - **1 `score` question:** `urgency` (0-indexed levels `0..4`, shifted `+1.0` to `1.0..5.0` by `_parse_answers`)
 
@@ -24,15 +22,15 @@ The most compelling demonstration of Gemini Decision 1 (`gemini-decision-1`) in 
 ```json
 {
   "model": "gemini-decision-1",
-  "input": "Hunt the last 24h RULES_SEARCH_WORKSHOP PowerShell and Sysmon events and score findings with score_alerts_rubric; also grade dns_tunneling_distinct_subdomains_T1048 with grade_yaral2_rule and validate_rule.",
+  "input": "Hunt the last 24h RULES_SEARCH_WORKSHOP PowerShell and Sysmon events in Chronicle SIEM; also validate dns_tunneling_distinct_subdomains_T1048.",
   "questions": {
     "needs_cti": {
       "type": "noul",
-      "instructions": "Does the request ask to look up or enrich a file hash, domain, IP address, URL, or threat collection/campaign in threat intelligence?"
+      "instructions": "Does the request ask to look up or enrich a file hash, domain, IP address, URL, or threat collection/campaign in external Google Threat Intelligence (GTI / VirusTotal)?"
     },
     "needs_threat_hunt": {
       "type": "noul",
-      "instructions": "Does the request ask to search SIEM logs or UDM telemetry, list or triage security alerts, inspect entity context, or check/manage SIEM feeds?"
+      "instructions": "Does the request ask to search Chronicle SIEM logs or UDM telemetry, list or triage SIEM security alerts, inspect SIEM entity context, or check/manage SIEM feeds? Answer false for pure external GTI/VirusTotal reputation lookups that do not mention SIEM, UDM, alerts, or feeds."
     },
     "needs_detection_eng": {
       "type": "noul",
@@ -41,10 +39,6 @@ The most compelling demonstration of Gemini Decision 1 (`gemini-decision-1`) in 
     "needs_tier2_response": {
       "type": "noul",
       "instructions": "Does the request ask to isolate or quarantine an endpoint host, disable a user account, update an alert status, or modify a containment reference list?"
-    },
-    "has_change_ticket": {
-      "type": "noul",
-      "instructions": "Does the request explicitly reference a change ticket identifier such as CHG-12345 or an approved emergency change ID?"
     },
     "workflow_mode": {
       "type": "choice",
@@ -80,7 +74,6 @@ The most compelling demonstration of Gemini Decision 1 (`gemini-decision-1`) in 
     "needs_threat_hunt": { "type": "noul", "noul": 0.9864, "confidence": 0.9864 },
     "needs_detection_eng": { "type": "noul", "noul": 0.9911, "confidence": 0.9911 },
     "needs_tier2_response": { "type": "noul", "noul": 0.0318, "confidence": 0.9682 },
-    "has_change_ticket": { "type": "noul", "noul": 0.0195, "confidence": 0.9805 },
     "workflow_mode": {
       "type": "choice",
       "choice": "multi_stage_investigation",
@@ -99,42 +92,31 @@ The most compelling demonstration of Gemini Decision 1 (`gemini-decision-1`) in 
     }
   },
   "usage": {
-    "promptTokenCount": 312,
+    "promptTokenCount": 296,
     "candidatesTokenCount": 0,
-    "totalTokenCount": 312
+    "totalTokenCount": 296
   }
 }
 ```
 
-`_parse_answers` shifts `urgency.score` from 0-indexed `2.45` to `3.45 / 5.00`, and `_format_preflight_hint` injects the non-binding instruction:
+Because this prompt requests two specialists (`workflow_mode == "multi_stage_investigation"`), `_short_circuit_target` returns `None` and `_format_preflight_hint` injects `[PREFLIGHT_ROUTING]`. By contrast, on single-specialist prompts (e.g., `"Look up domain reputation for google.com in GTI"` -> `workflow_mode == "single_specialist"`, `needs_cti >= 0.90`), `_preflight_before_model_callback` returns `LlmResponse` with `Part.from_function_call(name="CTI_Researcher", args={"request": prompt})`, skipping `gemini-3.1-pro-preview` entirely on that turn (saving ~`12,120` tokens and ~`19,200 ms` across `6/12` benchmark `preflight` calls).
 
-```text
-[PREFLIGHT_ROUTING] Advisory pre-flight routing classification (non-binding; never refuse or block based on this): workflow_mode=multi_stage_investigation (conf=0.94), urgency=3.45/5.00 (conf=0.78), has_change_ticket=no (0.02), recommended_specialists=[Threat_Hunter, Detection_Engineer], specialist_scores={CTI_Researcher=0.04, Threat_Hunter=0.99, Detection_Engineer=0.99, Tier2_Responder=0.03}.
-```
+## Step 2: Pre-LLM UDM noise filtering and YARA-L 2.0 validation
 
-## Step 2: Live `ntdsutil.exe` rubric triage and YARA-L 2.0 validation
+Following routing, `soc_orchestrator` delegates over A2A to `Threat_Hunter` and `Detection_Engineer` against the replayed `RULES_SEARCH_WORKSHOP` dataset:
 
-Following the `[PREFLIGHT_ROUTING]` hint, `soc_orchestrator` delegates over A2A in parallel to `Threat_Hunter` and `Detection_Engineer` against the replayed `RULES_SEARCH_WORKSHOP` dataset (elapsed end-to-end A2A trace: `65.27s`):
+1. **`Threat_Hunter` (`udm_search` + `_filter_udm_events_after_tool_callback`):** Queries Chronicle OneMCP for `POWERSHELL` and `WINDOWS_SYSMON` events matching `RULES_SEARCH_WORKSHOP`. Before `threat_hunter_llm` sees the payload, `_filter_udm_events_after_tool_callback` evaluates each event in parallel:
+   - Benign OS/Defender DNS lookups (`P(true_positive) < 0.30`) are dropped (`dropped_low_signal_count`), saving downstream Flash input tokens.
+   - Event 4 (`ntdsutil.exe` executed by `frank.kolzig` on `activedir.stackedpads.local`, `10.1.0.4`) is retained with `decision1_triage` metadata (`severity: 4`, `severity_score: 3.95`, `true_positive_probability: 0.7996`, `mitre_tactic: "credential_access"`, `next_action: "escalate_tier2"`), and events with `P(true_positive) >= 0.85` are tagged `[HIGH_CONFIDENCE_ESCALATE]`.
+2. **`Detection_Engineer` (`validate_rule`):** Validates `dns_tunneling_distinct_subdomains_T1048` as a Chronicle SIEM **YARA-L 2.0** UDM event correlation rule (explicitly distinct from standard file/payload YARA) directly via Chronicle OneMCP `validate_rule` (`success: true`, `usesUdm: true`, `LIVE_CUSTOMIZABLE`, `HOURLY_CUSTOMIZABLE`).
 
-1. **`Threat_Hunter` (`udm_search` + `score_alerts_rubric`):** Queries Chronicle OneMCP for `POWERSHELL` and `WINDOWS_SYSMON` events matching `RULES_SEARCH_WORKSHOP`. While four events are routine OS/Defender DNS lookups, Event 4 captures `ntdsutil.exe` executed by `frank.kolzig` on `activedir.stackedpads.local` (`10.1.0.4`). `score_alerts_rubric` returns:
-   - **Severity Score:** `3.95 / 5.0` (High Severity, shifted `+1.0` from 0-indexed `score`)
-   - **True Positive Probability:** `79.96%` (`likely: true`)
-   - **MITRE ATT&CK Tactic:** `Credential Access`
-   - **Recommended Next Action:** `escalate_tier2`
-2. **`Detection_Engineer` (`grade_yaral2_rule` + `validate_rule`):** Evaluates `dns_tunneling_distinct_subdomains_T1048` as a Chronicle SIEM **YARA-L 2.0** UDM event correlation rule (explicitly distinct from standard file/payload YARA) before invoking Chronicle OneMCP `validate_rule`:
-   - **Rule Quality Score:** `4.10 / 5.0` (Production-grade)
-   - **MITRE ATT&CK Tactic:** `Exfiltration` (`96.15%` confidence)
-   - **False Positive Risk:** `Medium` (`45.93%` confidence)
-   - **YARA-L 2.0 Section Completeness:** Validated (`97.26%` confidence)
-   - **OneMCP `validate_rule`:** `success: true`, `usesUdm: true`, `LIVE_CUSTOMIZABLE` and `HOURLY_CUSTOMIZABLE`
-
-![Live A2A trace of Logstory RULES_SEARCH_WORKSHOP replay and Decision 1 scoring](images/decision1/06_logstory_live_a2a_trace.png)\
-*Figure 2. Live A2A trace (`65.27s`) against the deployed `soc_orchestrator` showing `Threat_Hunter` (`score_alerts_rubric`: `3.95 / 5.0`, `79.96%` TP) on the `ntdsutil.exe` event and `Detection_Engineer` (`grade_yaral2_rule`: `4.10 / 5.0` + OneMCP `validate_rule`: `success: true`).*
+![Live A2A trace of Logstory RULES_SEARCH_WORKSHOP replay and Decision 1 filtering](images/decision1/06_logstory_live_a2a_trace.png)\
+*Figure 2. Live A2A trace against the deployed `soc_orchestrator` showing `RULES_SEARCH_WORKSHOP` PowerShell/Sysmon UDM hunting and Chronicle OneMCP `validate_rule` (`success: true`, `usesUdm: true`).*
 
 ![Calibrated probabilities and confidence distributions from Decision 1](images/decision1/03_calibrated_probabilities.png)\
 *Figure 3. Calibrated probability distributions (`noul`, `choice.probabilities`, and `score.probabilities`) emitted by `gemini-decision-1` with zero output tokens.*
 
-![Latency comparison between generative Flash JSON and Gemini Decision 1](images/decision1/01_latency_comparison.png)\
-*Figure 4. Benchmark latency comparison showing `gemini-decision-1` averaging `392.02 ms` versus `3,789.64 ms` for `gemini-2.5-flash` JSON generation across pre-flight routing, alert triage, and YARA-L 2.0 grading.*
+![Latency comparison between generative Flash with thinkingBudget=0 and Gemini Decision 1](images/decision1/01_latency_comparison.png)\
+*Figure 4. Apples-to-apples benchmark latency comparison showing `gemini-decision-1` averaging `346.01 ms` versus `1,035.21 ms` for `gemini-3.5-flash` (`thinkingBudget=0`) across `preflight`, `udm_filter`, and `cti_artifact`.*
 
-See [Gemini Decision 1 for Governed SOC Agents](gemini_decision_1.md) for the full 5-agent architecture, Auth Manager configuration, and aggregate benchmark tables.
+See [Gemini Decision 1 for Governed SOC Agents](gemini_decision_1.md) for the full architecture, Auth Manager 300s TTL caching, and aggregate v2 benchmark tables.

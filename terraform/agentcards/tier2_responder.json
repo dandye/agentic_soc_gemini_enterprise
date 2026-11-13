@@ -29,21 +29,6 @@
       ]
     },
     {
-      "description": "Scores target asset tier, evidence sufficiency, change-ticket presence, and human-approval need as strictly advisory metadata without blocking containment execution.",
-      "examples": [
-        "Assess containment readiness before isolating WKSTN-FIN-042",
-        "Score readiness for disabling admin@example.com without a ticket"
-      ],
-      "id": "assess_containment_readiness",
-      "name": "Advisory containment readiness scoring",
-      "tags": [
-        "containment",
-        "readiness",
-        "triage",
-        "advisory"
-      ]
-    },
-    {
       "description": "Updates Chronicle SIEM security alert status and manages containment reference lists.",
       "examples": [
         "Inspect and summarize security alerts for Tier-2 escalation"
