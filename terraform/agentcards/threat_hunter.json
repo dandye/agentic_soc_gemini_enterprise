@@ -29,6 +29,22 @@
       ]
     },
     {
+      "description": "Evaluates Chronicle SIEM alerts or UDM event batches in a single zero-output-token Gemini Decision 1 pass for severity (1-5), true-positive likelihood, MITRE ATT&CK tactic, and next action.",
+      "examples": [
+        "Score these 5 Chronicle security alerts for severity and next action",
+        "Triage this UDM event batch and recommend dismiss, enrich_cti, escalate_tier2, or tune_yaral2"
+      ],
+      "id": "score_alerts_rubric",
+      "name": "Chronicle alert and UDM batch rubric scoring",
+      "tags": [
+        "chronicle",
+        "triage",
+        "rubric",
+        "decision-1",
+        "mitre-attack"
+      ]
+    },
+    {
       "description": "Attempts Chronicle SIEM feed deletion, rule creation, or reference list creation via Chronicle MCP (governed by Agent Gateway allowlist).",
       "examples": [
         "Delete Chronicle feed feed-12345",

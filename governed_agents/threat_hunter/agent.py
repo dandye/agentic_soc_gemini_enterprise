@@ -26,6 +26,7 @@ from google.adk.models.google_llm import Gemini
 from google.adk.runners import Runner
 from google.adk.sessions.in_memory_session_service import InMemorySessionService
 from secops_mcp import build_chronicle_toolset, chronicle_before_model_callback
+from triage_tools import score_alerts_rubric
 from vertexai.agent_engines.templates.a2a import A2aAgent, create_agent_card
 
 
@@ -88,6 +89,10 @@ caller explicitly overrides them):
 Choose the Chronicle MCP tool matching what was asked:
   * Recent security alerts or alert queue inspection: `list_security_alerts`,
     `get_security_alert`, `fetch_alert_data`
+  * Fast zero-output-token rubric triage of fetched Chronicle alerts or UDM
+    event batches (severity 1-5, true-positive likelihood, MITRE ATT&CK tactic,
+    and next action `dismiss`, `enrich_cti`, `escalate_tier2`, or `tune_yaral2`):
+    `score_alerts_rubric`
   * UDM telemetry hunts (processes, DNS, network connections, logins):
     `udm_search` (or `translate_udm_query` when translating natural language to UDM)
   * Raw unparsed log search: `search_raw_logs`
@@ -114,7 +119,7 @@ threat_hunter_llm = LlmAgent(
     model=Gemini(model=MODEL, client_kwargs={"location": MODEL_LOCATION}),
     description=DESCRIPTION,
     instruction=INSTRUCTION,
-    tools=[chronicle_tools],
+    tools=[chronicle_tools, score_alerts_rubric],
     before_model_callback=chronicle_before_model_callback,
 )
 
@@ -145,6 +150,20 @@ agent_card = create_agent_card(
             examples=[
                 "List the 5 most recent security alerts in Chronicle SIEM",
                 "Run a UDM search for recent network or process events",
+            ],
+        ),
+        AgentSkill(
+            id="score_alerts_rubric",
+            name="Chronicle alert and UDM batch rubric scoring",
+            description=(
+                "Evaluates Chronicle SIEM alerts or UDM event batches in a single "
+                "zero-output-token Gemini Decision 1 pass for severity (1-5), "
+                "true-positive likelihood, MITRE ATT&CK tactic, and next action."
+            ),
+            tags=["chronicle", "triage", "rubric", "decision-1", "mitre-attack"],
+            examples=[
+                "Score these 5 Chronicle security alerts for severity and next action",
+                "Triage this UDM event batch and recommend dismiss, enrich_cti, escalate_tier2, or tune_yaral2",
             ],
         ),
         AgentSkill(

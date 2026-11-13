@@ -22,6 +22,7 @@ from __future__ import annotations
 import os
 
 from a2a.types import AgentSkill
+from detection_tools import grade_yaral2_rule
 from google.adk.a2a.executor.a2a_agent_executor import A2aAgentExecutor
 from google.adk.agents import LlmAgent
 from google.adk.artifacts.in_memory_artifact_service import InMemoryArtifactService
@@ -89,7 +90,11 @@ caller explicitly overrides them):
   * `customer_id`: `{CHRONICLE_CUSTOMER_ID}`
   * `region`: `{CHRONICLE_REGION}`
 
-Select the Chronicle MCP tool matching what was asked:
+Select the Chronicle MCP or detection grading tool matching what was asked:
+  * Grading or pre-flight quality review of a YARA-L 2.0 UDM rule: call
+    `grade_yaral2_rule(rule_text, coverage_context)` to score rule quality (1-5),
+    false-positive risk, MITRE ATT&CK tactic, YARA-L 2.0 section completeness,
+    and readiness for Chronicle validation before or alongside `validate_rule`
   * Drafting or validating a YARA-L 2.0 UDM detection rule: write valid YARA-L 2.0
     syntax and verify it with `validate_rule`
   * Listing or reading existing YARA-L 2.0 rules, detections, or compilation/runtime
@@ -113,7 +118,7 @@ detection_engineer_llm = LlmAgent(
     model=Gemini(model=MODEL, client_kwargs={"location": MODEL_LOCATION}),
     description=DESCRIPTION,
     instruction=INSTRUCTION,
-    tools=[chronicle_tools],
+    tools=[chronicle_tools, grade_yaral2_rule],
     before_model_callback=chronicle_before_model_callback,
 )
 
@@ -145,6 +150,21 @@ agent_card = create_agent_card(
             examples=[
                 "Draft and validate a YARA-L 2.0 rule detecting PowerShell encoded command execution",
                 "List existing YARA-L 2.0 detection rules in Chronicle SIEM",
+            ],
+        ),
+        AgentSkill(
+            id="grade_yaral2_rule",
+            name="YARA-L 2.0 rule quality and readiness grading",
+            description=(
+                "Grades Chronicle SIEM YARA-L 2.0 UDM detection rules in a single "
+                "pass for quality (1-5), false-positive risk, MITRE ATT&CK tactic, "
+                "required YARA-L 2.0 sections, and validation readiness (distinct "
+                "from standard file/payload YARA)."
+            ),
+            tags=["chronicle", "yaral2", "grading", "detection-engineering"],
+            examples=[
+                "Grade this YARA-L 2.0 UDM rule for quality, false-positive risk, and MITRE tactic",
+                "Check if this draft YARA-L 2.0 rule has required sections before running validate_rule",
             ],
         ),
         AgentSkill(

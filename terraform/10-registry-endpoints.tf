@@ -24,6 +24,7 @@ locals {
   google_api_hosts_global = [
     "aiplatform.googleapis.com",
     "aiplatform.us.rep.googleapis.com",
+    "generativelanguage.googleapis.com",
     "discoveryengine.googleapis.com",
     "agentregistry.googleapis.com",
     "agentidentity.googleapis.com",

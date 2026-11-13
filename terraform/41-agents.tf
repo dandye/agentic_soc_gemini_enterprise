@@ -121,6 +121,10 @@ locals {
       OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT = "EVENT_ONLY"
     } : {},
   )
+
+  gemini_decision_env = local.gemini_auth_provider_enabled ? {
+    GEMINI_AUTH_PROVIDER = local.gemini_auth_provider_name
+  } : {}
 }
 
 # 1. CTI Researcher — external GTI / VirusTotal v3 REST enrichment only.
@@ -176,6 +180,14 @@ resource "google_vertex_ai_reasoning_engine" "cti_researcher" {
         }
       }
 
+      dynamic "env" {
+        for_each = local.gemini_decision_env
+        content {
+          name  = env.key
+          value = env.value
+        }
+      }
+
       min_instances = var.min_instances
       max_instances = var.max_instances
 
@@ -199,6 +211,7 @@ resource "google_vertex_ai_reasoning_engine" "cti_researcher" {
     google_project_service_identity.service_agents,
     terraform_data.package,
     terraform_data.gti_auth_provider,
+    terraform_data.gemini_auth_provider,
     google_network_security_authz_policy.request_authz,
     google_iam_project_access_policy.google_apis,
     google_iam_projects_policy_binding.google_apis,
@@ -266,6 +279,14 @@ resource "google_vertex_ai_reasoning_engine" "threat_hunter" {
         }
       }
 
+      dynamic "env" {
+        for_each = local.gemini_decision_env
+        content {
+          name  = env.key
+          value = env.value
+        }
+      }
+
       min_instances = var.min_instances
       max_instances = var.max_instances
 
@@ -288,6 +309,7 @@ resource "google_vertex_ai_reasoning_engine" "threat_hunter" {
     google_project_service.apis,
     google_project_service_identity.service_agents,
     terraform_data.package,
+    terraform_data.gemini_auth_provider,
     google_network_security_authz_policy.request_authz,
     google_iam_project_access_policy.google_apis,
     google_iam_projects_policy_binding.google_apis,
@@ -355,6 +377,14 @@ resource "google_vertex_ai_reasoning_engine" "detection_engineer" {
         }
       }
 
+      dynamic "env" {
+        for_each = local.gemini_decision_env
+        content {
+          name  = env.key
+          value = env.value
+        }
+      }
+
       min_instances = var.min_instances
       max_instances = var.max_instances
 
@@ -377,6 +407,7 @@ resource "google_vertex_ai_reasoning_engine" "detection_engineer" {
     google_project_service.apis,
     google_project_service_identity.service_agents,
     terraform_data.package,
+    terraform_data.gemini_auth_provider,
     google_network_security_authz_policy.request_authz,
     google_iam_project_access_policy.google_apis,
     google_iam_projects_policy_binding.google_apis,
@@ -444,6 +475,14 @@ resource "google_vertex_ai_reasoning_engine" "tier2_responder" {
         }
       }
 
+      dynamic "env" {
+        for_each = local.gemini_decision_env
+        content {
+          name  = env.key
+          value = env.value
+        }
+      }
+
       min_instances = var.min_instances
       max_instances = var.max_instances
 
@@ -466,6 +505,7 @@ resource "google_vertex_ai_reasoning_engine" "tier2_responder" {
     google_project_service.apis,
     google_project_service_identity.service_agents,
     terraform_data.package,
+    terraform_data.gemini_auth_provider,
     google_network_security_authz_policy.request_authz,
     google_iam_project_access_policy.google_apis,
     google_iam_projects_policy_binding.google_apis,
@@ -559,6 +599,14 @@ resource "google_vertex_ai_reasoning_engine" "soc_orchestrator" {
         }
       }
 
+      dynamic "env" {
+        for_each = local.gemini_decision_env
+        content {
+          name  = env.key
+          value = env.value
+        }
+      }
+
       min_instances = var.min_instances
       max_instances = var.max_instances
 
@@ -581,6 +629,7 @@ resource "google_vertex_ai_reasoning_engine" "soc_orchestrator" {
     google_project_service.apis,
     google_project_service_identity.service_agents,
     terraform_data.package,
+    terraform_data.gemini_auth_provider,
     google_network_security_authz_policy.request_authz,
     google_iam_project_access_policy.google_apis,
     google_iam_projects_policy_binding.google_apis,

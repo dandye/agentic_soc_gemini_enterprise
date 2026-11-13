@@ -54,6 +54,21 @@
         "campaign",
         "gti"
       ]
+    },
+    {
+      "description": "Evaluates GTI indicator enrichment summaries in a single zero-output-token pass to classify verdict, threat category, 1-5 confidence score, immediate hunt urgency, and false-positive likelihood.",
+      "examples": [
+        "Classify the GTI enrichment summary for this hash and domain"
+      ],
+      "id": "classify_ioc_intelligence",
+      "name": "Structured IOC intelligence triage",
+      "tags": [
+        "cti",
+        "triage",
+        "classification",
+        "decision",
+        "gti"
+      ]
     }
   ],
   "version": "1.0.0"

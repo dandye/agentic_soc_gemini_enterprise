@@ -58,17 +58,38 @@ _HERMETIC_ENV = {
 }
 
 
+_AGENT_SIBLING_MODULES = (
+    "decision_client",
+    "detection_tools",
+    "gti_tools",
+    "response_tools",
+    "secops_mcp",
+    "triage_tools",
+)
+
+
 def _load_module(
     module_name: str, file_path: Path, env_overrides: dict[str, str]
 ) -> Any:
     """Loads a file-backed module under temporary environment variables."""
-    with patch.dict(os.environ, {**_HERMETIC_ENV, **env_overrides}, clear=False):
-        spec = importlib.util.spec_from_file_location(module_name, file_path)
-        assert spec is not None and spec.loader is not None
-        module = importlib.util.module_from_spec(spec)
-        sys.modules[module_name] = module
-        spec.loader.exec_module(module)
-        return module
+    parent_dir = str(file_path.parent)
+    added_path = parent_dir not in sys.path
+    if added_path:
+        sys.path.insert(0, parent_dir)
+    if file_path.parent.parent == GOVERNED_AGENTS_DIR:
+        for sibling in _AGENT_SIBLING_MODULES:
+            sys.modules.pop(sibling, None)
+    try:
+        with patch.dict(os.environ, {**_HERMETIC_ENV, **env_overrides}, clear=False):
+            spec = importlib.util.spec_from_file_location(module_name, file_path)
+            assert spec is not None and spec.loader is not None
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[module_name] = module
+            spec.loader.exec_module(module)
+            return module
+    finally:
+        if added_path and parent_dir in sys.path:
+            sys.path.remove(parent_dir)
 
 
 def _contains_emoji(text: str) -> bool:
@@ -129,7 +150,14 @@ def test_all_five_agent_cards_build_cleanly() -> None:
 
         sys.path.insert(0, str(agent_dir))
         try:
-            for helper_mod in ("gti_tools", "secops_mcp", "response_tools"):
+            for helper_mod in (
+                "decision_client",
+                "detection_tools",
+                "gti_tools",
+                "response_tools",
+                "secops_mcp",
+                "triage_tools",
+            ):
                 sys.modules.pop(helper_mod, None)
             mod = _load_module(f"test_card_{folder}", agent_dir / "agent.py", test_env)
             assert mod.agent_card.name == card_name
@@ -851,3 +879,474 @@ def test_terraform_scaling_and_multi_env_templates() -> None:
     gitignore = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8")
     assert "terraform/backend.tf" in gitignore
     assert "!terraform/backend.tf.example" in gitignore
+
+
+def test_decision_client_unconfigured_noop_and_empty_inputs() -> None:
+    """decision_client returns enabled=False cleanly when unconfigured or given empty inputs."""
+    mod = _load_module(
+        "test_decision_client_noop",
+        GOVERNED_AGENTS_DIR / "soc_orchestrator" / "decision_client.py",
+        {},
+    )
+    clean_env = {
+        k: v
+        for k, v in os.environ.items()
+        if k not in {"GEMINI_API_KEY", "GEMINI_AUTH_PROVIDER"}
+    }
+    with patch.dict(os.environ, clean_env, clear=True):
+        res = mod.evaluate_decisions(
+            "Investigate suspicious beacon to 198.51.100.10",
+            {"needs_cti": mod.noul_question("Needs CTI?")},
+        )
+        assert res["enabled"] is False
+        assert res["answers"] == {}
+
+        async_res = asyncio.run(
+            mod.aevaluate_decisions(
+                "Investigate suspicious beacon to 198.51.100.10",
+                {"needs_cti": mod.noul_question("Needs CTI?")},
+            )
+        )
+        assert async_res["enabled"] is False
+        assert async_res["answers"] == {}
+
+    assert (
+        mod.evaluate_decisions("", {"q": mod.noul_question("Q?")})["enabled"] is False
+    )
+    assert mod.evaluate_decisions("hello", {})["enabled"] is False
+
+
+def test_decision_client_api_key_request_and_score_shift() -> None:
+    """Verifies GEMINI_API_KEY auth, noul/choice/score payloads, and 0-indexed -> 1-5 shift."""
+    mod = _load_module(
+        "test_decision_client_apikey",
+        GOVERNED_AGENTS_DIR / "soc_orchestrator" / "decision_client.py",
+        {},
+    )
+    fake_key = "AIzaSyFakeHermeticDecisionKey"  # noqa: S105
+    questions = {
+        "needs_cti": mod.noul_question("Does it need CTI?"),
+        "workflow_mode": mod.choice_question(
+            "Select mode", {"single_specialist": "Single", "other": "Other"}
+        ),
+        "urgency": mod.score_question("Rate urgency", ["L0", "L1", "L2", "L3", "L4"]),
+    }
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status.return_value = None
+    mock_resp.json.return_value = {
+        "answers": {
+            "needs_cti": {"type": "noul", "noul": 0.92, "confidence": 0.88},
+            "workflow_mode": {
+                "type": "choice",
+                "choice": "single_specialist",
+                "confidence": 0.91,
+                "probabilities": {"single_specialist": 0.91, "other": 0.09},
+            },
+            "urgency": {
+                "type": "score",
+                "score": 3.0,
+                "confidence": 0.84,
+                "probabilities": {"0": 0.01, "1": 0.02, "2": 0.1, "3": 0.84, "4": 0.03},
+            },
+        },
+        "usage": {"inputTokens": 120},
+    }
+
+    env_patch = {k: v for k, v in os.environ.items() if k != "GEMINI_AUTH_PROVIDER"}
+    env_patch["GEMINI_API_KEY"] = fake_key
+    with (
+        patch.dict(os.environ, env_patch, clear=True),
+        patch.object(mod.httpx, "Client") as client_cls,
+    ):
+        client_instance = MagicMock()
+        client_instance.post.return_value = mock_resp
+        client_cls.return_value.__enter__.return_value = client_instance
+
+        res = mod.evaluate_decisions("Enrich hash abcdef1234", questions)
+        assert res["enabled"] is True
+        assert res["answers"]["needs_cti"]["noul"] == 0.92
+        assert res["answers"]["workflow_mode"]["choice"] == "single_specialist"
+        assert res["answers"]["urgency"]["raw_score"] == 3.0
+        assert res["answers"]["urgency"]["score"] == 4.0
+
+        _, kwargs = client_instance.post.call_args
+        assert kwargs["headers"]["x-goog-api-key"] == fake_key
+        assert kwargs["json"]["model"] == mod.DECISION_MODEL
+        assert kwargs["json"]["questions"]["urgency"]["criteria"] == [
+            "L0",
+            "L1",
+            "L2",
+            "L3",
+            "L4",
+        ]
+
+
+def test_decision_client_auth_provider_and_http_error_resilience() -> None:
+    """Verifies GEMINI_AUTH_PROVIDER exchange and graceful handling of HTTP failures."""
+    mod = _load_module(
+        "test_decision_client_auth_provider",
+        GOVERNED_AGENTS_DIR / "soc_orchestrator" / "decision_client.py",
+        {},
+    )
+    provider = (
+        "projects/p/locations/us-central1/authProviders/agw-secops-gemini-api-key"
+    )
+    exchanged_key = "EXCHANGED_GEMINI_KEY_DO_NOT_LEAK"  # noqa: S105
+
+    auth_resp = MagicMock()
+    auth_resp.raise_for_status.return_value = None
+    auth_resp.json.return_value = {"success": {"token": exchanged_key}}
+
+    decision_resp = MagicMock()
+    decision_resp.raise_for_status.return_value = None
+    decision_resp.json.return_value = {
+        "answers": {"q": {"type": "noul", "noul": 0.75, "confidence": 0.8}}
+    }
+
+    with (
+        patch.dict(os.environ, {"GEMINI_AUTH_PROVIDER": provider}, clear=False),
+        patch.object(mod, "_get_gcp_access_token", return_value="gcp-bearer"),
+        patch.object(mod.httpx, "Client") as client_cls,
+    ):
+        client_instance = MagicMock()
+        client_instance.post.side_effect = [auth_resp, decision_resp]
+        client_cls.return_value.__enter__.return_value = client_instance
+
+        res = mod.evaluate_decisions(
+            "Check IP 203.0.113.5", {"q": mod.noul_question("Q?")}
+        )
+        assert res["enabled"] is True
+        assert res["answers"]["q"]["noul"] == 0.75
+        assert client_instance.post.call_count == 2
+        auth_call, dec_call = client_instance.post.call_args_list
+        assert "credentials:retrieve" in auth_call.args[0]
+        assert auth_call.kwargs["headers"]["Authorization"] == "Bearer gcp-bearer"
+        assert dec_call.kwargs["headers"]["x-goog-api-key"] == exchanged_key
+
+        # HTTP error resilience: never raises, returns enabled=True + error.
+        client_instance.post.side_effect = [
+            auth_resp,
+            mod.httpx.ConnectError("gateway unreachable"),
+        ]
+        err_res = mod.evaluate_decisions(
+            "Check IP 203.0.113.5", {"q": mod.noul_question("Q?")}
+        )
+        assert err_res["enabled"] is True
+        assert "ConnectError" in err_res["error"]
+        assert err_res["answers"] == {}
+        assert exchanged_key not in str(err_res)
+
+
+def test_soc_orchestrator_preflight_callback_injects_hint_and_never_blocks() -> None:
+    """Pre-flight callback injects [PREFLIGHT_ROUTING] on user turns, skips tool turns, and never blocks."""
+    mod = _load_orchestrator()
+
+    # 1. User text turn with Decision 1 enabled -> injects [PREFLIGHT_ROUTING] and returns None.
+    appended: list[list[str]] = []
+    llm_request = SimpleNamespace(
+        contents=[
+            SimpleNamespace(
+                role="user",
+                parts=[SimpleNamespace(text="Isolate WKSTN-FIN-042 under CHG-10492")],
+            )
+        ],
+        append_instructions=lambda items: appended.append(list(items)),
+    )
+    fake_decision = {
+        "enabled": True,
+        "answers": {
+            "needs_cti": {"type": "noul", "noul": 0.10, "confidence": 0.90},
+            "needs_threat_hunt": {"type": "noul", "noul": 0.25, "confidence": 0.85},
+            "needs_detection_eng": {"type": "noul", "noul": 0.05, "confidence": 0.95},
+            "needs_tier2_response": {"type": "noul", "noul": 0.96, "confidence": 0.93},
+            "has_change_ticket": {"type": "noul", "noul": 0.98, "confidence": 0.99},
+            "workflow_mode": {
+                "type": "choice",
+                "choice": "containment_action",
+                "confidence": 0.94,
+            },
+            "urgency": {
+                "type": "score",
+                "raw_score": 3.0,
+                "score": 4.0,
+                "confidence": 0.88,
+            },
+        },
+    }
+
+    async def fake_aeval(*_: Any, **__: Any) -> dict[str, Any]:
+        return fake_decision
+
+    with patch.object(mod, "aevaluate_decisions", side_effect=fake_aeval):
+        ret = asyncio.run(mod._preflight_before_model_callback(None, llm_request))
+    assert ret is None
+    assert len(appended) == 1
+    hint = appended[0][0]
+    assert "[PREFLIGHT_ROUTING]" in hint
+    assert "workflow_mode=containment_action" in hint
+    assert "urgency=4.00/5.00" in hint
+    assert "has_change_ticket=yes" in hint
+    assert "Tier2_Responder" in hint
+
+    # 2. Tool-response turn -> skips Decision 1 call and returns None.
+    tool_turn_req = SimpleNamespace(
+        contents=[
+            SimpleNamespace(
+                role="user",
+                parts=[
+                    SimpleNamespace(
+                        function_response=SimpleNamespace(name="Threat_Hunter")
+                    )
+                ],
+            )
+        ],
+        append_instructions=MagicMock(),
+    )
+    with patch.object(mod, "aevaluate_decisions") as mock_aeval:
+        ret = asyncio.run(mod._preflight_before_model_callback(None, tool_turn_req))
+    assert ret is None
+    mock_aeval.assert_not_called()
+    tool_turn_req.append_instructions.assert_not_called()
+
+    # 3. Decision 1 exception -> never blocks, returns None.
+    with patch.object(
+        mod, "aevaluate_decisions", side_effect=RuntimeError("decisions backend down")
+    ):
+        ret = asyncio.run(mod._preflight_before_model_callback(None, llm_request))
+    assert ret is None
+
+
+def test_cti_researcher_classify_ioc_intelligence() -> None:
+    """Verifies classify_ioc_intelligence handles empty, disabled, and scored Decision 1 replies."""
+    sys.modules.pop("decision_client", None)
+    mod = _load_module(
+        "test_cti_gti_classify",
+        GOVERNED_AGENTS_DIR / "cti_researcher" / "gti_tools.py",
+        {"GTI_AUTH_PROVIDER": "projects/p/locations/us-central1/authProviders/gti"},
+    )
+    empty_res = mod.classify_ioc_intelligence("   ")
+    assert empty_res["enabled"] is False
+    assert "error" in empty_res
+
+    with patch.object(
+        mod,
+        "evaluate_decisions",
+        return_value={"enabled": False, "reason": "unconfigured", "answers": {}},
+    ):
+        assert (
+            mod.classify_ioc_intelligence('{"domain": "bad.example"}')["enabled"]
+            is False
+        )
+
+    with patch.object(
+        mod,
+        "evaluate_decisions",
+        return_value={
+            "enabled": True,
+            "answers": {
+                "verdict": {
+                    "type": "choice",
+                    "choice": "malicious",
+                    "confidence": 0.95,
+                },
+                "threat_category": {
+                    "type": "choice",
+                    "choice": "command_and_control",
+                    "confidence": 0.89,
+                },
+                "confidence_score": {"type": "score", "raw_score": 3.0, "score": 4.0},
+                "requires_immediate_hunt": {"type": "noul", "noul": 0.91},
+                "false_positive_likely": {"type": "noul", "noul": 0.08},
+            },
+            "usage": {"inputTokens": 200},
+        },
+    ):
+        # Note: classify_ioc_intelligence adds +1.0 to confidence_ans.get("score"),
+        # matching raw_score semantics if evaluate_decisions returns raw score or shifted score.
+        res = mod.classify_ioc_intelligence('{"domain": "c2.example", "malicious": 14}')
+        assert res["enabled"] is True
+        assert res["verdict"] == "malicious"
+        assert res["threat_category"] == "command_and_control"
+        assert res["confidence_score"] == 5.0
+        assert res["requires_immediate_hunt"] is True
+        assert res["false_positive_likely"] is False
+
+
+def test_threat_hunter_score_alerts_rubric() -> None:
+    """Verifies score_alerts_rubric parses severity (1-5), true_positive, mitre_tactic, and next_action."""
+    sys.modules.pop("decision_client", None)
+    mod = _load_module(
+        "test_threat_hunter_triage",
+        GOVERNED_AGENTS_DIR / "threat_hunter" / "triage_tools.py",
+        {},
+    )
+    assert "error" in mod.score_alerts_rubric("")
+
+    with patch.object(
+        mod,
+        "evaluate_decisions",
+        return_value={"enabled": False, "reason": "unset", "answers": {}},
+    ):
+        assert mod.score_alerts_rubric('{"alert": "test"}')["enabled"] is False
+
+    with patch.object(
+        mod,
+        "evaluate_decisions",
+        return_value={
+            "enabled": True,
+            "answers": {
+                "severity": {"type": "score", "score": 3.0, "confidence": 0.88},
+                "true_positive": {"type": "noul", "noul": 0.91, "confidence": 0.90},
+                "mitre_tactic": {
+                    "type": "choice",
+                    "choice": "command_and_control",
+                    "confidence": 0.85,
+                },
+                "next_action": {
+                    "type": "choice",
+                    "choice": "escalate_tier2",
+                    "confidence": 0.82,
+                },
+            },
+            "usage": {"inputTokens": 150},
+        },
+    ):
+        res = mod.score_alerts_rubric(
+            '{"rule": "Suspicious Beacon", "host": "WKSTN-01"}'
+        )
+        assert res["enabled"] is True
+        assert res["severity_score"] == 4.0
+        assert res["severity_level"] == 4
+        assert res["true_positive"]["likely"] is True
+        assert res["mitre_tactic"] == "command_and_control"
+        assert res["next_action"] == "escalate_tier2"
+
+
+def test_detection_engineer_grade_yaral2_rule() -> None:
+    """Verifies grade_yaral2_rule enforces YARA-L 2.0 context and returns structured scores."""
+    sys.modules.pop("decision_client", None)
+    mod = _load_module(
+        "test_detection_tools",
+        GOVERNED_AGENTS_DIR / "detection_engineer" / "detection_tools.py",
+        {},
+    )
+    empty = mod.grade_yaral2_rule("   ")
+    assert empty["enabled"] is False
+    assert empty["rule_language"] == "YARA-L 2.0 (Chronicle SIEM UDM)"
+    assert "error" in empty
+
+    sample_rule = """
+    rule suspicious_powershell {
+      meta:
+        author = "secops"
+      events:
+        $e.metadata.event_type = "PROCESS_LAUNCH"
+      condition:
+        $e
+    }
+    """
+    with patch.object(
+        mod,
+        "evaluate_decisions",
+        return_value={
+            "enabled": True,
+            "model": "gemini-decision-1",
+            "answers": {
+                "rule_quality_score": {
+                    "type": "score",
+                    "score": 3.0,
+                    "confidence": 0.9,
+                },
+                "false_positive_risk": {
+                    "type": "choice",
+                    "choice": "medium",
+                    "confidence": 0.8,
+                },
+                "mitre_tactic": {
+                    "type": "choice",
+                    "choice": "execution",
+                    "confidence": 0.92,
+                },
+                "has_required_yaral2_sections": {"type": "noul", "noul": 0.97},
+                "ready_for_validation": {"type": "noul", "noul": 0.89},
+            },
+            "usage": {"inputTokens": 180},
+        },
+    ) as mock_eval:
+        res = mod.grade_yaral2_rule(
+            sample_rule, coverage_context="Windows EDR process telemetry"
+        )
+        assert res["enabled"] is True
+        assert res["rule_language"] == "YARA-L 2.0 (Chronicle SIEM UDM)"
+        assert res["rule_quality_score"] == 4.0
+        assert res["false_positive_risk"] == "medium"
+        assert res["mitre_tactic"] == "execution"
+        assert res["has_required_yaral2_sections"] is True
+        assert res["ready_for_validation"] is True
+        prompt_sent = mock_eval.call_args.args[0]
+        assert "YARA-L 2.0" in prompt_sent
+        assert "standard file/payload YARA" in prompt_sent
+
+
+def test_tier2_assess_containment_readiness_is_strictly_advisory() -> None:
+    """assess_containment_readiness returns advisory metadata and never blocks Tier-0 containment."""
+    sys.modules.pop("decision_client", None)
+    mod = _load_module(
+        "test_tier2_readiness",
+        GOVERNED_AGENTS_DIR / "tier2_responder" / "response_tools.py",
+        {},
+    )
+    with patch.object(
+        mod,
+        "decide",
+        return_value={
+            "enabled": False,
+            "reason": "Decisions API unconfigured",
+            "answers": {},
+        },
+    ):
+        disabled = mod.assess_containment_readiness(
+            "DC-PROD-01", "isolate_endpoint_host", "Suspected DCSync"
+        )
+        assert disabled["advisory_only"] is True
+        assert disabled["decision_model_enabled"] is False
+
+    with patch.object(
+        mod,
+        "decide",
+        return_value={
+            "enabled": True,
+            "model": "gemini-decision-1",
+            "answers": {
+                "asset_tier": {
+                    "type": "choice",
+                    "choice": "tier0_crown_jewel",
+                    "confidence": 0.98,
+                },
+                "evidence_sufficiency": {
+                    "type": "score",
+                    "score": 3.0,
+                    "confidence": 0.85,
+                },
+                "has_change_ticket": {"type": "noul", "noul": 0.04},
+                "requires_human_approval": {"type": "noul", "noul": 0.97},
+            },
+            "usage": {"inputTokens": 140},
+        },
+    ):
+        advisory = mod.assess_containment_readiness(
+            "DC-PROD-01",
+            "isolate_endpoint_host",
+            "Confirmed DCSync from unauthorized host",
+        )
+        assert advisory["advisory_only"] is True
+        assert advisory["decision_model_enabled"] is True
+        assert advisory["asset_tier"] == "tier0_crown_jewel"
+        assert advisory["evidence_sufficiency_score"] == 4.0
+        assert advisory["has_change_ticket_noul"] == 0.04
+        assert advisory["requires_human_approval_noul"] == 0.97
+        assert "Semantic Governance" in advisory["enforcement_note"]
+
+    # Containment itself is never blocked in Python.
+    iso = mod.isolate_endpoint_host("DC-PROD-01", "Confirmed DCSync")
+    assert iso["status"] == "ISOLATED"

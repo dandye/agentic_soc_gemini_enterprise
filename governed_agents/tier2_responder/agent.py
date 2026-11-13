@@ -28,7 +28,11 @@ from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
 from google.adk.models.google_llm import Gemini
 from google.adk.runners import Runner
 from google.adk.sessions.in_memory_session_service import InMemorySessionService
-from response_tools import disable_compromised_account, isolate_endpoint_host
+from response_tools import (
+    assess_containment_readiness,
+    disable_compromised_account,
+    isolate_endpoint_host,
+)
 from secops_mcp import build_chronicle_toolset, chronicle_before_model_callback
 from vertexai.agent_engines.templates.a2a import A2aAgent, create_agent_card
 
@@ -83,6 +87,11 @@ Default Chronicle SIEM tenant parameters:
   * `region`: `{CHRONICLE_REGION}`
 
 Select the tool matching the requested response action:
+  * Advisory containment readiness check (optional pre-flight scoring of asset
+    tier, evidence sufficiency, and change-ticket presence): call
+    `assess_containment_readiness(target=..., action_type=...,
+    evidence_summary=..., change_ticket=...)`. This returns strictly advisory
+    metadata and never replaces or blocks the containment tool call itself.
   * Endpoint host network isolation / quarantine (any hostname, including
     workstations `WKSTN-*` or Domain Controllers `DC-*`): call
     `isolate_endpoint_host(hostname=..., reason=..., change_ticket=...)`. Pass
@@ -117,6 +126,7 @@ tier2_llm = LlmAgent(
     instruction=INSTRUCTION,
     tools=[
         chronicle_tools,
+        assess_containment_readiness,
         isolate_endpoint_host,
         disable_compromised_account,
     ],
@@ -152,6 +162,20 @@ agent_card = create_agent_card(
                 "Isolate workstation WKSTN-FIN-042 due to active C2 beacon",
                 "Isolate domain controller DC-PROD-01 immediately",
                 "Isolate DC-PROD-01 under emergency change ticket CHG-20261105",
+            ],
+        ),
+        AgentSkill(
+            id="assess_containment_readiness",
+            name="Advisory containment readiness scoring",
+            description=(
+                "Scores target asset tier, evidence sufficiency, change-ticket "
+                "presence, and human-approval need as strictly advisory metadata "
+                "without blocking containment execution."
+            ),
+            tags=["containment", "readiness", "triage", "advisory"],
+            examples=[
+                "Assess containment readiness before isolating WKSTN-FIN-042",
+                "Score readiness for disabling admin@example.com without a ticket",
             ],
         ),
         AgentSkill(

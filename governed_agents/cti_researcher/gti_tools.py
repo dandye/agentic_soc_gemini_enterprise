@@ -14,6 +14,12 @@ import urllib.parse
 from typing import Any
 
 import httpx
+from decision_client import (
+    choice_question,
+    evaluate_decisions,
+    noul_question,
+    score_question,
+)
 from google.cloud.agentidentitycredentials_v1 import (
     AuthProviderCredentialsServiceClient,
     RetrieveCredentialsRequest,
@@ -156,4 +162,147 @@ def get_threat_collection(collection_id: str) -> dict[str, Any]:
         "tags": (attrs.get("tags") or [])[:20],
         "targeted_industries": attrs.get("targeted_industries") or [],
         "targeted_regions": attrs.get("targeted_regions") or [],
+    }
+
+
+def classify_ioc_intelligence(indicator_summaries_json: str) -> dict[str, Any]:
+    """Classifies GTI/IOC enrichment summaries in a single Decision 1 pass."""
+    cleaned = (indicator_summaries_json or "").strip()
+    if not cleaned:
+        return {
+            "enabled": False,
+            "error": "indicator_summaries_json must not be empty.",
+        }
+
+    questions = {
+        "verdict": choice_question(
+            instructions=(
+                "Classify the overall threat verdict for the summarized GTI/IOC "
+                "indicator data."
+            ),
+            criteria={
+                "malicious": (
+                    "Confirmed malicious indicator with strong multi-engine "
+                    "detections, malware family attribution, or active C2/exploit "
+                    "infrastructure."
+                ),
+                "suspicious": (
+                    "Partially flagged or anomalous indicator with moderate "
+                    "detections, newly observed domain, or ambiguous threat context."
+                ),
+                "benign": (
+                    "Clean or well-known legitimate infrastructure with zero or "
+                    "negligible detections and trusted ownership."
+                ),
+                "unknown": (
+                    "Insufficient intelligence, indicator not found in GTI, or "
+                    "conflicting data that prevents classification."
+                ),
+            },
+        ),
+        "threat_category": choice_question(
+            instructions=(
+                "Select the primary threat category represented by the indicator "
+                "intelligence."
+            ),
+            criteria={
+                "malware_delivery": (
+                    "Payload hosting, dropper, downloader, or malicious "
+                    "executable distribution."
+                ),
+                "command_and_control": (
+                    "Command-and-control server, beaconing domain/IP, or covert "
+                    "exfiltration channel."
+                ),
+                "phishing_credential_theft": (
+                    "Phishing lure, credential harvesting infrastructure, or "
+                    "brand impersonation."
+                ),
+                "scanning_exploitation": (
+                    "Vulnerability scanner, brute-force source, or active "
+                    "exploit delivery."
+                ),
+                "benign_infrastructure": (
+                    "Legitimate CDN, cloud provider, DNS resolver, or trusted "
+                    "enterprise service."
+                ),
+                "other_or_unknown": (
+                    "Threat category does not match the above options or "
+                    "insufficient data is present."
+                ),
+            },
+        ),
+        "confidence_score": score_question(
+            instructions=(
+                "Rate classification confidence from lowest (level 0) to highest "
+                "(level 4) based on detection consensus and threat context."
+            ),
+            criteria=[
+                "Very low confidence: indicator not found, conflicting signals, or minimal context.",
+                "Low confidence: isolated weak detection with no threat family attribution.",
+                "Moderate confidence: multiple suspicious signals or moderate detections without clear attribution.",
+                "High confidence: strong multi-engine consensus, consistent tags, or known threat label.",
+                "Very high confidence: overwhelming malicious consensus, explicit malware or campaign attribution, and corroborating metadata.",
+            ],
+        ),
+        "requires_immediate_hunt": noul_question(
+            "True if the indicator intelligence warrants immediate internal "
+            "SIEM/UDM threat hunting across endpoints, network logs, or DNS "
+            "telemetry; false otherwise."
+        ),
+        "false_positive_likely": noul_question(
+            "True if detections are likely a false positive such as a dual-use "
+            "admin tool, shared CDN/cloud IP, or isolated vendor heuristic; "
+            "false otherwise."
+        ),
+    }
+
+    decision = evaluate_decisions(
+        input_text=(
+            "GTI / VirusTotal v3 indicator enrichment summaries:\n" f"{cleaned}"
+        ),
+        questions=questions,
+    )
+    if not decision.get("enabled"):
+        return {
+            "enabled": False,
+            "reason": decision.get("reason", "Decision 1 is not configured."),
+        }
+    if "error" in decision:
+        return {
+            "enabled": True,
+            "error": decision["error"],
+        }
+
+    answers = decision.get("answers", {})
+    verdict_ans = answers.get("verdict") or {}
+    category_ans = answers.get("threat_category") or {}
+    confidence_ans = answers.get("confidence_score") or {}
+    hunt_ans = answers.get("requires_immediate_hunt") or {}
+    fp_ans = answers.get("false_positive_likely") or {}
+
+    raw_score = confidence_ans.get("score")
+    confidence_score = (
+        round(float(raw_score) + 1.0, 2) if raw_score is not None else None
+    )
+
+    hunt_prob = hunt_ans.get("noul")
+    fp_prob = fp_ans.get("noul")
+
+    return {
+        "enabled": True,
+        "verdict": verdict_ans.get("choice", "unknown"),
+        "verdict_confidence": verdict_ans.get("confidence"),
+        "threat_category": category_ans.get("choice", "other_or_unknown"),
+        "threat_category_confidence": category_ans.get("confidence"),
+        "confidence_score": confidence_score,
+        "requires_immediate_hunt": (
+            bool(float(hunt_prob) >= 0.5) if hunt_prob is not None else False
+        ),
+        "requires_immediate_hunt_probability": hunt_prob,
+        "false_positive_likely": (
+            bool(float(fp_prob) >= 0.5) if fp_prob is not None else False
+        ),
+        "false_positive_likely_probability": fp_prob,
+        "usage": decision.get("usage", {}),
     }

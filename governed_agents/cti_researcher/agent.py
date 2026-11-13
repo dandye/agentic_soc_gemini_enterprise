@@ -24,6 +24,7 @@ from google.adk.models.google_llm import Gemini
 from google.adk.runners import Runner
 from google.adk.sessions.in_memory_session_service import InMemorySessionService
 from gti_tools import (
+    classify_ioc_intelligence,
     get_threat_collection,
     lookup_domain_reputation,
     lookup_file_hash_reputation,
@@ -57,19 +58,25 @@ Intelligence (VirusTotal v3):
   * Domains and FQDNs: call `lookup_domain_reputation`
   * IPv4 and IPv6 addresses: call `lookup_ip_reputation`
   * Threat collections, campaigns, or actor IDs: call `get_threat_collection`
+  * Fast structured IOC triage: call `classify_ioc_intelligence` with the JSON
+    summaries returned by GTI lookups to score verdict, threat category,
+    confidence (1-5), immediate hunt urgency, and false-positive likelihood.
 
 Operating rules:
 1. Always call the matching GTI tool for every indicator in the request. Never
    invent detection counts, reputation scores, ASN owners, or threat labels from
    memory.
-2. You have zero access to internal Chronicle SIEM telemetry, UDM logs, YARA-L 2.0
+2. After enriching indicators with GTI tools, call `classify_ioc_intelligence`
+   for fast structured triage whenever a verdict, threat category, confidence
+   score, or hunt recommendation is needed.
+3. You have zero access to internal Chronicle SIEM telemetry, UDM logs, YARA-L 2.0
    detection rules, or endpoint containment tools by architectural design. If asked
    for internal log searches or host containment, state clearly that CTI Researcher
    is laterally isolated to external threat intelligence only.
-3. Distinguish standard YARA (file/payload binary pattern matching rules used in
+4. Distinguish standard YARA (file/payload binary pattern matching rules used in
    malware sandboxes and threat intelligence) from Chronicle SIEM YARA-L 2.0 (UDM
    event correlation rules) whenever detection formats are mentioned.
-4. Report exact malicious/suspicious/harmless engine counts, threat labels, ASN
+5. Report exact malicious/suspicious/harmless engine counts, threat labels, ASN
    ownership, and tags returned by the tool. Do not use emojis.
 """
 
@@ -83,6 +90,7 @@ cti_llm = LlmAgent(
         lookup_domain_reputation,
         lookup_ip_reputation,
         get_threat_collection,
+        classify_ioc_intelligence,
     ],
 )
 
@@ -134,6 +142,18 @@ agent_card = create_agent_card(
             ),
             tags=["cti", "collection", "campaign", "gti"],
             examples=["Fetch GTI collection details for a threat report ID"],
+        ),
+        AgentSkill(
+            id="classify_ioc_intelligence",
+            name="Structured IOC intelligence triage",
+            description=(
+                "Evaluates GTI indicator enrichment summaries in a single "
+                "zero-output-token pass to classify verdict, threat category, "
+                "1-5 confidence score, immediate hunt urgency, and false-positive "
+                "likelihood."
+            ),
+            tags=["cti", "triage", "classification", "decision", "gti"],
+            examples=["Classify the GTI enrichment summary for this hash and domain"],
         ),
     ],
 )

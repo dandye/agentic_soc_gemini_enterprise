@@ -88,6 +88,25 @@ variable "gti_auth_provider_workload_ids" {
   default     = []
 }
 
+variable "gemini_api_key" {
+  description = "Optional Gemini API key stored in Agent Platform Auth Manager for the Gemini Decisions API (`gemini-decision-1`). Pass via `TF_VAR_gemini_api_key` in the shell environment, never in a committed file. When empty, Auth Manager provisioning is skipped and agents fall back to runtime `GEMINI_API_KEY` or disable Decisions API calls."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "gemini_api_key_version" {
+  description = "Monotonic version counter used to trigger rotation of the Gemini API key in Agent Platform Auth Manager."
+  type        = number
+  default     = 1
+}
+
+variable "gemini_auth_provider_workload_ids" {
+  description = "Optional create-time SPIFFE workload IDs on the Gemini AuthProvider. Leave empty; 20-authmanager.tf binds `roles/agentidentity.user` directly to all five governed agents."
+  type        = list(string)
+  default     = []
+}
+
 # Gemini Enterprise integration (opt-in defaults so shared apps remain untouched)
 
 variable "ge_engine_id" {
