@@ -30,6 +30,7 @@ from secops_mcp import build_chronicle_toolset, chronicle_before_model_callback
 from triage_tools import (
     _cap_udm_search_args,
     _filter_udm_events_after_tool_callback,
+    _inject_current_utc_time_callback,
 )
 from vertexai.agent_engines.templates.a2a import A2aAgent, create_agent_card
 
@@ -95,8 +96,8 @@ Choose the Chronicle MCP tool matching what was asked:
     `get_security_alert`, `fetch_alert_data`
   * UDM telemetry hunts (processes, DNS, network connections, logins):
     `udm_search` (or `translate_udm_query` when translating natural language to UDM).
-    Run at most 1-2 targeted `udm_search` calls with `limit <= 25`; never run broad
-    multi-round exploratory searches.
+    Run at most 1-2 targeted `udm_search` calls with `maxEvents <= 25`; never run
+    broad multi-round exploratory searches.
 
 Note on automatic pre-LLM Decision 1 triage: `udm_search` and `list_security_alerts`
 results are automatically scored by Gemini Decision 1 before reaching you. Low-signal
@@ -124,6 +125,7 @@ Always distinguish Chronicle SIEM YARA-L 2.0 rules (UDM event detection rules)
 from standard YARA rules (file/payload binary pattern matching). Do not use emojis.
 """
 
+
 threat_hunter_llm = LlmAgent(
     name=APP_NAME,
     model=Gemini(model=MODEL, client_kwargs={"location": MODEL_LOCATION}),
@@ -133,7 +135,10 @@ threat_hunter_llm = LlmAgent(
     generate_content_config=types.GenerateContentConfig(
         thinking_config=types.ThinkingConfig(thinking_budget=0)
     ),
-    before_model_callback=chronicle_before_model_callback,
+    before_model_callback=[
+        _inject_current_utc_time_callback,
+        chronicle_before_model_callback,
+    ],
     before_tool_callback=_cap_udm_search_args,
     after_tool_callback=_filter_udm_events_after_tool_callback,
 )

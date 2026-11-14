@@ -1294,7 +1294,7 @@ def test_threat_hunter_after_tool_callback_filters_noise_and_tags_escalations() 
 
 
 def test_threat_hunter_before_tool_callback_caps_udm_search() -> None:
-    """Verifies _cap_udm_search_args clamps limit <= 25 and caps udm_search at 2 calls."""
+    """Verifies _cap_udm_search_args clamps maxEvents <= 25 (no limit) and _inject_current_utc_time_callback."""
     mod = _load_module(
         "test_threat_hunter_cap",
         GOVERNED_AGENTS_DIR / "threat_hunter" / "triage_tools.py",
@@ -1304,29 +1304,40 @@ def test_threat_hunter_before_tool_callback_caps_udm_search() -> None:
     udm_tool = SimpleNamespace(name="udm_search")
 
     # Non-udm_search tool is untouched.
-    other_args = {"limit": 100}
+    other_args = {"maxEvents": 100}
     assert (
         mod._cap_udm_search_args(
             SimpleNamespace(name="list_security_alerts"), other_args, tool_ctx
         )
         is None
     )
-    assert other_args["limit"] == 100
+    assert other_args["maxEvents"] == 100
 
-    # Call 1 & 2: allowed and limit clamped to 25.
-    args1 = {"query": "principal.hostname = 'h1'", "limit": 200}
+    # Call 1 & 2: allowed, maxEvents clamped to 25, and any `limit` key stripped.
+    args1 = {"query": "principal.hostname = 'h1'", "maxEvents": 200, "limit": 200}
     assert mod._cap_udm_search_args(udm_tool, args1, tool_ctx) is None
-    assert args1["limit"] == 25
+    assert args1["maxEvents"] == 25
+    assert "limit" not in args1
 
-    args2 = {"query": "principal.hostname = 'h2'", "limit": 10}
+    args2 = {"query": "principal.hostname = 'h2'", "maxEvents": 10}
     assert mod._cap_udm_search_args(udm_tool, args2, tool_ctx) is None
-    assert args2["limit"] == 10
+    assert args2["maxEvents"] == 10
+    assert "limit" not in args2
 
     # Call 3+: capped with summary dict.
-    args3 = {"query": "principal.hostname = 'h3'", "limit": 50}
+    args3 = {"query": "principal.hostname = 'h3'", "maxEvents": 50}
     capped = mod._cap_udm_search_args(udm_tool, args3, tool_ctx)
     assert capped is not None
     assert capped["search_capped"] is True
+
+    # Current UTC time callback injects [CURRENT_UTC_TIME] and returns None.
+    appended: list[list[str]] = []
+    llm_req = SimpleNamespace(
+        append_instructions=lambda items: appended.append(list(items))
+    )
+    assert mod._inject_current_utc_time_callback(None, llm_req) is None
+    assert len(appended) == 1
+    assert appended[0][0].startswith("[CURRENT_UTC_TIME] ")
 
 
 def test_cti_researcher_triage_unstructured_cti_artifact() -> None:

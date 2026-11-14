@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import time
+from datetime import UTC, datetime
 from typing import Any
 
 from decision_client import evaluate_decisions
@@ -236,21 +237,34 @@ def _extract_event_list(
     return ("", [], None, None)
 
 
+def _inject_current_utc_time_callback(
+    callback_context: Any,
+    llm_request: Any,
+) -> None:
+    """Injects `[CURRENT_UTC_TIME]` so relative queries use the live clock."""
+    del callback_context
+    now_utc = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    if hasattr(llm_request, "append_instructions"):
+        llm_request.append_instructions([f"[CURRENT_UTC_TIME] {now_utc}"])
+    return None
+
+
 def _cap_udm_search_args(
     tool: Any,
     args: dict[str, Any],
     tool_context: Any,
 ) -> dict[str, Any] | None:
-    """Clamps `udm_search` `limit` to 25 and caps calls per invocation at 2."""
+    """Clamps `udm_search` `maxEvents` to 25 and caps calls per invocation at 2."""
     if getattr(tool, "name", "") != "udm_search":
         return None
 
     if isinstance(args, dict):
-        raw_limit = args.get("limit")
-        if isinstance(raw_limit, int) and not isinstance(raw_limit, bool):
-            args["limit"] = min(max(1, raw_limit), _MAX_UDM_SEARCH_LIMIT)
+        args.pop("limit", None)
+        raw_max = args.get("maxEvents")
+        if isinstance(raw_max, int) and not isinstance(raw_max, bool):
+            args["maxEvents"] = min(max(1, raw_max), _MAX_UDM_SEARCH_LIMIT)
         else:
-            args["limit"] = _MAX_UDM_SEARCH_LIMIT
+            args["maxEvents"] = _MAX_UDM_SEARCH_LIMIT
 
     state = getattr(tool_context, "state", None)
     if state is not None:
