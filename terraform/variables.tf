@@ -88,6 +88,25 @@ variable "gti_auth_provider_workload_ids" {
   default     = []
 }
 
+variable "gemini_api_key" {
+  description = "Optional Gemini API key stored in Agent Platform Auth Manager for the Gemini Decisions API (`gemini-decision-1`). Pass via `TF_VAR_gemini_api_key` in the shell environment, never in a committed file. When empty, Auth Manager provisioning is skipped and agents fall back to runtime `GEMINI_API_KEY` or disable Decisions API calls."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "gemini_api_key_version" {
+  description = "Monotonic version counter used to trigger rotation of the Gemini API key in Agent Platform Auth Manager."
+  type        = number
+  default     = 1
+}
+
+variable "gemini_auth_provider_workload_ids" {
+  description = "Optional create-time SPIFFE workload IDs on the Gemini AuthProvider. Leave empty; 20-authmanager.tf binds `roles/agentidentity.user` directly to all five governed agents."
+  type        = list(string)
+  default     = []
+}
+
 # Gemini Enterprise integration (opt-in defaults so shared apps remain untouched)
 
 variable "ge_engine_id" {
@@ -158,21 +177,21 @@ variable "ge_agent_sharing_scope" {
 # Models and runtime
 
 variable "orchestrator_model" {
-  description = "Gemini 3+ model ID used by `soc_orchestrator`."
+  description = "Gemini model ID used by `soc_orchestrator`."
   type        = string
-  default     = "gemini-3.1-pro-preview"
+  default     = "gemini-4-hydrogen"
 }
 
 variable "tier2_model" {
-  description = "Gemini 3+ model ID used by `tier2_responder`."
+  description = "Gemini model ID used by `tier2_responder`."
   type        = string
-  default     = "gemini-3.1-pro-preview"
+  default     = "gemini-4-carbon"
 }
 
 variable "specialist_model" {
-  description = "Gemini 3+ model ID used by `cti_researcher`, `threat_hunter`, and `detection_engineer`."
+  description = "Gemini model ID used by `cti_researcher`, `threat_hunter`, and `detection_engineer`."
   type        = string
-  default     = "gemini-3.5-flash"
+  default     = "gemini-3.8-flash"
 }
 
 variable "model_location" {
@@ -201,7 +220,7 @@ variable "trace_capture_message_content" {
 variable "min_instances" {
   description = "Minimum warm container instances per Reasoning Engine (`0` scales idle memory cost to $0/hr with a cold start on first request; `1` keeps one warm instance at ~$24/mo per engine)."
   type        = number
-  default     = 0
+  default     = 1
   nullable    = false
 
   validation {

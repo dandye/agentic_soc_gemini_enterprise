@@ -25,14 +25,20 @@ from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
 from google.adk.models.google_llm import Gemini
 from google.adk.runners import Runner
 from google.adk.sessions.in_memory_session_service import InMemorySessionService
+from google.genai import types
 from secops_mcp import build_chronicle_toolset, chronicle_before_model_callback
+from triage_tools import (
+    _cap_udm_search_args,
+    _filter_udm_events_after_tool_callback,
+    _inject_current_utc_time_callback,
+)
 from vertexai.agent_engines.templates.a2a import A2aAgent, create_agent_card
 
 
 APP_NAME = "threat_hunter_agent"
 AGENT_VERSION = "1.0.0"
 
-MODEL = os.getenv("MODEL", "gemini-3.5-flash")
+MODEL = os.getenv("MODEL", "gemini-3.8-flash")
 MODEL_LOCATION = os.getenv("MODEL_LOCATION", "global")
 
 CHRONICLE_PROJECT_ID = os.environ["CHRONICLE_PROJECT_ID"]
@@ -89,7 +95,17 @@ Choose the Chronicle MCP tool matching what was asked:
   * Recent security alerts or alert queue inspection: `list_security_alerts`,
     `get_security_alert`, `fetch_alert_data`
   * UDM telemetry hunts (processes, DNS, network connections, logins):
-    `udm_search` (or `translate_udm_query` when translating natural language to UDM)
+    `udm_search` (or `translate_udm_query` when translating natural language to UDM).
+    Run at most 1-2 targeted `udm_search` calls with `maxEvents <= 25`; never run
+    broad multi-round exploratory searches.
+
+Note on automatic pre-LLM Decision 1 triage: `udm_search` and `list_security_alerts`
+results are automatically scored by Gemini Decision 1 before reaching you. Low-signal
+benign noise is dropped (`dropped_low_signal_count`), retained events include
+`decision1_triage` metadata (`severity` 1-5, `mitre_tactic`, `next_action`), and
+high-confidence threats are tagged `[HIGH_CONFIDENCE_ESCALATE]`. Report the dropped
+noise count, prioritize `[HIGH_CONFIDENCE_ESCALATE]` items first, and produce a
+concise, structured summary.
   * Raw unparsed log search: `search_raw_logs`
   * Host, user, IP, domain, or hash entity context in Chronicle: `search_entity`,
     `summarize_entity`, `get_ioc_match`
@@ -109,13 +125,22 @@ Always distinguish Chronicle SIEM YARA-L 2.0 rules (UDM event detection rules)
 from standard YARA rules (file/payload binary pattern matching). Do not use emojis.
 """
 
+
 threat_hunter_llm = LlmAgent(
     name=APP_NAME,
     model=Gemini(model=MODEL, client_kwargs={"location": MODEL_LOCATION}),
     description=DESCRIPTION,
     instruction=INSTRUCTION,
     tools=[chronicle_tools],
-    before_model_callback=chronicle_before_model_callback,
+    generate_content_config=types.GenerateContentConfig(
+        thinking_config=types.ThinkingConfig(thinking_budget=0)
+    ),
+    before_model_callback=[
+        _inject_current_utc_time_callback,
+        chronicle_before_model_callback,
+    ],
+    before_tool_callback=_cap_udm_search_args,
+    after_tool_callback=_filter_udm_events_after_tool_callback,
 )
 
 
@@ -138,10 +163,18 @@ agent_card = create_agent_card(
             id="udm_threat_hunt",
             name="Chronicle UDM threat hunting and alert triage",
             description=(
-                "Searches Chronicle SIEM UDM events, lists recent security alerts, "
-                "summarizes host/user/IP entities, and checks IOC matches."
+                "Searches Chronicle SIEM UDM events, lists recent security alerts "
+                "(with automatic pre-LLM Decision 1 noise filtering and triage "
+                "scoring), summarizes host/user/IP entities, and checks IOC matches."
             ),
-            tags=["chronicle", "siem", "udm", "alerts", "threat-hunting"],
+            tags=[
+                "chronicle",
+                "siem",
+                "udm",
+                "alerts",
+                "threat-hunting",
+                "decision-1",
+            ],
             examples=[
                 "List the 5 most recent security alerts in Chronicle SIEM",
                 "Run a UDM search for recent network or process events",

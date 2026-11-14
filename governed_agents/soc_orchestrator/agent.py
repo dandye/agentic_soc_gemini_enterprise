@@ -34,14 +34,23 @@ import httpx
 from a2a.client.errors import A2AClientError
 from a2a.types import AgentCapabilities, AgentCard, AgentInterface, AgentSkill
 from a2a.utils.constants import PROTOCOL_VERSION_CURRENT, TransportProtocol
+from decision_client import (
+    aevaluate_decisions,
+    choice_question,
+    noul_question,
+    score_question,
+)
 from google.adk.a2a.executor.a2a_agent_executor import A2aAgentExecutor
 from google.adk.agents import LlmAgent
+from google.adk.agents.callback_context import CallbackContext
 from google.adk.agents.remote_a2a_agent import RemoteA2aAgent
 from google.adk.agents.run_config import RunConfig
 from google.adk.artifacts.in_memory_artifact_service import InMemoryArtifactService
 from google.adk.events.event import Event
 from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
 from google.adk.models.google_llm import Gemini
+from google.adk.models.llm_request import LlmRequest
+from google.adk.models.llm_response import LlmResponse
 from google.adk.runners import Runner
 from google.adk.sessions.in_memory_session_service import InMemorySessionService
 from google.adk.tools.agent_tool import AgentTool
@@ -56,7 +65,7 @@ if not hasattr(A2AClientError, "status_code"):
 APP_NAME = "soc_orchestrator_agent"
 AGENT_VERSION = "1.0.0"
 
-MODEL = os.getenv("MODEL", "gemini-3.1-pro-preview")
+MODEL = os.getenv("ORCHESTRATOR_MODEL") or os.getenv("MODEL", "gemini-4-hydrogen")
 MODEL_LOCATION = os.getenv("MODEL_LOCATION", "global")
 
 CTI_RESEARCHER_URL = os.environ["CTI_RESEARCHER_URL"]
@@ -306,11 +315,177 @@ CRITICAL GOVERNANCE RULES:
    emojis anywhere in your output.
 """
 
+_SHORT_CIRCUIT_THRESHOLD = float(os.getenv("PREFLIGHT_SHORT_CIRCUIT_THRESHOLD", "0.90"))
+
+_PREFLIGHT_QUESTIONS: dict[str, dict[str, Any]] = {
+    "needs_cti": noul_question(
+        "Does the request ask to look up or enrich a file hash, domain, IP address, "
+        "URL, or threat collection/campaign in external Google Threat Intelligence "
+        "(GTI / VirusTotal)?"
+    ),
+    "needs_threat_hunt": noul_question(
+        "Does the request ask to search Chronicle SIEM logs or UDM telemetry, list or "
+        "triage SIEM security alerts, inspect SIEM entity context, or check/manage "
+        "SIEM feeds? Answer false for pure external GTI/VirusTotal reputation "
+        "lookups that do not mention SIEM, UDM, alerts, or feeds."
+    ),
+    "needs_detection_eng": noul_question(
+        "Does the request ask to author, validate, audit, or test a Chronicle SIEM "
+        "YARA-L 2.0 detection rule or manage a SIEM parser?"
+    ),
+    "needs_tier2_response": noul_question(
+        "Does the request ask to isolate or quarantine an endpoint host, disable a "
+        "user account, update an alert status, or modify a containment reference list?"
+    ),
+    "workflow_mode": choice_question(
+        "Select the most appropriate orchestration workflow mode for this request.",
+        {
+            "single_specialist": "Route directly to one matching specialist agent.",
+            "multi_stage_investigation": "Coordinate two or more specialists in sequence or parallel.",
+            "containment_action": "Execute or validate a host/account containment or SIEM response action.",
+            "other": "General security operations question or unclear scope.",
+        },
+    ),
+    "urgency": score_question(
+        "Rate the operational urgency of this security request from routine inquiry to critical active incident.",
+        [
+            "Level 0: Routine informational query, rule syntax check, or non-urgent lookup.",
+            "Level 1: Low-priority enrichment or scheduled hygiene check.",
+            "Level 2: Standard alert triage or suspicious indicator investigation.",
+            "Level 3: High-priority active threat hunt or confirmed malicious indicator.",
+            "Level 4: Critical active incident, crown-jewel asset impact, or immediate containment.",
+        ],
+    ),
+}
+
+_SPECIALIST_ROUTING_LABELS = (
+    ("needs_cti", "CTI_Researcher"),
+    ("needs_threat_hunt", "Threat_Hunter"),
+    ("needs_detection_eng", "Detection_Engineer"),
+    ("needs_tier2_response", "Tier2_Responder"),
+)
+
+
+def _extract_latest_user_prompt(llm_request: LlmRequest) -> str | None:
+    """Extracts the latest user text prompt, skipping tool-response turns."""
+    contents = getattr(llm_request, "contents", None) or []
+    if not contents:
+        return None
+    last = contents[-1]
+    if getattr(last, "role", None) != "user":
+        return None
+    parts = getattr(last, "parts", None) or []
+    if any(getattr(part, "function_response", None) is not None for part in parts):
+        return None
+    texts = [
+        part.text.strip()
+        for part in parts
+        if isinstance(getattr(part, "text", None), str) and part.text.strip()
+    ]
+    return "\n".join(texts) or None
+
+
+def _short_circuit_target(result: dict[str, Any]) -> str | None:
+    """Returns a single specialist AgentTool name when Decision 1 is decisive."""
+    if not result.get("enabled") or result.get("error"):
+        return None
+    answers = result.get("answers") or {}
+    mode = str((answers.get("workflow_mode") or {}).get("choice") or "")
+    if mode != "single_specialist":
+        return None
+    high_confidence = [
+        label
+        for qid, label in _SPECIALIST_ROUTING_LABELS
+        if float((answers.get(qid) or {}).get("noul", 0.0)) >= _SHORT_CIRCUIT_THRESHOLD
+    ]
+    if len(high_confidence) == 1:
+        return high_confidence[0]
+    return None
+
+
+def _format_preflight_hint(result: dict[str, Any]) -> str | None:
+    """Formats a concise non-binding `[PREFLIGHT_ROUTING]` hint from Decision 1."""
+    if not result.get("enabled") or result.get("error"):
+        return None
+    answers = result.get("answers") or {}
+    if not answers:
+        return None
+
+    recommended = [
+        label
+        for qid, label in _SPECIALIST_ROUTING_LABELS
+        if float((answers.get(qid) or {}).get("noul", 0.0)) >= 0.5
+    ]
+    mode_ans = answers.get("workflow_mode") or {}
+    mode = str(mode_ans.get("choice") or "other")
+    mode_conf = float(mode_ans.get("confidence", 0.0))
+
+    urgency_ans = answers.get("urgency") or {}
+    urgency = float(urgency_ans.get("score", 1.0))
+    urgency_conf = float(urgency_ans.get("confidence", 0.0))
+
+    scores = ", ".join(
+        f"{label}={float((answers.get(qid) or {}).get('noul', 0.0)):.2f}"
+        for qid, label in _SPECIALIST_ROUTING_LABELS
+    )
+    specialists_str = ", ".join(recommended) if recommended else "none"
+    return (
+        "[PREFLIGHT_ROUTING] Advisory pre-flight routing classification "
+        "(non-binding; never refuse or block based on this): "
+        f"workflow_mode={mode} (conf={mode_conf:.2f}), "
+        f"urgency={urgency:.2f}/5.00 (conf={urgency_conf:.2f}), "
+        f"recommended_specialists=[{specialists_str}], "
+        f"specialist_scores={{{scores}}}."
+    )
+
+
+async def _preflight_before_model_callback(
+    callback_context: CallbackContext, llm_request: LlmRequest
+) -> LlmResponse | None:
+    """Short-circuits high-confidence single-specialist turns or injects routing hint."""
+    del callback_context
+    prompt = _extract_latest_user_prompt(llm_request)
+    if not prompt:
+        return None
+    try:
+        result = await aevaluate_decisions(prompt, _PREFLIGHT_QUESTIONS)
+    except Exception:  # noqa: BLE001
+        logger.debug("pre-flight Decision 1 pass failed; proceeding without hint")
+        return None
+
+    contents = getattr(llm_request, "contents", None) or []
+    is_initial_turn = len(contents) == 1
+    target_agent = _short_circuit_target(result) if is_initial_turn else None
+    if target_agent is not None:
+        logger.info("pre-flight Decision 1 short-circuiting to %s", target_agent)
+        return LlmResponse(
+            content=types.Content(
+                role="model",
+                parts=[
+                    types.Part(
+                        function_call=types.FunctionCall(
+                            name=target_agent,
+                            args={"request": prompt},
+                        ),
+                        thought_signature=b"skip_thought_signature_validator",
+                    )
+                ],
+            ),
+            turn_complete=True,
+        )
+
+    hint = _format_preflight_hint(result)
+    if hint:
+        llm_request.append_instructions([hint])
+    return None
+
+
 orchestrator_llm = LlmAgent(
     name=APP_NAME,
     model=Gemini(model=MODEL, client_kwargs={"location": MODEL_LOCATION}),
     description=DESCRIPTION,
     instruction=INSTRUCTION,
+    before_model_callback=_preflight_before_model_callback,
     tools=[
         AgentTool(agent=cti_researcher_peer),
         AgentTool(agent=threat_hunter_peer),
@@ -805,7 +980,19 @@ agent_card = create_agent_card(
                 "List recent Chronicle alerts, enrich observed indicators in GTI, and validate a YARA-L 2.0 rule",
                 "Isolate workstation WKSTN-FIN-042 due to confirmed C2 beacon",
             ],
-        )
+        ),
+        AgentSkill(
+            id="preflight_routing_triage",
+            name="Pre-flight routing and urgency classification",
+            description=(
+                "Evaluates incoming SOC requests for specialist routing, workflow "
+                "mode, change-ticket presence, and urgency before A2A delegation."
+            ),
+            tags=["routing", "triage", "governance"],
+            examples=[
+                "Classify whether an alert triage request needs CTI enrichment and UDM hunting",
+            ],
+        ),
     ],
 )
 agent_card.version = AGENT_VERSION

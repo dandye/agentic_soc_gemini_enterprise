@@ -16,7 +16,10 @@ access policies against the calling agent's SPIFFE workload identity, screens
 request and response bodies with Model Armor, and asks a Semantic Governance
 policy engine whether a containment action against a Tier-0 asset is allowed.
 No agent holds a static credential: the GTI API key lives in Agent Platform Auth
-Manager and is retrievable only by `cti_researcher`.
+Manager and is retrievable only by `cti_researcher`. See
+[Gemini Decision 1 for Governed SOC Agents](gemini_decision_1.md) for the
+`gemini-decision-1` pre-flight routing, rubric triage, and Auth Manager
+integration across all five engines.
 
 | Layer | What enforces it | Terraform file(s) |
 | --- | --- | --- |
@@ -208,9 +211,9 @@ Every variable in `terraform/variables.tf`:
 | `ge_agent_display_name` | string | `"Governed SecOps Orchestrator"` | Display name in the agent picker |
 | `ge_agent_icon_path` | string | `""` | Optional repo-relative PNG or SVG icon |
 | `ge_agent_sharing_scope` | string | `"ALL_USERS"` | `ALL_USERS` or `RESTRICTED` visibility when published |
-| `orchestrator_model` | string | `"gemini-3.1-pro-preview"` | Model for `soc_orchestrator` |
-| `tier2_model` | string | `"gemini-3.1-pro-preview"` | Model for `tier2_responder` |
-| `specialist_model` | string | `"gemini-3.5-flash"` | Model for `cti_researcher`, `threat_hunter`, `detection_engineer` |
+| `orchestrator_model` | string | `"gemini-4-hydrogen"` | Model for `soc_orchestrator` |
+| `tier2_model` | string | `"gemini-4-carbon"` | Model for `tier2_responder` |
+| `specialist_model` | string | `"gemini-3.8-flash"` | Model for `cti_researcher`, `threat_hunter`, `detection_engineer` |
 | `model_location` | string | `"global"` | Vertex AI model endpoint location (`global`, `us`, `eu`) |
 | `python_version` | string | `"3.12"` | Python runtime for the Reasoning Engines |
 | `trace_capture_message_content` | bool | `true` | Set `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=EVENT_ONLY` |

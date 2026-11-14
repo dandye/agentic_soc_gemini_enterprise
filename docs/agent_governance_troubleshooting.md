@@ -210,7 +210,7 @@ While you work, `sgp_enforcement_mode = "DRY_RUN"` keeps logging verdicts withou
 
 ### 5. Reasoning Engine returns 404 for a Gemini 3.x model
 
-**Symptom.** Every turn fails inside the engine with a `404 NOT_FOUND` naming the model (`gemini-3.1-pro-preview`, `gemini-3.5-flash`), surfaced by the orchestrator as a `[RUNTIME FAULT]` banner. Nothing appears in `denied`.
+**Symptom.** Every turn fails inside the engine with a `404 NOT_FOUND` naming the model (`gemini-4-hydrogen`, `gemini-4-carbon`, `gemini-3.8-flash`), surfaced by the orchestrator as a `[RUNTIME FAULT]` banner. Nothing appears in `denied`.
 
 **Evidence.** The engine's own logs in Cloud Logging show the `generateContent` call going to `<REGION>-aiplatform.googleapis.com` with `locations/<REGION>` in the path instead of `locations/global`.
 

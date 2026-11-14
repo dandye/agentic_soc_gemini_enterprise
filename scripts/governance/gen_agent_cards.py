@@ -47,7 +47,14 @@ PLACEHOLDER_ENV = {
     "TIER2_RESPONDER_URL": "https://example.invalid/tier2_responder/a2a",
 }
 
-_SIBLING_MODULES = ("agent", "gti_tools", "secops_mcp", "response_tools")
+_SIBLING_MODULES = (
+    "agent",
+    "decision_client",
+    "gti_tools",
+    "response_tools",
+    "secops_mcp",
+    "triage_tools",
+)
 
 
 def card_for(name: str) -> dict[str, Any]:

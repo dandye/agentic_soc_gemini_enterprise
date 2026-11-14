@@ -58,17 +58,38 @@ _HERMETIC_ENV = {
 }
 
 
+_AGENT_SIBLING_MODULES = (
+    "decision_client",
+    "detection_tools",
+    "gti_tools",
+    "response_tools",
+    "secops_mcp",
+    "triage_tools",
+)
+
+
 def _load_module(
     module_name: str, file_path: Path, env_overrides: dict[str, str]
 ) -> Any:
     """Loads a file-backed module under temporary environment variables."""
-    with patch.dict(os.environ, {**_HERMETIC_ENV, **env_overrides}, clear=False):
-        spec = importlib.util.spec_from_file_location(module_name, file_path)
-        assert spec is not None and spec.loader is not None
-        module = importlib.util.module_from_spec(spec)
-        sys.modules[module_name] = module
-        spec.loader.exec_module(module)
-        return module
+    parent_dir = str(file_path.parent)
+    added_path = parent_dir not in sys.path
+    if added_path:
+        sys.path.insert(0, parent_dir)
+    if file_path.parent.parent == GOVERNED_AGENTS_DIR:
+        for sibling in _AGENT_SIBLING_MODULES:
+            sys.modules.pop(sibling, None)
+    try:
+        with patch.dict(os.environ, {**_HERMETIC_ENV, **env_overrides}, clear=False):
+            spec = importlib.util.spec_from_file_location(module_name, file_path)
+            assert spec is not None and spec.loader is not None
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[module_name] = module
+            spec.loader.exec_module(module)
+            return module
+    finally:
+        if added_path and parent_dir in sys.path:
+            sys.path.remove(parent_dir)
 
 
 def _contains_emoji(text: str) -> bool:
@@ -129,7 +150,14 @@ def test_all_five_agent_cards_build_cleanly() -> None:
 
         sys.path.insert(0, str(agent_dir))
         try:
-            for helper_mod in ("gti_tools", "secops_mcp", "response_tools"):
+            for helper_mod in (
+                "decision_client",
+                "detection_tools",
+                "gti_tools",
+                "response_tools",
+                "secops_mcp",
+                "triage_tools",
+            ):
                 sys.modules.pop(helper_mod, None)
             mod = _load_module(f"test_card_{folder}", agent_dir / "agent.py", test_env)
             assert mod.agent_card.name == card_name
@@ -846,8 +874,555 @@ def test_terraform_scaling_and_multi_env_templates() -> None:
     env_tpl = (tf_dir / "environments" / "example.tfvars.example").read_text(
         encoding="utf-8"
     )
-    assert "min_instances = 0" in env_tpl
+    assert "min_instances = 1" in env_tpl
 
     gitignore = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8")
     assert "terraform/backend.tf" in gitignore
     assert "!terraform/backend.tf.example" in gitignore
+
+
+def test_decision_client_unconfigured_noop_and_empty_inputs() -> None:
+    """decision_client returns enabled=False cleanly when unconfigured or given empty inputs."""
+    mod = _load_module(
+        "test_decision_client_noop",
+        GOVERNED_AGENTS_DIR / "soc_orchestrator" / "decision_client.py",
+        {},
+    )
+    clean_env = {
+        k: v
+        for k, v in os.environ.items()
+        if k not in {"GEMINI_API_KEY", "GEMINI_AUTH_PROVIDER"}
+    }
+    with patch.dict(os.environ, clean_env, clear=True):
+        res = mod.evaluate_decisions(
+            "Investigate suspicious beacon to 198.51.100.10",
+            {"needs_cti": mod.noul_question("Needs CTI?")},
+        )
+        assert res["enabled"] is False
+        assert res["answers"] == {}
+
+        async_res = asyncio.run(
+            mod.aevaluate_decisions(
+                "Investigate suspicious beacon to 198.51.100.10",
+                {"needs_cti": mod.noul_question("Needs CTI?")},
+            )
+        )
+        assert async_res["enabled"] is False
+        assert async_res["answers"] == {}
+
+    assert (
+        mod.evaluate_decisions("", {"q": mod.noul_question("Q?")})["enabled"] is False
+    )
+    assert mod.evaluate_decisions("hello", {})["enabled"] is False
+
+
+def test_decision_client_api_key_request_and_score_shift() -> None:
+    """Verifies GEMINI_API_KEY auth, noul/choice/score payloads, and 0-indexed -> 1-5 shift."""
+    mod = _load_module(
+        "test_decision_client_apikey",
+        GOVERNED_AGENTS_DIR / "soc_orchestrator" / "decision_client.py",
+        {},
+    )
+    fake_key = "AIzaSyFakeHermeticDecisionKey"  # noqa: S105
+    questions = {
+        "needs_cti": mod.noul_question("Does it need CTI?"),
+        "workflow_mode": mod.choice_question(
+            "Select mode", {"single_specialist": "Single", "other": "Other"}
+        ),
+        "urgency": mod.score_question("Rate urgency", ["L0", "L1", "L2", "L3", "L4"]),
+    }
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status.return_value = None
+    mock_resp.json.return_value = {
+        "answers": {
+            "needs_cti": {"type": "noul", "noul": 0.92, "confidence": 0.88},
+            "workflow_mode": {
+                "type": "choice",
+                "choice": "single_specialist",
+                "confidence": 0.91,
+                "probabilities": {"single_specialist": 0.91, "other": 0.09},
+            },
+            "urgency": {
+                "type": "score",
+                "score": 3.0,
+                "confidence": 0.84,
+                "probabilities": {"0": 0.01, "1": 0.02, "2": 0.1, "3": 0.84, "4": 0.03},
+            },
+        },
+        "usage": {"inputTokens": 120},
+    }
+
+    env_patch = {k: v for k, v in os.environ.items() if k != "GEMINI_AUTH_PROVIDER"}
+    env_patch["GEMINI_API_KEY"] = fake_key
+    client_instance = MagicMock()
+    client_instance.post.return_value = mock_resp
+    with (
+        patch.dict(os.environ, env_patch, clear=True),
+        patch.object(mod, "_get_http_client", return_value=client_instance),
+    ):
+
+        res = mod.evaluate_decisions("Enrich hash abcdef1234", questions)
+        assert res["enabled"] is True
+        assert res["answers"]["needs_cti"]["noul"] == 0.92
+        assert res["answers"]["workflow_mode"]["choice"] == "single_specialist"
+        assert res["answers"]["urgency"]["raw_score"] == 3.0
+        assert res["answers"]["urgency"]["score"] == 4.0
+
+        _, kwargs = client_instance.post.call_args
+        assert kwargs["headers"]["x-goog-api-key"] == fake_key
+        assert kwargs["json"]["model"] == mod.DECISION_MODEL
+        assert kwargs["json"]["questions"]["urgency"]["criteria"] == [
+            "L0",
+            "L1",
+            "L2",
+            "L3",
+            "L4",
+        ]
+
+
+def test_decision_client_auth_provider_ttl_cache_and_http_error_resilience() -> None:
+    """Verifies GEMINI_AUTH_PROVIDER TTL caching, client reuse, and HTTP error resilience."""
+    mod = _load_module(
+        "test_decision_client_auth_provider",
+        GOVERNED_AGENTS_DIR / "soc_orchestrator" / "decision_client.py",
+        {},
+    )
+    provider = (
+        "projects/p/locations/us-central1/authProviders/agw-secops-gemini-api-key"
+    )
+    exchanged_key = "EXCHANGED_GEMINI_KEY_DO_NOT_LEAK"  # noqa: S105
+
+    auth_resp = MagicMock()
+    auth_resp.raise_for_status.return_value = None
+    auth_resp.json.return_value = {"success": {"token": exchanged_key}}
+
+    decision_resp = MagicMock()
+    decision_resp.raise_for_status.return_value = None
+    decision_resp.json.return_value = {
+        "answers": {"q": {"type": "noul", "noul": 0.75, "confidence": 0.8}}
+    }
+
+    fake_client = MagicMock()
+    fake_client.post.side_effect = [auth_resp, decision_resp, decision_resp]
+
+    with (
+        patch.dict(os.environ, {"GEMINI_AUTH_PROVIDER": provider}, clear=False),
+        patch.object(mod, "_get_gcp_access_token", return_value="gcp-bearer"),
+        patch.object(mod, "_get_http_client", return_value=fake_client),
+    ):
+        res1 = mod.evaluate_decisions(
+            "Check IP 203.0.113.5", {"q": mod.noul_question("Q?")}
+        )
+        res2 = mod.evaluate_decisions(
+            "Check IP 203.0.113.6", {"q": mod.noul_question("Q?")}
+        )
+        assert res1["enabled"] is True
+        assert res1["answers"]["q"]["noul"] == 0.75
+        assert res2["enabled"] is True
+        assert res2["answers"]["q"]["noul"] == 0.75
+        # 1 Auth Manager POST (cached via TTL) + 2 Decisions POSTs = 3 total calls.
+        assert fake_client.post.call_count == 3
+        auth_call, dec_call_1, dec_call_2 = fake_client.post.call_args_list
+        assert "credentials:retrieve" in auth_call.args[0]
+        assert auth_call.kwargs["headers"]["Authorization"] == "Bearer gcp-bearer"
+        assert dec_call_1.kwargs["headers"]["x-goog-api-key"] == exchanged_key
+        assert dec_call_2.kwargs["headers"]["x-goog-api-key"] == exchanged_key
+
+        # HTTP error resilience: never raises, returns enabled=True + error.
+        fake_client.post.side_effect = [mod.httpx.ConnectError("gateway unreachable")]
+        err_res = mod.evaluate_decisions(
+            "Check IP 203.0.113.5", {"q": mod.noul_question("Q?")}
+        )
+        assert err_res["enabled"] is True
+        assert "ConnectError" in err_res["error"]
+        assert err_res["answers"] == {}
+        assert exchanged_key not in str(err_res)
+
+
+def test_soc_orchestrator_preflight_callback_short_circuits_and_falls_back() -> None:
+    """Pre-flight callback short-circuits decisive single-specialist turns and falls back otherwise."""
+    mod = _load_orchestrator()
+
+    # 1. Initial turn + single_specialist + noul >= 0.90 -> short-circuits with LlmResponse(function_call).
+    prompt = "Isolate WKSTN-FIN-042 under CHG-10492"
+    initial_req = SimpleNamespace(
+        contents=[
+            SimpleNamespace(
+                role="user",
+                parts=[SimpleNamespace(text=prompt)],
+            )
+        ],
+        append_instructions=MagicMock(),
+    )
+    decisive_reply = {
+        "enabled": True,
+        "answers": {
+            "needs_cti": {"type": "noul", "noul": 0.05, "confidence": 0.95},
+            "needs_threat_hunt": {"type": "noul", "noul": 0.10, "confidence": 0.90},
+            "needs_detection_eng": {"type": "noul", "noul": 0.02, "confidence": 0.98},
+            "needs_tier2_response": {"type": "noul", "noul": 0.96, "confidence": 0.93},
+            "workflow_mode": {
+                "type": "choice",
+                "choice": "single_specialist",
+                "confidence": 0.94,
+            },
+            "urgency": {
+                "type": "score",
+                "raw_score": 3.0,
+                "score": 4.0,
+                "confidence": 0.88,
+            },
+        },
+    }
+
+    async def fake_decisive(*_: Any, **__: Any) -> dict[str, Any]:
+        return decisive_reply
+
+    with patch.object(mod, "aevaluate_decisions", side_effect=fake_decisive):
+        ret = asyncio.run(mod._preflight_before_model_callback(None, initial_req))
+    assert ret is not None
+    assert ret.turn_complete is True
+    short_part = ret.content.parts[0]
+    assert short_part.thought_signature == b"skip_thought_signature_validator"
+    fc = short_part.function_call
+    assert fc.name == "Tier2_Responder"
+    assert fc.args == {"request": prompt}
+    initial_req.append_instructions.assert_not_called()
+
+    # 2. Multi-stage or below-threshold -> injects [PREFLIGHT_ROUTING] and returns None.
+    appended: list[list[str]] = []
+    multi_req = SimpleNamespace(
+        contents=[
+            SimpleNamespace(
+                role="user",
+                parts=[SimpleNamespace(text="Enrich hash and hunt UDM")],
+            )
+        ],
+        append_instructions=lambda items: appended.append(list(items)),
+    )
+    multi_reply = {
+        "enabled": True,
+        "answers": {
+            "needs_cti": {"type": "noul", "noul": 0.92, "confidence": 0.91},
+            "needs_threat_hunt": {"type": "noul", "noul": 0.88, "confidence": 0.87},
+            "needs_detection_eng": {"type": "noul", "noul": 0.05, "confidence": 0.95},
+            "needs_tier2_response": {"type": "noul", "noul": 0.10, "confidence": 0.90},
+            "workflow_mode": {
+                "type": "choice",
+                "choice": "multi_stage_investigation",
+                "confidence": 0.90,
+            },
+            "urgency": {
+                "type": "score",
+                "raw_score": 2.0,
+                "score": 3.0,
+                "confidence": 0.85,
+            },
+        },
+    }
+
+    async def fake_multi(*_: Any, **__: Any) -> dict[str, Any]:
+        return multi_reply
+
+    with patch.object(mod, "aevaluate_decisions", side_effect=fake_multi):
+        ret = asyncio.run(mod._preflight_before_model_callback(None, multi_req))
+    assert ret is None
+    assert len(appended) == 1
+    hint = appended[0][0]
+    assert "[PREFLIGHT_ROUTING]" in hint
+    assert "workflow_mode=multi_stage_investigation" in hint
+    assert "urgency=3.00/5.00" in hint
+    assert "CTI_Researcher" in hint
+    assert "Threat_Hunter" in hint
+
+    # 3. Tool-response turn -> skips Decision 1 call and returns None.
+    tool_turn_req = SimpleNamespace(
+        contents=[
+            SimpleNamespace(
+                role="user",
+                parts=[
+                    SimpleNamespace(
+                        function_response=SimpleNamespace(name="Threat_Hunter")
+                    )
+                ],
+            )
+        ],
+        append_instructions=MagicMock(),
+    )
+    with patch.object(mod, "aevaluate_decisions") as mock_aeval:
+        ret = asyncio.run(mod._preflight_before_model_callback(None, tool_turn_req))
+    assert ret is None
+    mock_aeval.assert_not_called()
+    tool_turn_req.append_instructions.assert_not_called()
+
+    # 4. Decision 1 exception -> never blocks, returns None.
+    with patch.object(
+        mod, "aevaluate_decisions", side_effect=RuntimeError("decisions backend down")
+    ):
+        ret = asyncio.run(mod._preflight_before_model_callback(None, initial_req))
+    assert ret is None
+
+
+def test_threat_hunter_after_tool_callback_filters_noise_and_tags_escalations() -> None:
+    """Verifies _filter_udm_events_after_tool_callback drops <0.30, keeps 0.30-0.85, and tags >=0.85."""
+    mod = _load_module(
+        "test_threat_hunter_triage",
+        GOVERNED_AGENTS_DIR / "threat_hunter" / "triage_tools.py",
+        {},
+    )
+    # Non-filtered tool and error responses pass through unchanged (None).
+    assert (
+        mod._filter_udm_events_after_tool_callback(
+            SimpleNamespace(name="list_feeds"), None, None, {"events": [{"id": 1}]}
+        )
+        is None
+    )
+    assert (
+        mod._filter_udm_events_after_tool_callback(
+            SimpleNamespace(name="udm_search"),
+            None,
+            None,
+            {"isError": True, "events": [{"id": 1}]},
+        )
+        is None
+    )
+
+    def fake_eval_decisions(
+        input_text: str, questions: dict[str, Any], **_: Any
+    ) -> dict[str, Any]:
+        assert questions
+        answers: dict[str, Any] = {}
+        indices = sorted(
+            {
+                int(qid.split("_", 1)[0][1:])
+                for qid in questions
+                if qid.startswith("e") and "_" in qid
+            }
+        )
+        for idx in indices:
+            if "benign_noise" in input_text and idx == 0:
+                answers[f"e{idx}_sev"] = {"type": "score", "score": 0.0}
+                answers[f"e{idx}_tp"] = {"type": "noul", "noul": 0.12}
+                answers[f"e{idx}_tactic"] = {
+                    "type": "choice",
+                    "choice": "other_or_benign",
+                }
+                answers[f"e{idx}_next"] = {"type": "choice", "choice": "dismiss"}
+            elif "suspicious_mid" in input_text and idx == 1:
+                answers[f"e{idx}_sev"] = {"type": "score", "score": 2.0}
+                answers[f"e{idx}_tp"] = {"type": "noul", "noul": 0.62}
+                answers[f"e{idx}_tactic"] = {"type": "choice", "choice": "discovery"}
+                answers[f"e{idx}_next"] = {"type": "choice", "choice": "enrich_cti"}
+            else:
+                answers[f"e{idx}_sev"] = {"type": "score", "score": 3.0}
+                answers[f"e{idx}_tp"] = {"type": "noul", "noul": 0.91}
+                answers[f"e{idx}_tactic"] = {
+                    "type": "choice",
+                    "choice": "credential_access",
+                }
+                answers[f"e{idx}_next"] = {"type": "choice", "choice": "escalate_tier2"}
+        return {"enabled": True, "answers": answers}
+
+    events = [
+        {"id": "benign_noise"},
+        {"id": "suspicious_mid"},
+        {"id": "ntdsutil_critical"},
+    ]
+    with patch.object(mod, "evaluate_decisions", side_effect=fake_eval_decisions):
+        filtered = mod._filter_udm_events_after_tool_callback(
+            SimpleNamespace(name="udm_search"), {}, None, {"events": events}
+        )
+        assert filtered is not None
+        assert filtered["decision1_filter_applied"] is True
+        assert filtered["dropped_low_signal_count"] == 1
+        assert filtered["kept_event_count"] == 2
+        assert filtered["high_confidence_escalate_count"] == 1
+        assert filtered["passthrough_overflow_count"] == 0
+        kept = filtered["events"]
+        assert len(kept) == 2
+        assert kept[0]["id"] == "suspicious_mid"
+        assert "tag" not in kept[0]["decision1_triage"]
+        assert kept[0]["decision1_triage"]["severity_score"] == 3.0
+        assert kept[1]["id"] == "ntdsutil_critical"
+        assert kept[1]["decision1_triage"]["tag"] == "[HIGH_CONFIDENCE_ESCALATE]"
+        assert kept[1]["decision1_triage"]["severity_score"] == 4.0
+
+        # MCP content[0].text JSON payload is also filtered and re-serialized.
+        mcp_payload = {
+            "content": [
+                {"type": "text", "text": json.dumps({"securityAlerts": events})}
+            ]
+        }
+        mcp_filtered = mod._filter_udm_events_after_tool_callback(
+            SimpleNamespace(name="list_security_alerts"), {}, None, mcp_payload
+        )
+        assert mcp_filtered is not None
+        parsed_back = json.loads(mcp_filtered["content"][0]["text"])
+        assert parsed_back["dropped_low_signal_count"] == 1
+        assert parsed_back["kept_event_count"] == 2
+        assert parsed_back["high_confidence_escalate_count"] == 1
+        assert len(parsed_back["securityAlerts"]) == 2
+
+    # Batching & overflow cap: 65 events -> 4 RPCs (60 evaluated), 5 passthrough overflow.
+    many_events = [{"id": f"evt_{i}"} for i in range(65)]
+    with patch.object(
+        mod, "evaluate_decisions", side_effect=fake_eval_decisions
+    ) as mock_batch_eval:
+        capped = mod._filter_udm_events_after_tool_callback(
+            SimpleNamespace(name="udm_search"), {}, None, {"events": many_events}
+        )
+        assert capped is not None
+        assert mock_batch_eval.call_count == 4
+        assert capped["passthrough_overflow_count"] == 5
+        assert capped["kept_event_count"] == 65
+
+    # Callback time-budget passthrough: stops after batch 1 when budget expires.
+    thirty_events = [{"id": f"evt_{i}"} for i in range(30)]
+    with (
+        patch.object(
+            mod, "evaluate_decisions", side_effect=fake_eval_decisions
+        ) as mock_budget_eval,
+        patch.object(mod.time, "monotonic", side_effect=[100.0, 100.1, 120.0]),
+    ):
+        budgeted = mod._filter_udm_events_after_tool_callback(
+            SimpleNamespace(name="udm_search"), {}, None, {"events": thirty_events}
+        )
+        assert budgeted is not None
+        assert mock_budget_eval.call_count == 1
+        assert budgeted["passthrough_overflow_count"] == 15
+        assert budgeted["kept_event_count"] == 30
+
+
+def test_threat_hunter_before_tool_callback_caps_udm_search() -> None:
+    """Verifies _cap_udm_search_args clamps maxEvents <= 25 (no limit) and _inject_current_utc_time_callback."""
+    mod = _load_module(
+        "test_threat_hunter_cap",
+        GOVERNED_AGENTS_DIR / "threat_hunter" / "triage_tools.py",
+        {},
+    )
+    tool_ctx = SimpleNamespace(state={})
+    udm_tool = SimpleNamespace(name="udm_search")
+
+    # Non-udm_search tool is untouched.
+    other_args = {"maxEvents": 100}
+    assert (
+        mod._cap_udm_search_args(
+            SimpleNamespace(name="list_security_alerts"), other_args, tool_ctx
+        )
+        is None
+    )
+    assert other_args["maxEvents"] == 100
+
+    # Call 1 & 2: allowed, maxEvents clamped to 25, and any `limit` key stripped.
+    args1 = {"query": "principal.hostname = 'h1'", "maxEvents": 200, "limit": 200}
+    assert mod._cap_udm_search_args(udm_tool, args1, tool_ctx) is None
+    assert args1["maxEvents"] == 25
+    assert "limit" not in args1
+
+    args2 = {"query": "principal.hostname = 'h2'", "maxEvents": 10}
+    assert mod._cap_udm_search_args(udm_tool, args2, tool_ctx) is None
+    assert args2["maxEvents"] == 10
+    assert "limit" not in args2
+
+    # Call 3+: capped with summary dict.
+    args3 = {"query": "principal.hostname = 'h3'", "maxEvents": 50}
+    capped = mod._cap_udm_search_args(udm_tool, args3, tool_ctx)
+    assert capped is not None
+    assert capped["search_capped"] is True
+
+    # Current UTC time callback injects [CURRENT_UTC_TIME] and returns None.
+    appended: list[list[str]] = []
+    llm_req = SimpleNamespace(
+        append_instructions=lambda items: appended.append(list(items))
+    )
+    assert mod._inject_current_utc_time_callback(None, llm_req) is None
+    assert len(appended) == 1
+    assert appended[0][0].startswith("[CURRENT_UTC_TIME] ")
+
+
+def test_cti_researcher_triage_unstructured_cti_artifact() -> None:
+    """Verifies triage_unstructured_cti_artifact for text/plain, image/png, and application/pdf."""
+    mod = _load_module(
+        "test_cti_gti_triage",
+        GOVERNED_AGENTS_DIR / "cti_researcher" / "gti_tools.py",
+        {"GTI_AUTH_PROVIDER": "projects/p/locations/us-central1/authProviders/gti"},
+    )
+    empty_res = mod.triage_unstructured_cti_artifact("   ")
+    assert empty_res["enabled"] is False
+    assert "error" in empty_res
+
+    mock_reply = {
+        "enabled": True,
+        "answers": {
+            "is_actionable_threat": {"type": "noul", "noul": 0.94},
+            "threat_category": {
+                "type": "choice",
+                "choice": "command_and_control",
+                "confidence": 0.90,
+            },
+            "severity": {"type": "score", "score": 3.0},
+            "requires_immediate_hunt": {"type": "noul", "noul": 0.89},
+            "confidence_score": {"type": "score", "score": 3.0},
+        },
+        "usage": {"inputTokens": 210},
+    }
+
+    with patch.object(mod, "evaluate_decisions", return_value=mock_reply) as mock_eval:
+        text_res = mod.triage_unstructured_cti_artifact(
+            "OSINT advisory: C2 beacon observed on 198.51.100.10", "text/plain"
+        )
+        assert text_res["enabled"] is True
+        assert text_res["mime_type"] == "text/plain"
+        assert text_res["is_actionable_threat"] is True
+        assert text_res["threat_category"] == "command_and_control"
+        assert text_res["severity"] == 4.0
+        assert text_res["confidence_score"] == 4.0
+        assert text_res["requires_immediate_hunt"] is True
+        assert isinstance(mock_eval.call_args.kwargs["input_text"], str)
+
+        img_res = mod.triage_unstructured_cti_artifact("iVBORw0KGgo=", "image/png")
+        assert img_res["mime_type"] == "image/png"
+        img_parts = mock_eval.call_args.kwargs["input_text"]
+        assert isinstance(img_parts, list)
+        assert img_parts[1]["type"] == "image"
+        assert img_parts[1]["mime_type"] == "image/png"
+
+        pdf_res = mod.triage_unstructured_cti_artifact(
+            "JVBERi0xLjQ=", "application/pdf"
+        )
+        assert pdf_res["mime_type"] == "application/pdf"
+        pdf_parts = mock_eval.call_args.kwargs["input_text"]
+        assert isinstance(pdf_parts, list)
+        assert pdf_parts[1]["type"] == "document"
+        assert pdf_parts[1]["mime_type"] == "application/pdf"
+
+
+def test_detection_engineer_and_tier2_responder_clean_baseline() -> None:
+    """detection_engineer and tier2_responder stay on clean baseline with no Decision 1 tools."""
+    env = {
+        "CHRONICLE_PROJECT_ID": "example-proj",
+        "CHRONICLE_CUSTOMER_ID": "00000000-0000-0000-0000-000000000000",
+        "CHRONICLE_REGION": "us",
+    }
+    de_mod = _load_module(
+        "test_de_baseline",
+        GOVERNED_AGENTS_DIR / "detection_engineer" / "agent.py",
+        env,
+    )
+    de_tool_names = [
+        getattr(t, "__name__", str(t)) for t in de_mod.detection_engineer_llm.tools
+    ]
+    assert "grade_yaral2_rule" not in de_tool_names
+    assert not (
+        GOVERNED_AGENTS_DIR / "detection_engineer" / "detection_tools.py"
+    ).exists()
+
+    t2_mod = _load_module(
+        "test_t2_baseline",
+        GOVERNED_AGENTS_DIR / "tier2_responder" / "agent.py",
+        env,
+    )
+    t2_tool_names = [getattr(t, "__name__", str(t)) for t in t2_mod.tier2_llm.tools]
+    assert "assess_containment_readiness" not in t2_tool_names
+    assert "isolate_endpoint_host" in t2_tool_names
+    assert "disable_compromised_account" in t2_tool_names

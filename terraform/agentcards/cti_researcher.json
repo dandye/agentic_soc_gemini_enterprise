@@ -54,6 +54,23 @@
         "campaign",
         "gti"
       ]
+    },
+    {
+      "description": "Evaluates unstructured threat reports, OSINT prose, PDFs, or screenshots in a single zero-output-token pass to extract actionability, threat category, 1-5 severity, immediate hunt urgency, and 1-5 confidence.",
+      "examples": [
+        "Triage this unstructured OSINT threat report for actionability and hunt urgency",
+        "Evaluate this base64 threat advisory PDF or screenshot"
+      ],
+      "id": "triage_unstructured_cti_artifact",
+      "name": "Unstructured CTI artifact triage",
+      "tags": [
+        "cti",
+        "osint",
+        "triage",
+        "multimodal",
+        "decision",
+        "gti"
+      ]
     }
   ],
   "version": "1.0.0"

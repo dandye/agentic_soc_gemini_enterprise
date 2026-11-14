@@ -28,6 +28,7 @@ from gti_tools import (
     lookup_domain_reputation,
     lookup_file_hash_reputation,
     lookup_ip_reputation,
+    triage_unstructured_cti_artifact,
 )
 from vertexai.agent_engines.templates.a2a import A2aAgent, create_agent_card
 
@@ -35,7 +36,7 @@ from vertexai.agent_engines.templates.a2a import A2aAgent, create_agent_card
 APP_NAME = "cti_researcher_agent"
 AGENT_VERSION = "1.0.0"
 
-MODEL = os.getenv("MODEL", "gemini-3.5-flash")
+MODEL = os.getenv("MODEL", "gemini-3.8-flash")
 MODEL_LOCATION = os.getenv("MODEL_LOCATION", "global")
 
 # Fail fast at container startup if the Auth Manager provider resource name was omitted.
@@ -57,19 +58,27 @@ Intelligence (VirusTotal v3):
   * Domains and FQDNs: call `lookup_domain_reputation`
   * IPv4 and IPv6 addresses: call `lookup_ip_reputation`
   * Threat collections, campaigns, or actor IDs: call `get_threat_collection`
+  * Unstructured CTI artifacts (OSINT prose, threat reports, PDFs, or
+    screenshots): call `triage_unstructured_cti_artifact(content, mime_type)`
+    to classify actionability, threat category, 1-5 severity, immediate hunt
+    urgency, and 1-5 confidence in a single zero-output-token pass (pass base64
+    for non-text `mime_type` such as `application/pdf` or `image/png`).
 
 Operating rules:
-1. Always call the matching GTI tool for every indicator in the request. Never
-   invent detection counts, reputation scores, ASN owners, or threat labels from
-   memory.
-2. You have zero access to internal Chronicle SIEM telemetry, UDM logs, YARA-L 2.0
+1. Always call the matching GTI tool for every structured indicator in the
+   request. Never invent detection counts, reputation scores, ASN owners, or
+   threat labels from memory.
+2. When given unstructured threat reports, OSINT prose, PDFs, or screenshots,
+   call `triage_unstructured_cti_artifact` instead of manually scoring them.
+   Do not call it on structured GTI/VirusTotal v3 integer vote counts.
+3. You have zero access to internal Chronicle SIEM telemetry, UDM logs, YARA-L 2.0
    detection rules, or endpoint containment tools by architectural design. If asked
    for internal log searches or host containment, state clearly that CTI Researcher
    is laterally isolated to external threat intelligence only.
-3. Distinguish standard YARA (file/payload binary pattern matching rules used in
+4. Distinguish standard YARA (file/payload binary pattern matching rules used in
    malware sandboxes and threat intelligence) from Chronicle SIEM YARA-L 2.0 (UDM
    event correlation rules) whenever detection formats are mentioned.
-4. Report exact malicious/suspicious/harmless engine counts, threat labels, ASN
+5. Report exact malicious/suspicious/harmless engine counts, threat labels, ASN
    ownership, and tags returned by the tool. Do not use emojis.
 """
 
@@ -83,6 +92,7 @@ cti_llm = LlmAgent(
         lookup_domain_reputation,
         lookup_ip_reputation,
         get_threat_collection,
+        triage_unstructured_cti_artifact,
     ],
 )
 
@@ -134,6 +144,21 @@ agent_card = create_agent_card(
             ),
             tags=["cti", "collection", "campaign", "gti"],
             examples=["Fetch GTI collection details for a threat report ID"],
+        ),
+        AgentSkill(
+            id="triage_unstructured_cti_artifact",
+            name="Unstructured CTI artifact triage",
+            description=(
+                "Evaluates unstructured threat reports, OSINT prose, PDFs, or "
+                "screenshots in a single zero-output-token pass to extract "
+                "actionability, threat category, 1-5 severity, immediate hunt "
+                "urgency, and 1-5 confidence."
+            ),
+            tags=["cti", "osint", "triage", "multimodal", "decision", "gti"],
+            examples=[
+                "Triage this unstructured OSINT threat report for actionability and hunt urgency",
+                "Evaluate this base64 threat advisory PDF or screenshot",
+            ],
         ),
     ],
 )
