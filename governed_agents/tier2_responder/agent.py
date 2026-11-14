@@ -28,6 +28,7 @@ from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
 from google.adk.models.google_llm import Gemini
 from google.adk.runners import Runner
 from google.adk.sessions.in_memory_session_service import InMemorySessionService
+from google.genai import types
 from response_tools import disable_compromised_account, isolate_endpoint_host
 from secops_mcp import build_chronicle_toolset, chronicle_before_model_callback
 from vertexai.agent_engines.templates.a2a import A2aAgent, create_agent_card
@@ -107,7 +108,12 @@ asks to isolate `DC-PROD-01` or disable `admin@example.com` without a `CHG-*`
 ticket, you MUST still emit the `isolate_endpoint_host` or
 `disable_compromised_account` tool call so Semantic Governance evaluates and
 blocks the action at the gateway. Self-refusing in prose hides the security
-control. Do not use emojis.
+control.
+
+EXECUTION STYLE:
+Execute the requested containment or SIEM tool call in a single pass without
+redundant pre-checks, then report the exact tool outcome concisely. Do not use
+emojis.
 """
 
 tier2_llm = LlmAgent(
@@ -115,6 +121,11 @@ tier2_llm = LlmAgent(
     model=Gemini(model=MODEL, client_kwargs={"location": MODEL_LOCATION}),
     description=DESCRIPTION,
     instruction=INSTRUCTION,
+    generate_content_config=types.GenerateContentConfig(
+        thinking_config=types.ThinkingConfig(
+            thinking_level=types.ThinkingLevel.LOW,
+        ),
+    ),
     tools=[
         chronicle_tools,
         isolate_endpoint_host,
