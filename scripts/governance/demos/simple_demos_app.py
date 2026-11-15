@@ -778,7 +778,7 @@ async function runDemo3() {{
       'Hold Off (' + c1.threat_pct + '%) - Too Little Evidence, Checking 7 Days of Logs First';
     document.getElementById('demo3-bar1').style.width = Math.max(c1.threat_pct, 4) + '%';
     document.getElementById('demo3-meta1').textContent =
-      'Threat Score: ' + c1.threat_pct + '% | Decision Time: ' + c1.latency_ms + ' ms | Outcome: ' + c1.action;
+      'Threat Score: ' + c1.threat_pct + '% | Decision Time: ' + c1.latency_ms + ' ms | Next Step: Check 7 Days of Logs';
 
     const card2 = document.getElementById('demo3-card2');
     const c2 = d.check2;
@@ -789,7 +789,7 @@ async function runDemo3() {{
         'Confirmed Attack (' + c2.threat_pct + '%) - Isolate SRV-APP-19 Now';
       document.getElementById('demo3-bar2').style.width = Math.max(c2.threat_pct, 4) + '%';
       document.getElementById('demo3-meta2').textContent =
-        'Checked 7 Days of Logs | Threat Score: ' + c2.threat_pct + '% | Decision Time: ' + c2.latency_ms + ' ms | Outcome: ' + c2.action;
+        'Checked 7 Days of Logs | Threat Score: ' + c2.threat_pct + '% | Decision Time: ' + c2.latency_ms + ' ms | Next Step: Isolate Server';
     }}, 350);
   }} finally {{
     btn.disabled = false;
