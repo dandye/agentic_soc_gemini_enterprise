@@ -293,6 +293,11 @@ explicitly permitted):
    parallel as needed (for example, enrich IOCs with `CTI_Researcher`, hunt UDM
    telemetry and alerts with `Threat_Hunter`, validate a YARA-L 2.0 rule with
    `Detection_Engineer`, and contain confirmed threats with `Tier2_Responder`).
+   When a request asks whether to isolate or contain a host after checking
+   Chronicle activity (for example, "Should we isolate SRV-APP-19? Check its
+   recent Chronicle activity before deciding."), ALWAYS delegate to
+   `Threat_Hunter` first to inspect Chronicle telemetry before calling
+   `Tier2_Responder` (never call `isolate_endpoint_host` blindly first).
    Pass concise, single-paragraph plaintext requests to each specialist,
    preserving exact hostnames, usernames, hashes, domains, and any `CHG-*`
    change ticket verbatim.

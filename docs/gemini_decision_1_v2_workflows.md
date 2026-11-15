@@ -1,5 +1,7 @@
 # Gemini Decision 1 v2 Lifecycle Workflows
 
+> **Looking for live 30-second presenter demos?** See [Gemini Decision 1 Simple 30-Second Demos](gemini_decision_1_simple_demos.md) for the presenter-first walkthroughs, exact Gemini Enterprise Chat prompts, and the 3-tab web demo app (`just governance-demos`).
+
 Gemini Decision 1 (`gemini-decision-1` on `https://generativelanguage.googleapis.com/v1beta/decisions`) evaluates structured questions in a single forward pass and returns calibrated probabilities (`noul`), discrete labels (`choice`), and ordinal scores (`score`) with zero output tokens.
 
 In v2, Decision 1 moves out of LLM-callable tool wrappers and into Google Agent Development Kit (ADK) lifecycle callbacks and pre-agent ingress gates under `governed_agents/shared_decision_guards/`. Across four live workflows (40 scenarios total) and an honest 3-arm benchmark (59 scored questions), the v2 stack achieves 100% classification accuracy on injection screening (16/16), Bayes containment (8/8), and multimodal CTI ingress (6/6), cuts prompt prefill by 83.87% across 3-step trajectories with 10/10 KV-cache prefix pinning, and outperforms `gemini-3.5-flash-lite` and `gemini-3.8-flash` on accuracy and tail latency.

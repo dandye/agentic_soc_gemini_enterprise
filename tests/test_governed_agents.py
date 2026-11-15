@@ -113,7 +113,20 @@ def test_zero_emojis_across_governance_files() -> None:
             ):
                 continue
             if (
-                path.suffix in {".gz", ".pyc", ".lock", ".hcl"}
+                path.suffix.lower()
+                in {
+                    ".gz",
+                    ".pyc",
+                    ".lock",
+                    ".hcl",
+                    ".png",
+                    ".jpg",
+                    ".jpeg",
+                    ".pdf",
+                    ".gif",
+                    ".webp",
+                    ".ico",
+                }
                 and path.name != ".terraform.lock.hcl"
             ):
                 continue
