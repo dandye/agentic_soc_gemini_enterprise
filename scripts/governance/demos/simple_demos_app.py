@@ -503,27 +503,26 @@ _HTML_PAGE = f"""<!DOCTYPE html>
     border: 1px solid var(--red); color: var(--red);
     padding: 5px 11px; border-radius: 8px; font-size: 13px; font-weight: 700;
   }}
-  #demo2-input-card.dragover {{ border: 2px dashed var(--blue); }}
-  .sample-card {{
+  #demo2-input-card.dragover, #panel-2.dragover #demo2-input-card {{ border: 2px dashed var(--blue); }}
+  .demo2-stack {{ display: flex; flex-direction: column; gap: 14px; }}
+  .demo2-row {{ padding: 14px 18px; margin-bottom: 0; }}
+  .demo2-row-grid {{
+    display: grid; grid-template-columns: 270px 1fr 1fr;
+    gap: 16px; align-items: stretch;
+  }}
+  @media (max-width: 1000px) {{ .demo2-row-grid {{ grid-template-columns: 1fr; }} }}
+  .demo2-preview {{
     background: var(--card-2); border: 1.5px solid var(--border);
     border-radius: 10px; padding: 12px; cursor: pointer;
+    display: flex; flex-direction: column; justify-content: space-between;
     transition: border-color 0.15s ease;
   }}
-  .sample-card:hover {{ border-color: var(--blue); }}
-  .sample-card img {{
-    width: 100%; height: 175px; object-fit: contain; background: #090d14;
+  .demo2-preview:hover {{ border-color: var(--blue); }}
+  .demo2-preview img {{
+    width: 100%; height: 150px; object-fit: contain; background: #090d14;
     border-radius: 6px; border: 1px solid var(--border); margin-bottom: 8px;
   }}
-  .inbox-row {{
-    display: flex; justify-content: space-between; align-items: center;
-    gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border);
-  }}
-  .inbox-row:last-child {{ border-bottom: none; padding-bottom: 0; }}
-  .inbox-row:first-child {{ padding-top: 0; }}
   .nowrap-badge {{ white-space: nowrap; flex-shrink: 0; }}
-  .inbox-item {{ padding: 10px 0; border-bottom: 1px solid var(--border); }}
-  .inbox-item:last-child {{ border-bottom: none; padding-bottom: 0; }}
-  .inbox-item:first-child {{ padding-top: 0; }}
   .meter-wrap {{
     height: 12px; background: #090d14; border-radius: 999px;
     overflow: hidden; border: 1px solid var(--border); margin: 10px 0;
@@ -595,49 +594,102 @@ _HTML_PAGE = f"""<!DOCTYPE html>
     <div class="story">
       Employees forward hundreds of screenshots to security every day. Decision 1 filters them in 0.3 seconds so the SOC agent only wakes up for real threats.
     </div>
-    <div class="card" id="demo2-input-card">
-      <h2>Inbox Screenshots to Triage</h2>
+    <div class="card" id="demo2-input-card" style="padding:16px 20px;margin-bottom:14px;">
       <input type="file" id="file-input" accept=".png,.jpg,.jpeg,.pdf" style="display:none" onchange="uploadFile(this.files[0])">
-      <div class="grid-2">
-        <div class="sample-card" onclick="scoreSample('it_maintenance_notice.png')">
-          <img src="/assets/it_maintenance_notice.png" alt="IT Maintenance Notice">
-          <div class="box-title" style="margin-bottom:4px;">IT Maintenance Notice</div>
-          <p class="muted">Routine weekend patching calendar reminder with no login links.</p>
+      <div class="actions" style="margin-top:0;justify-content:space-between;">
+        <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;">
+          <button class="btn-primary" id="demo2-run-both" onclick="scoreSample('both')">Score Inbox with Decision 1</button>
+          <button class="btn-secondary" onclick="copyText({json.dumps(DEMO2_CHAT_PROMPT)}, this)">Copy Prompt for Gemini Enterprise Chat</button>
+          <button class="btn-secondary" onclick="document.getElementById('file-input').click()">Upload PNG / JPG / PDF</button>
         </div>
-        <div class="sample-card" onclick="scoreSample('fake_sso_login.png')">
-          <img src="/assets/fake_sso_login.png" alt="Fake Corporate Login Page">
-          <div class="box-title" style="margin-bottom:4px;">Fake Corporate Login Page</div>
-          <p class="muted">Urgent password expiration lure harvesting corporate SSO credentials.</p>
-        </div>
-      </div>
-      <div id="demo2-custom-preview" style="display:none;margin-top:12px;padding:10px;background:var(--card-2);border:1px solid var(--border);border-radius:8px;"></div>
-      <div class="actions">
-        <button class="btn-primary" id="demo2-run-both" onclick="scoreSample('both')">Score Inbox with Decision 1</button>
-        <button class="btn-secondary" onclick="copyText({json.dumps(DEMO2_CHAT_PROMPT)}, this)">Copy Prompt for Gemini Enterprise Chat</button>
-        <button class="btn-secondary" onclick="document.getElementById('file-input').click()">Upload PNG / JPG / PDF</button>
+        <span class="muted">or drag &amp; drop any PNG, JPG, or PDF here</span>
       </div>
     </div>
-    <div class="grid-2" id="demo2-results" style="display:none;">
-      <div class="compare-box danger">
-        <div class="box-head">
-          <span class="box-title" style="color:var(--red);">Without Decision 1</span>
-          <span class="badge badge-red nowrap-badge">Wakes Full Agent Every Time</span>
+    <div class="demo2-stack" id="demo2-results">
+      <div class="card demo2-row" id="demo2-custom-row" style="display:none;">
+        <div class="demo2-row-grid">
+          <div class="demo2-preview" id="demo2-custom-preview"></div>
+          <div class="compare-box danger">
+            <div class="box-head">
+              <span class="box-title" style="color:var(--red);">Without Decision 1</span>
+              <span class="badge badge-red nowrap-badge">Wakes Full Agent</span>
+            </div>
+            <p class="muted" style="margin-bottom:10px;">
+              Every forwarded file wakes the full reasoning SOC agent, burning ~3s and LLM tokens before knowing whether it is benign or malicious.
+            </p>
+            <div class="pills">
+              <span class="ev-pill-danger">Full LLM Wakeup (~3s)</span>
+              <span class="ev-pill-danger">Unfiltered Queue</span>
+            </div>
+          </div>
+          <div class="compare-box safe" id="demo2-custom-after"></div>
         </div>
-        <p class="muted" style="margin-bottom:10px;">
-          Every forwarded screenshot wakes the full reasoning SOC agent, burning ~3 seconds and LLM tokens on routine IT notices before reaching real phishing lures.
-        </p>
-        <div class="cmd-preview" id="demo2-without-rows"></div>
-        <div style="font-size:13px;font-weight:700;color:var(--muted);margin-bottom:6px;">Unfiltered Inbox Cost:</div>
-        <div class="pills" id="demo2-without-pills"></div>
       </div>
-      <div class="compare-box safe">
-        <div class="box-head">
-          <span class="box-title" style="color:var(--green);" id="demo2-with-title">With Decision 1</span>
-          <span class="badge badge-green nowrap-badge" id="demo2-with-badge">Filtered</span>
+
+      <!-- Row 1: IT Maintenance Notice -->
+      <div class="card demo2-row" id="demo2-row-it">
+        <div class="demo2-row-grid">
+          <div class="demo2-preview" onclick="scoreSample('it_maintenance_notice.png')">
+            <img src="/assets/it_maintenance_notice.png" alt="IT Maintenance Notice">
+            <div>
+              <div class="box-title" style="margin-bottom:3px;">IT Maintenance Notice</div>
+              <p class="muted">Routine weekend patching notice</p>
+            </div>
+          </div>
+          <div class="compare-box danger">
+            <div class="box-head">
+              <span class="box-title" style="color:var(--red);">Without Decision 1</span>
+              <span class="badge badge-red nowrap-badge">Wakes Full Agent</span>
+            </div>
+            <p class="muted" style="margin-bottom:10px;">
+              Routine IT calendar notice still wakes the full reasoning SOC agent, wasting ~3s and LLM tokens.
+            </p>
+            <div class="pills">
+              <span class="ev-pill-danger">Full LLM Wakeup (~3s)</span>
+              <span class="ev-pill-danger">Wasted Tokens</span>
+            </div>
+          </div>
+          <div class="compare-box safe" id="demo2-after-it">
+            <div class="box-head">
+              <span class="box-title" style="color:var(--green);">With Decision 1</span>
+              <span class="badge badge-teal nowrap-badge">Ready</span>
+            </div>
+            <p class="muted">Click &quot;Score Inbox with Decision 1&quot; to evaluate live.</p>
+          </div>
         </div>
-        <div class="cmd-preview" id="demo2-with-rows"></div>
-        <div style="font-size:13px;font-weight:700;color:var(--muted);margin-bottom:6px;">Pre-Agent Filter Outcome:</div>
-        <div class="pills" id="demo2-with-pills"></div>
+      </div>
+
+      <!-- Row 2: Fake Corporate Login Page -->
+      <div class="card demo2-row" id="demo2-row-sso">
+        <div class="demo2-row-grid">
+          <div class="demo2-preview" onclick="scoreSample('fake_sso_login.png')">
+            <img src="/assets/fake_sso_login.png" alt="Fake Corporate Login Page">
+            <div>
+              <div class="box-title" style="margin-bottom:3px;">Fake Corporate Login Page</div>
+              <p class="muted">Fake SSO password expiration lure</p>
+            </div>
+          </div>
+          <div class="compare-box danger">
+            <div class="box-head">
+              <span class="box-title" style="color:var(--red);">Without Decision 1</span>
+              <span class="badge badge-red nowrap-badge">Wakes Full Agent</span>
+            </div>
+            <p class="muted" style="margin-bottom:10px;">
+              Real SSO credential lure waits in the same unfiltered LLM queue behind benign inbox noise.
+            </p>
+            <div class="pills">
+              <span class="ev-pill-danger">Full LLM Wakeup (~3s)</span>
+              <span class="ev-pill-danger">Delayed Behind Noise</span>
+            </div>
+          </div>
+          <div class="compare-box safe" id="demo2-after-sso">
+            <div class="box-head">
+              <span class="box-title" style="color:var(--green);">With Decision 1</span>
+              <span class="badge badge-teal nowrap-badge">Ready</span>
+            </div>
+            <p class="muted">Click &quot;Score Inbox with Decision 1&quot; to evaluate live.</p>
+          </div>
+        </div>
       </div>
     </div>
   </section>
@@ -747,98 +799,66 @@ async function runDemo1() {{
   }}
 }}
 
-function renderInboxItems(items, wallMs) {{
-  const resultsEl = document.getElementById('demo2-results');
-  resultsEl.style.display = 'grid';
+function renderAfterCard(cardEl, item) {{
+  const isThreat = Boolean(item.is_actionable_threat);
+  cardEl.className = 'compare-box ' + (isThreat ? 'danger' : 'safe');
+  cardEl.innerHTML = '';
 
-  const displayMs = wallMs != null
-    ? wallMs
-    : Math.round(Math.max(...items.map(x => x.latency_ms || 0)) * 10) / 10;
-  const safeCount = items.filter(x => !x.is_actionable_threat).length;
-  const threatCount = items.filter(x => x.is_actionable_threat).length;
+  const head = document.createElement('div');
+  head.className = 'box-head';
+  const title = document.createElement('span');
+  title.className = 'box-title';
+  title.style.color = isThreat ? 'var(--red)' : 'var(--green)';
+  title.textContent = 'With Decision 1 (Live ' + item.latency_ms + ' ms)';
+  const pill = document.createElement('span');
+  pill.className = 'badge nowrap-badge ' + (isThreat ? 'badge-red' : 'badge-green');
+  pill.textContent = isThreat
+    ? 'Phishing Page (' + item.threat_pct + '%) - Woke SOC Agent'
+    : 'Safe Notice (' + item.threat_pct + '%) - Archived ($0)';
+  head.appendChild(title);
+  head.appendChild(pill);
 
-  // Left Card: Without Decision 1
-  const withoutRows = document.getElementById('demo2-without-rows');
-  withoutRows.innerHTML = '';
-  items.forEach(item => {{
-    const row = document.createElement('div');
-    row.className = 'inbox-row';
-    const nameEl = document.createElement('strong');
-    nameEl.textContent = item.filename;
-    const badgeEl = document.createElement('span');
-    badgeEl.className = 'badge badge-red nowrap-badge';
-    badgeEl.textContent = item.is_actionable_threat
-      ? 'Woke Full Agent (~3s, queued behind noise)'
-      : 'Woke Full Agent (~3s, wasted tokens)';
-    row.appendChild(nameEl);
-    row.appendChild(badgeEl);
-    withoutRows.appendChild(row);
-  }});
-  const withoutPills = document.getElementById('demo2-without-pills');
-  withoutPills.innerHTML = '';
-  [items.length + '/' + items.length + ' Full LLM Wakeups', 'Routine Noise Not Filtered'].forEach(lbl => {{
-    const s = document.createElement('span');
-    s.className = 'ev-pill-danger';
-    s.textContent = lbl;
-    withoutPills.appendChild(s);
-  }});
+  const meterWrap = document.createElement('div');
+  meterWrap.className = 'meter-wrap';
+  const meterFill = document.createElement('div');
+  meterFill.className = 'meter-fill';
+  meterFill.style.width = Math.max(item.threat_pct, 4) + '%';
+  meterFill.style.background = isThreat ? 'var(--red)' : 'var(--green)';
+  meterWrap.appendChild(meterFill);
 
-  // Right Card: With Decision 1
-  document.getElementById('demo2-with-title').textContent = 'With Decision 1 (Live ' + displayMs + ' ms)';
-  const summaryBadge = document.getElementById('demo2-with-badge');
-  if (items.length > 1) {{
-    summaryBadge.textContent = safeCount + ' Archived ($0) | ' + threatCount + ' Escalated';
-  }} else if (threatCount > 0) {{
-    summaryBadge.textContent = 'Phishing Lure Escalated';
-  }} else {{
-    summaryBadge.textContent = 'Safe Notice Archived ($0)';
-  }}
+  const meta = document.createElement('p');
+  meta.className = 'muted';
+  meta.style.marginBottom = '10px';
+  meta.textContent = 'Threat Score: ' + item.threat_pct + '% | Confidence: ' + item.confidence_pct + '%';
 
-  const withRows = document.getElementById('demo2-with-rows');
-  withRows.innerHTML = '';
-  items.forEach(item => {{
-    const wrap = document.createElement('div');
-    wrap.className = 'inbox-item';
-    const head = document.createElement('div');
-    head.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:nowrap;';
-    const nameEl = document.createElement('strong');
-    nameEl.textContent = item.filename;
-    const badgeEl = document.createElement('span');
-    badgeEl.className = 'badge nowrap-badge ' + (item.is_actionable_threat ? 'badge-red' : 'badge-green');
-    badgeEl.textContent = item.is_actionable_threat
-      ? 'Phishing Page (' + item.threat_pct + '%) - Woke SOC Agent'
-      : 'Safe Notice (' + item.threat_pct + '%) - Archived ($0)';
-    head.appendChild(nameEl);
-    head.appendChild(badgeEl);
-
-    const meterWrap = document.createElement('div');
-    meterWrap.className = 'meter-wrap';
-    const meterFill = document.createElement('div');
-    meterFill.className = 'meter-fill';
-    meterFill.style.width = Math.max(item.threat_pct, 4) + '%';
-    meterFill.style.background = item.is_actionable_threat ? 'var(--red)' : 'var(--green)';
-    meterWrap.appendChild(meterFill);
-
-    const meta = document.createElement('p');
-    meta.className = 'muted';
-    meta.textContent = 'Threat Score: ' + item.threat_pct + '% | Decision Time: ' + item.latency_ms + ' ms | Confidence: ' + item.confidence_pct + '%';
-
-    wrap.appendChild(head);
-    wrap.appendChild(meterWrap);
-    wrap.appendChild(meta);
-    withRows.appendChild(wrap);
-  }});
-
-  const withPills = document.getElementById('demo2-with-pills');
-  withPills.innerHTML = '';
-  const pillLabels = ['0 Output Tokens Used'];
-  if (safeCount > 0) pillLabels.push('Safe Notice Archived ($0)');
-  if (threatCount > 0) pillLabels.push('Phishing Lure Escalated');
-  pillLabels.forEach(lbl => {{
+  const pills = document.createElement('div');
+  pills.className = 'pills';
+  const outcomeLabels = isThreat
+    ? ['0 Output Tokens', 'Escalated to SOC Agent']
+    : ['0 Output Tokens', 'Agent Stayed Asleep ($0)'];
+  outcomeLabels.forEach(lbl => {{
     const s = document.createElement('span');
     s.className = 'ev-pill';
     s.textContent = lbl;
-    withPills.appendChild(s);
+    pills.appendChild(s);
+  }});
+
+  cardEl.appendChild(head);
+  cardEl.appendChild(meterWrap);
+  cardEl.appendChild(meta);
+  cardEl.appendChild(pills);
+}}
+
+function renderInboxItems(items) {{
+  items.forEach(item => {{
+    if (item.filename === 'it_maintenance_notice.png') {{
+      renderAfterCard(document.getElementById('demo2-after-it'), item);
+    }} else if (item.filename === 'fake_sso_login.png') {{
+      renderAfterCard(document.getElementById('demo2-after-sso'), item);
+    }} else {{
+      document.getElementById('demo2-custom-row').style.display = 'block';
+      renderAfterCard(document.getElementById('demo2-custom-after'), item);
+    }}
   }});
 }}
 
@@ -846,7 +866,7 @@ async function scoreSample(sampleName) {{
   const btn = document.getElementById('demo2-run-both');
   btn.disabled = true;
   btn.textContent = 'Scoring Live with Decision 1...';
-  document.getElementById('demo2-custom-preview').style.display = 'none';
+  document.getElementById('demo2-custom-row').style.display = 'none';
   try {{
     const resp = await fetch('/api/demo2', {{
       method: 'POST',
@@ -854,7 +874,7 @@ async function scoreSample(sampleName) {{
       body: JSON.stringify({{sample: sampleName}})
     }});
     const d = await resp.json();
-    if (d.items) renderInboxItems(d.items, d.wall_ms);
+    if (d.items) renderInboxItems(d.items);
   }} finally {{
     btn.disabled = false;
     btn.textContent = 'Score Inbox with Decision 1';
@@ -864,33 +884,42 @@ async function scoreSample(sampleName) {{
 async function uploadFile(file) {{
   if (!file) return;
   const preview = document.getElementById('demo2-custom-preview');
-  preview.style.display = 'flex';
-  preview.style.cssText = 'display:flex;align-items:center;gap:12px;margin-top:12px;padding:10px;background:var(--card-2);border:1px solid var(--border);border-radius:8px;';
   preview.innerHTML = '';
   if (file.type && file.type.startsWith('image/')) {{
     const img = document.createElement('img');
     img.src = URL.createObjectURL(file);
-    img.style.cssText = 'max-height:110px;max-width:220px;object-fit:contain;background:#090d14;border-radius:6px;border:1px solid var(--border);';
     preview.appendChild(img);
+  }} else {{
+    const box = document.createElement('div');
+    box.style.cssText = 'height:150px;display:flex;align-items:center;justify-content:center;background:#090d14;border-radius:6px;border:1px solid var(--border);margin-bottom:8px;font-family:monospace;font-size:13px;padding:12px;text-align:center;';
+    box.textContent = file.name;
+    preview.appendChild(box);
   }}
-  const label = document.createElement('span');
-  label.className = 'muted';
-  label.textContent = 'Uploaded artifact: ' + file.name;
-  preview.appendChild(label);
+  const info = document.createElement('div');
+  const t = document.createElement('div');
+  t.className = 'box-title';
+  t.style.marginBottom = '3px';
+  t.textContent = file.name;
+  const sub = document.createElement('p');
+  sub.className = 'muted';
+  sub.textContent = 'Uploaded artifact';
+  info.appendChild(t);
+  info.appendChild(sub);
+  preview.appendChild(info);
 
   const fd = new FormData();
   fd.append('file', file);
   const resp = await fetch('/api/demo2', {{method: 'POST', body: fd}});
   const d = await resp.json();
-  if (d.items) renderInboxItems(d.items, d.wall_ms);
+  if (d.items) renderInboxItems(d.items);
 }}
 
-const inputCard2 = document.getElementById('demo2-input-card');
-inputCard2.addEventListener('dragover', e => {{ e.preventDefault(); inputCard2.classList.add('dragover'); }});
-inputCard2.addEventListener('dragleave', () => inputCard2.classList.remove('dragover'));
-inputCard2.addEventListener('drop', e => {{
+const panel2El = document.getElementById('panel-2');
+panel2El.addEventListener('dragover', e => {{ e.preventDefault(); panel2El.classList.add('dragover'); }});
+panel2El.addEventListener('dragleave', () => panel2El.classList.remove('dragover'));
+panel2El.addEventListener('drop', e => {{
   e.preventDefault();
-  inputCard2.classList.remove('dragover');
+  panel2El.classList.remove('dragover');
   if (e.dataTransfer.files.length) uploadFile(e.dataTransfer.files[0]);
 }});
 

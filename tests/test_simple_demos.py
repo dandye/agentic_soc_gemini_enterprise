@@ -380,6 +380,8 @@ def test_simple_demos_ui_and_api_parity() -> None:
     assert html.count("Copy Prompt for Gemini Enterprise Chat") == 3
     assert html.count("Without Decision 1") >= 2
     assert html.count("With Decision 1") >= 2
+    assert "IT Maintenance Notice" in html
+    assert "Fake Corporate Login Page" in html
     assert isinstance(app_mod.DEMO2_CHAT_PROMPT, str)
     assert app_mod.DEMO2_CHAT_PROMPT.strip()
 

@@ -43,14 +43,14 @@ Open `http://127.0.0.1:8787` in Chrome for all three tabs, or open Gemini Enterp
 
 - **Gemini Enterprise Chat:** Paste this exact follow-up prompt:
   `Enrich the phishing domain sso-verify-portal-auth.com in GTI and check Chronicle UDM logs from the last 24 hours for any employees who visited it.`
-- **Web App (Tab 2):** Click **Score Inbox with Decision 1** (or click either sample button for `it_maintenance_notice.png` and `fake_sso_login.png`, or upload/drop any PNG, JPG, or PDF) to view the side-by-side **Without Decision 1** vs. **With Decision 1** comparison.
+- **Web App (Tab 2):** Click **Score Inbox with Decision 1** (or upload/drop any PNG, JPG, or PDF) to evaluate the two stacked example rows (**IT Maintenance Notice** on top, **Fake Corporate Login Page** below), each showing its preview alongside a side-by-side **Without Decision 1** vs. **With Decision 1** comparison.
 
 **Live talk track:**
 
 > Analysts receive thousands of user-reported screenshots every week, and most of them are harmless IT notices. Decision 1 inspects the raw image in a fraction of a second with zero generated text, archiving the routine maintenance notice automatically and waking the full AI team only when a real fake login page arrives.
 
-![Demo 2 screenshot showing side-by-side Without Decision 1 vs. With Decision 1 multimodal inbox triage](images/decision1_v2/10_simple_demo2_screenshot_inbox.png)\
-*Figure 2. Demo 2 ("The Phishing Screenshot Inbox"): side-by-side **Without Decision 1** vs. **With Decision 1** view where `it_maintenance_notice.png` archives automatically (`archive_no_llm`) and `fake_sso_login.png` escalates to `Threat_Hunter` with zero output tokens.*
+![Demo 2 screenshot showing stacked IT Maintenance Notice and Fake Corporate Login Page rows with Without Decision 1 vs. With Decision 1 comparison](images/decision1_v2/10_simple_demo2_screenshot_inbox.png)\
+*Figure 2. Demo 2 ("The Phishing Screenshot Inbox"): stacked rows (**IT Maintenance Notice** on top, **Fake Corporate Login Page** below) with side-by-side **Without Decision 1** vs. **With Decision 1** cards showing `it_maintenance_notice.png` archived (`archive_no_llm`) and `fake_sso_login.png` escalated to `Threat_Hunter` with zero output tokens.*
 
 ---
 
