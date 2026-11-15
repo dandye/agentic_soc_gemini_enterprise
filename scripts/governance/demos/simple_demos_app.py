@@ -801,14 +801,14 @@ async function runDemo1() {{
 
 function renderAfterCard(cardEl, item) {{
   const isThreat = Boolean(item.is_actionable_threat);
-  cardEl.className = 'compare-box ' + (isThreat ? 'danger' : 'safe');
+  cardEl.className = 'compare-box safe';
   cardEl.innerHTML = '';
 
   const head = document.createElement('div');
   head.className = 'box-head';
   const title = document.createElement('span');
   title.className = 'box-title';
-  title.style.color = isThreat ? 'var(--red)' : 'var(--green)';
+  title.style.color = 'var(--green)';
   title.textContent = 'With Decision 1 (Live ' + item.latency_ms + ' ms)';
   const pill = document.createElement('span');
   pill.className = 'badge nowrap-badge ' + (isThreat ? 'badge-red' : 'badge-green');
