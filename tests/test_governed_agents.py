@@ -920,7 +920,7 @@ def test_decision_client_api_key_request_and_score_shift() -> None:
     """Verifies GEMINI_API_KEY auth, noul/choice/score payloads, and 0-indexed -> 1-5 shift."""
     mod = _load_module(
         "test_decision_client_apikey",
-        GOVERNED_AGENTS_DIR / "soc_orchestrator" / "decision_client.py",
+        GOVERNED_AGENTS_DIR / "shared_decision_guards" / "decision_client.py",
         {},
     )
     fake_key = "AIzaSyFakeHermeticDecisionKey"  # noqa: S105
@@ -984,9 +984,10 @@ def test_decision_client_auth_provider_ttl_cache_and_http_error_resilience() -> 
     """Verifies GEMINI_AUTH_PROVIDER TTL caching, client reuse, and HTTP error resilience."""
     mod = _load_module(
         "test_decision_client_auth_provider",
-        GOVERNED_AGENTS_DIR / "soc_orchestrator" / "decision_client.py",
+        GOVERNED_AGENTS_DIR / "shared_decision_guards" / "decision_client.py",
         {},
     )
+    mod._cached_auth_tokens.clear()
     provider = (
         "projects/p/locations/us-central1/authProviders/agw-secops-gemini-api-key"
     )

@@ -444,6 +444,9 @@ async def _preflight_before_model_callback(
 ) -> LlmResponse | None:
     """Short-circuits high-confidence single-specialist turns or injects routing hint."""
     del callback_context
+    contents = getattr(llm_request, "contents", None) or []
+    if len(contents) != 1:
+        return None
     prompt = _extract_latest_user_prompt(llm_request)
     if not prompt:
         return None
@@ -453,9 +456,7 @@ async def _preflight_before_model_callback(
         logger.debug("pre-flight Decision 1 pass failed; proceeding without hint")
         return None
 
-    contents = getattr(llm_request, "contents", None) or []
-    is_initial_turn = len(contents) == 1
-    target_agent = _short_circuit_target(result) if is_initial_turn else None
+    target_agent = _short_circuit_target(result)
     if target_agent is not None:
         logger.info("pre-flight Decision 1 short-circuiting to %s", target_agent)
         return LlmResponse(

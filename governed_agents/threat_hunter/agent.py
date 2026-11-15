@@ -16,6 +16,8 @@ Deployed with `entrypoint_module = "agent"` / `entrypoint_object = "root_agent"`
 from __future__ import annotations
 
 import os
+import sys
+from pathlib import Path
 
 from a2a.types import AgentSkill
 from google.adk.a2a.executor.a2a_agent_executor import A2aAgentExecutor
@@ -33,6 +35,21 @@ from triage_tools import (
     _inject_current_utc_time_callback,
 )
 from vertexai.agent_engines.templates.a2a import A2aAgent, create_agent_card
+
+
+try:
+    from shared_decision_guards.prompt_injection_guard import (
+        compose_after_tool_callbacks,
+        screen_tool_output_after_tool_callback,
+    )
+except ImportError:
+    _REPO_ROOT = str(Path(__file__).resolve().parents[2])
+    if _REPO_ROOT not in sys.path:
+        sys.path.insert(0, _REPO_ROOT)
+    from governed_agents.shared_decision_guards.prompt_injection_guard import (  # noqa: E402
+        compose_after_tool_callbacks,
+        screen_tool_output_after_tool_callback,
+    )
 
 
 APP_NAME = "threat_hunter_agent"
@@ -140,7 +157,10 @@ threat_hunter_llm = LlmAgent(
         chronicle_before_model_callback,
     ],
     before_tool_callback=_cap_udm_search_args,
-    after_tool_callback=_filter_udm_events_after_tool_callback,
+    after_tool_callback=compose_after_tool_callbacks(
+        _filter_udm_events_after_tool_callback,
+        screen_tool_output_after_tool_callback,
+    ),
 )
 
 

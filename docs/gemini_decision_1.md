@@ -6,14 +6,16 @@ This guide documents how Decision 1 is integrated into the governed SecOps stack
 
 ## Architecture across the governed SOC stack
 
-Every Decision 1 call in `governed_agents/` uses a lightweight `httpx` REST client (`decision_client.py`) rather than modifying the pinned `google-adk==2.13.0` or `google-genai==2.34.0` dependencies. Each client reuses a module-level `httpx.Client` (and loop-scoped `httpx.AsyncClient` in `soc_orchestrator`) and caches Auth Manager credentials in memory with a 300-second TTL (`GEMINI_AUTH_TOKEN_TTL_SECONDS`). When neither `GEMINI_AUTH_PROVIDER` nor `GEMINI_API_KEY` is configured, the client returns `{"enabled": False, ...}` so hermetic CI and unit tests pass without network access.
+Every Decision 1 call in `governed_agents/` uses the canonical `httpx` REST client in `governed_agents/shared_decision_guards/decision_client.py` (re-exported by `soc_orchestrator/decision_client.py`, `threat_hunter/decision_client.py`, and `cti_researcher/decision_client.py`) rather than modifying the pinned `google-adk==2.13.0` or `google-genai==2.34.0` dependencies. The shared client supports both synchronous (`evaluate_decisions`) and asynchronous (`aevaluate_decisions`) calls, multimodal `input` parts (`text`, `image`, `document`, `audio`, `video`), HTTP 400 input-safety block detection (`safety_blocked: True`), and 300-second in-memory Auth Manager credential caching (`GEMINI_AUTH_TOKEN_TTL_SECONDS`). When neither `GEMINI_AUTH_PROVIDER` nor `GEMINI_API_KEY` is configured, it returns `{"enabled": False, ...}` so hermetic CI and unit tests pass without network access.
+
+To ensure Vertex AI Reasoning Engine containers import `shared_decision_guards` without `ModuleNotFoundError`, both `scripts/governance/package_agent.sh` and `terraform/40-package.tf` bundle `shared_decision_guards/` into every `terraform/dist/<agent>.tar.gz` archive and compute identical deterministic SHA-256 hashes over the sorted file list.
 
 ![Architecture diagram of Gemini Decision 1 integrated into the governed SOC stack behind the egress Agent Gateway and Auth Manager](images/decision1/04_architecture_decision1_soc.png)\
 *Figure 1. End-to-end architecture showing `soc_orchestrator` `LlmResponse` short-circuit routing, `threat_hunter` `after_tool_callback` pre-LLM UDM noise filtering, `cti_researcher` unstructured/multimodal CTI triage, and clean `detection_engineer` and `tier2_responder` baselines behind `agw-secops-egress`.*
 
 | Agent | Decision 1 integration | What it replaces or avoids | Enforcement boundary |
 | --- | --- | --- | --- |
-| `soc_orchestrator` | `before_model_callback` (`_preflight_before_model_callback`) evaluates 6 questions (`4 noul`, `1 choice`, `1 score`) | On initial user turns (`len(contents) == 1`) with `workflow_mode == "single_specialist"` and exactly one specialist `noul >= 0.90`, returns `LlmResponse(function_call=...)` directly—bypassing `gemini-4-hydrogen` on the routing turn | Never blocks or self-refuses; falls back to `[PREFLIGHT_ROUTING]` hint on multi-stage or ambiguous turns |
+| `soc_orchestrator` | `before_model_callback` (`_preflight_before_model_callback`) evaluates 6 questions (`4 noul`, `1 choice`, `1 score`) | On initial user turns (`len(contents) == 1`; later turns where `len(contents) != 1` skip pre-flight) with `workflow_mode == "single_specialist"` and exactly one specialist `noul >= 0.90`, returns `LlmResponse(function_call=...)` directly, bypassing `gemini-4-hydrogen` on the routing turn | Never blocks or self-refuses; falls back to `[PREFLIGHT_ROUTING]` hint on multi-stage or ambiguous turns |
 | `threat_hunter` | `after_tool_callback` (`_filter_udm_events_after_tool_callback`) on `udm_search` and `list_security_alerts` | Evaluates each returned UDM event/alert in parallel without `[:32000]` truncation: drops `P(tp) < 0.30` noise before `threat_hunter_llm`, keeps `0.30–0.85` with `decision1_triage` metadata, tags `>= 0.85` with `[HIGH_CONFIDENCE_ESCALATE]` | Read-only Chronicle OneMCP hunt allowlist (`roles/chronicle.viewer`) |
 | `cti_researcher` | `triage_unstructured_cti_artifact(content, mime_type="text/plain")` | Evaluates unstructured threat prose, OSINT reports, PDFs, and screenshots (`type: "text"`, `"image"`, `"document"`) in one pass | Lateral isolation to `www.virustotal.com`, `generativelanguage.googleapis.com`, and `agentidentitycredentials.googleapis.com` |
 | `detection_engineer` | Clean baseline (no Decision 1 tool) | Uses Chronicle OneMCP `validate_rule` and `evaluate_rule_coverage` directly instead of redundant LLM grading | Chronicle OneMCP validation allowlist; explicitly distinguishes **YARA-L 2.0** from standard YARA |
@@ -30,7 +32,7 @@ Every Decision 1 call in `governed_agents/` uses a lightweight `httpx` REST clie
 Across `soc_orchestrator`, `threat_hunter`, and `detection_engineer`, the stack explicitly distinguishes **YARA-L 2.0** from **standard YARA**:
 
 - **YARA-L 2.0 (Chronicle SIEM UDM):** Event correlation rules evaluated over Unified Data Model (UDM) telemetry with `meta`, `events`, `match`, `outcome`, and `condition` sections, validated authoritatively by Chronicle OneMCP `validate_rule`.
-- **Standard YARA:** File, memory, or binary payload pattern-matching rules using `strings` and `condition` over raw bytes or artifacts—not Chronicle SIEM UDM event rules.
+- **Standard YARA:** File, memory, or binary payload pattern-matching rules using `strings` and `condition` over raw bytes or artifacts, not Chronicle SIEM UDM event rules.
 
 ## Auth Manager and Agent Gateway egress
 
@@ -76,7 +78,7 @@ To validate Decision 1 against realistic security telemetry in the test Google S
 
 | Metric | Generative (`gemini-3.8-flash`, `thinkingBudget=0`) | Gemini Decision 1 (`gemini-decision-1`) | Improvement |
 | --- | --- | --- | --- |
-| Calls | `39` | `39` | — |
+| Calls | `39` | `39` | Same |
 | Total input tokens | `11,622` | `23,694` | `2.04x` input token footprint (no output tokens) |
 | Total output tokens | `2,051` | `0` | **100% eliminated** |
 | Mean latency (ms) | `3,218.01 ms` | `247.11 ms` | **13.0x faster** |

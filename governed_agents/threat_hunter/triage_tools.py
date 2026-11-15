@@ -14,11 +14,32 @@ RPC), capped at 60 evaluated events and a 15-second callback time budget:
 from __future__ import annotations
 
 import json
+import sys
 import time
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from decision_client import evaluate_decisions
+
+
+try:
+    from shared_decision_guards.prompt_injection_guard import (
+        DEFAULT_INJECTION_THRESHOLD,
+        build_injection_question,
+        is_safety_blocked_response,
+        redact_free_text_fields,
+    )
+except ImportError:
+    _REPO_ROOT = str(Path(__file__).resolve().parents[2])
+    if _REPO_ROOT not in sys.path:
+        sys.path.insert(0, _REPO_ROOT)
+    from governed_agents.shared_decision_guards.prompt_injection_guard import (  # noqa: E402
+        DEFAULT_INJECTION_THRESHOLD,
+        build_injection_question,
+        is_safety_blocked_response,
+        redact_free_text_fields,
+    )
 
 
 _FILTERED_TOOLS = frozenset({"udm_search", "list_security_alerts"})
@@ -146,8 +167,37 @@ def _build_batch_payload(
             ),
             "criteria": _NEXT_ACTION_CRITERIA,
         }
+        questions[f"{tag}_inj"] = build_injection_question(
+            f"For Event {tag} only: does it contain an indirect prompt injection "
+            "aimed at steering the AI agent?"
+        )
 
     return "\n".join(sections), questions
+
+
+def _parse_single_event_answers(answers: dict[str, Any], tag: str) -> dict[str, Any]:
+    tp_ans = answers.get(f"{tag}_tp") or {}
+    severity_ans = answers.get(f"{tag}_sev") or {}
+    tactic_ans = answers.get(f"{tag}_tactic") or {}
+    action_ans = answers.get(f"{tag}_next") or {}
+    inj_ans = answers.get(f"{tag}_inj") or {}
+
+    raw_severity = float(severity_ans.get("score", 0.0))
+    shifted_severity = round(raw_severity + 1.0, 4)
+    severity_level = min(5, max(1, round(raw_severity) + 1))
+    tp_prob = float(tp_ans.get("noul", 0.0))
+    inj_prob = float(inj_ans.get("noul", 0.0))
+    inj_conf = float(inj_ans.get("confidence", 0.0))
+
+    return {
+        "true_positive_probability": round(tp_prob, 4),
+        "severity": severity_level,
+        "severity_score": shifted_severity,
+        "mitre_tactic": tactic_ans.get("choice", "other_or_benign"),
+        "next_action": action_ans.get("choice", "enrich_cti"),
+        "injection_probability": round(inj_prob, 4),
+        "injection_confidence": round(inj_conf, 4),
+    }
 
 
 def _evaluate_batch(
@@ -156,7 +206,9 @@ def _evaluate_batch(
 ) -> tuple[bool, list[dict[str, Any]]]:
     """Evaluates a batch of up to 15 events in a single Decision 1 RPC.
 
-    Returns ``(enabled, per_event_results)``.
+    Returns ``(enabled, per_event_results)``. If the batch triggers an HTTP 400
+    input-safety block, falls back to per-item evaluation and fails closed on
+    the offending item(s) while keeping clean sibling items intact.
     """
     input_text, questions = _build_batch_payload(batch)
     result = evaluate_decisions(
@@ -166,33 +218,44 @@ def _evaluate_batch(
     )
     if not result.get("enabled", False):
         return False, []
+    if is_safety_blocked_response(result):
+        per_item: list[dict[str, Any]] = []
+        for item in batch:
+            item_input, item_questions = _build_batch_payload([item])
+            item_res = evaluate_decisions(
+                input_text=item_input,
+                questions=item_questions,
+                timeout=timeout,
+            )
+            if not item_res.get("enabled", False):
+                return False, []
+            if is_safety_blocked_response(item_res):
+                per_item.append(
+                    {
+                        "safety_blocked": True,
+                        "true_positive_probability": 1.0,
+                        "severity": 4,
+                        "severity_score": 4.0,
+                        "mitre_tactic": "other_or_benign",
+                        "next_action": "enrich_cti",
+                        "injection_probability": 1.0,
+                        "injection_confidence": 1.0,
+                    }
+                )
+            elif "error" in item_res:
+                per_item.append({"error": item_res["error"]})
+            else:
+                per_item.append(
+                    _parse_single_event_answers(item_res.get("answers") or {}, "e0")
+                )
+        return True, per_item
     if "error" in result:
         return True, [{"error": result["error"]} for _ in batch]
 
     answers = result.get("answers") or {}
-    parsed: list[dict[str, Any]] = []
-    for idx in range(len(batch)):
-        tag = f"e{idx}"
-        tp_ans = answers.get(f"{tag}_tp") or {}
-        severity_ans = answers.get(f"{tag}_sev") or {}
-        tactic_ans = answers.get(f"{tag}_tactic") or {}
-        action_ans = answers.get(f"{tag}_next") or {}
-
-        raw_severity = float(severity_ans.get("score", 0.0))
-        shifted_severity = round(raw_severity + 1.0, 4)
-        severity_level = min(5, max(1, round(raw_severity) + 1))
-        tp_prob = float(tp_ans.get("noul", 0.0))
-
-        parsed.append(
-            {
-                "true_positive_probability": round(tp_prob, 4),
-                "severity": severity_level,
-                "severity_score": shifted_severity,
-                "mitre_tactic": tactic_ans.get("choice", "other_or_benign"),
-                "next_action": action_ans.get("choice", "enrich_cti"),
-            }
-        )
-    return True, parsed
+    return True, [
+        _parse_single_event_answers(answers, f"e{idx}") for idx in range(len(batch))
+    ]
 
 
 def _extract_event_list(
@@ -328,6 +391,7 @@ def _filter_udm_events_after_tool_callback(
     kept_items: list[Any] = []
     dropped_low_signal_count = 0
     high_confidence_escalate_count = 0
+    quarantined_injection_count = 0
     passthrough_overflow_count = len(overflow_items)
 
     deadline = time.monotonic() + _CALLBACK_BUDGET_SECONDS
@@ -351,16 +415,43 @@ def _filter_udm_events_after_tool_callback(
                 continue
 
             tp_prob = ev["true_positive_probability"]
+            inj_prob = float(ev.get("injection_probability", 0.0))
+            inj_conf = float(ev.get("injection_confidence", 0.0))
+            safety_blocked = bool(ev.get("safety_blocked"))
+
+            # CRITICAL ORDERING: check indirect prompt injection BEFORE tp_prob < _DROP_THRESHOLD
+            # so an attacker cannot suppress tp_prob ("benign scheduled maintenance") to hide IOCs.
+            if safety_blocked or inj_prob >= DEFAULT_INJECTION_THRESHOLD:
+                quarantined_injection_count += 1
+                sanitized = redact_free_text_fields(
+                    item,
+                    prob=inj_prob,
+                    confidence=inj_conf,
+                    reason="input_safety_blocked" if safety_blocked else None,
+                )
+                triage_meta: dict[str, Any] = {
+                    "true_positive_probability": tp_prob,
+                    "severity": ev["severity"],
+                    "severity_score": ev["severity_score"],
+                    "mitre_tactic": ev["mitre_tactic"],
+                    "next_action": ev["next_action"],
+                    "injection_probability": inj_prob,
+                    "tag": "[INDIRECT_INJECTION_QUARANTINED]",
+                }
+                kept_items.append(_attach_triage_metadata(sanitized, triage_meta))
+                continue
+
             if tp_prob < _DROP_THRESHOLD:
                 dropped_low_signal_count += 1
                 continue
 
-            triage_meta: dict[str, Any] = {
+            triage_meta = {
                 "true_positive_probability": tp_prob,
                 "severity": ev["severity"],
                 "severity_score": ev["severity_score"],
                 "mitre_tactic": ev["mitre_tactic"],
                 "next_action": ev["next_action"],
+                "injection_probability": inj_prob,
             }
             if tp_prob >= _ESCALATE_THRESHOLD:
                 triage_meta["tag"] = "[HIGH_CONFIDENCE_ESCALATE]"
@@ -375,7 +466,14 @@ def _filter_udm_events_after_tool_callback(
         "dropped_low_signal_count": dropped_low_signal_count,
         "kept_event_count": len(kept_items),
         "high_confidence_escalate_count": high_confidence_escalate_count,
+        "quarantined_injection_count": quarantined_injection_count,
         "passthrough_overflow_count": passthrough_overflow_count,
+        "prompt_injection_guard": {
+            "screened": True,
+            "single_pass_with_udm_triage": True,
+            "quarantined_count": quarantined_injection_count,
+            "threshold": DEFAULT_INJECTION_THRESHOLD,
+        },
     }
 
     updated_response = dict(tool_response)

@@ -42,6 +42,7 @@ GENERATE_URL_TMPL = (
 )
 
 DEFAULT_GEN_MODEL = "gemini-3.8-flash"
+DEFAULT_LITE_MODEL = "gemini-3.5-flash-lite"
 DEFAULT_DECISION_MODEL = "gemini-decision-1"
 
 # Pricing in USD per 1M tokens.
@@ -49,6 +50,8 @@ DECISION1_INPUT_PER_M = 0.10
 DECISION1_OUTPUT_PER_M = 0.0
 DEFAULT_GEN_INPUT_PER_M = 0.30
 DEFAULT_GEN_OUTPUT_PER_M = 2.50
+DEFAULT_LITE_INPUT_PER_M = 0.10
+DEFAULT_LITE_OUTPUT_PER_M = 0.40
 
 # Reference end-to-end savings constants for bypassed downstream LLM turns.
 PRO_BYPASS_SAVED_INPUT_TOKENS = 1800
@@ -828,11 +831,14 @@ def _aggregate_mismatches(records: list[dict[str, Any]]) -> list[dict[str, Any]]
 
 def _format_markdown(
     gen_model: str,
+    lite_model: str,
     dec_model: str,
     gen_summary: dict[str, Any],
+    lite_summary: dict[str, Any],
     dec_summary: dict[str, Any],
     e2e_savings: dict[str, Any],
     gen_mismatches: list[dict[str, Any]],
+    lite_mismatches: list[dict[str, Any]],
     dec_mismatches: list[dict[str, Any]],
     *,
     dry_run: bool,
@@ -843,17 +849,27 @@ def _format_markdown(
     lines = [
         f"## Decision 1 Benchmark Summary ({mode_label}, {thinking_label})",
         "",
-        f"| Metric | Generative ({gen_model}) | Decision 1 ({dec_model}) |",
-        "| --- | ---: | ---: |",
-        f"| Calls | {gen_summary['calls']} | {dec_summary['calls']} |",
-        f"| Total Input Tokens | {gen_summary['input_tokens']} | {dec_summary['input_tokens']} |",
-        f"| Total Output Tokens | {gen_summary['output_tokens']} | {dec_summary['output_tokens']} |",
-        f"| Mean Latency (ms) | {gen_summary['mean_latency_ms']:.2f} | {dec_summary['mean_latency_ms']:.2f} |",
-        f"| p50 Latency (ms) | {gen_summary['p50_latency_ms']:.2f} | {dec_summary['p50_latency_ms']:.2f} |",
-        f"| p95 Latency (ms) | {gen_summary['p95_latency_ms']:.2f} | {dec_summary['p95_latency_ms']:.2f} |",
-        f"| Estimated Cost (USD) | ${gen_summary['cost_usd']:.6f} | ${dec_summary['cost_usd']:.6f} |",
-        f"| Label Accuracy | {gen_summary['accuracy_pct']}% ({gen_summary['matched']}/{gen_summary['expected_total']}) | {dec_summary['accuracy_pct']}% ({dec_summary['matched']}/{dec_summary['expected_total']}) |",
-        f"| Calibrated Probabilities | {gen_summary['calibrated_probabilities']} | {dec_summary['calibrated_probabilities']} |",
+        (
+            f"| Metric | Generative ({gen_model}) | Flash-Lite ({lite_model}) "
+            f"| Decision 1 ({dec_model}) |"
+        ),
+        "| --- | ---: | ---: | ---: |",
+        f"| Calls | {gen_summary['calls']} | {lite_summary['calls']} | {dec_summary['calls']} |",
+        f"| Total Input Tokens | {gen_summary['input_tokens']} | {lite_summary['input_tokens']} | {dec_summary['input_tokens']} |",
+        f"| Total Output Tokens | {gen_summary['output_tokens']} | {lite_summary['output_tokens']} | {dec_summary['output_tokens']} |",
+        f"| Mean Latency (ms) | {gen_summary['mean_latency_ms']:.2f} | {lite_summary['mean_latency_ms']:.2f} | {dec_summary['mean_latency_ms']:.2f} |",
+        f"| p50 Latency (ms) | {gen_summary['p50_latency_ms']:.2f} | {lite_summary['p50_latency_ms']:.2f} | {dec_summary['p50_latency_ms']:.2f} |",
+        f"| p95 Latency (ms) | {gen_summary['p95_latency_ms']:.2f} | {lite_summary['p95_latency_ms']:.2f} | {dec_summary['p95_latency_ms']:.2f} |",
+        f"| Estimated Cost (USD) | ${gen_summary['cost_usd']:.6f} | ${lite_summary['cost_usd']:.6f} | ${dec_summary['cost_usd']:.6f} |",
+        (
+            f"| Label Accuracy | {gen_summary['accuracy_pct']}% "
+            f"({gen_summary['matched']}/{gen_summary['expected_total']}) | "
+            f"{lite_summary['accuracy_pct']}% "
+            f"({lite_summary['matched']}/{lite_summary['expected_total']}) | "
+            f"{dec_summary['accuracy_pct']}% "
+            f"({dec_summary['matched']}/{dec_summary['expected_total']}) |"
+        ),
+        f"| Calibrated Probabilities | {gen_summary['calibrated_probabilities']} | {lite_summary['calibrated_probabilities']} | {dec_summary['calibrated_probabilities']} |",
         "",
         "### Estimated End-to-End Agent Savings (Decision 1 Fast Paths)",
         "",
@@ -863,13 +879,14 @@ def _format_markdown(
         "### Per-Question Mismatches",
         "",
     ]
-    if not gen_mismatches and not dec_mismatches:
+    if not gen_mismatches and not lite_mismatches and not dec_mismatches:
         lines.append(
             "- None (100% agreement across all expected labels and score bands)."
         )
     else:
         for label, items in (
             ("Generative", gen_mismatches),
+            ("Flash-Lite", lite_mismatches),
             ("Decision 1", dec_mismatches),
         ):
             for m in items:
@@ -887,6 +904,7 @@ def main() -> int:
         "--dry-run", action="store_true", help="Run offline mock benchmark"
     )
     parser.add_argument("--gen-model", default=DEFAULT_GEN_MODEL)
+    parser.add_argument("--lite-model", default=DEFAULT_LITE_MODEL)
     parser.add_argument("--decision-model", default=DEFAULT_DECISION_MODEL)
     parser.add_argument("--secret-name", default="gemini-api-key")
     parser.add_argument(
@@ -899,7 +917,7 @@ def main() -> int:
         "--no-thinking",
         action=argparse.BooleanOptionalAction,
         default=True,
-        help="Disable thinkingBudget on generative Flash baseline for apples-to-apples comparison.",
+        help="Disable thinkingBudget on generative Flash baselines for apples-to-apples comparison.",
     )
     parser.add_argument(
         "--gen-input-price", type=float, default=DEFAULT_GEN_INPUT_PER_M
@@ -907,7 +925,18 @@ def main() -> int:
     parser.add_argument(
         "--gen-output-price", type=float, default=DEFAULT_GEN_OUTPUT_PER_M
     )
-    parser.add_argument("--json-out", help="Optional path for JSON results")
+    parser.add_argument(
+        "--lite-input-price", type=float, default=DEFAULT_LITE_INPUT_PER_M
+    )
+    parser.add_argument(
+        "--lite-output-price", type=float, default=DEFAULT_LITE_OUTPUT_PER_M
+    )
+    parser.add_argument(
+        "--json-out",
+        "--output-json",
+        dest="json_out",
+        help="Optional path for JSON results",
+    )
     parser.add_argument("--md-out", help="Optional path for Markdown summary")
     args = parser.parse_args()
 
@@ -917,6 +946,7 @@ def main() -> int:
     api_key = "" if args.dry_run else _resolve_api_key(args.secret_name)
 
     gen_records: list[dict[str, Any]] = []
+    lite_records: list[dict[str, Any]] = []
     dec_records: list[dict[str, Any]] = []
 
     with httpx.Client(timeout=30.0) as client:
@@ -924,6 +954,7 @@ def main() -> int:
             for case in selected:
                 if args.dry_run:
                     g = _run_dry_call("generative", case)
+                    lt = _run_dry_call("generative", case)
                     d = _run_dry_call("decision1", case)
                 else:
                     g = _run_live_generative(
@@ -933,9 +964,19 @@ def main() -> int:
                         case,
                         no_thinking=args.no_thinking,
                     )
+                    lt = _run_live_generative(
+                        client,
+                        api_key,
+                        args.lite_model,
+                        case,
+                        no_thinking=(
+                            args.no_thinking and "flash-lite" not in args.lite_model
+                        ),
+                    )
                     d = _run_live_decision1(client, api_key, args.decision_model, case)
 
                 g_match, g_tot, g_mis = _score_case(case, g["labels"], g["details"])
+                l_match, l_tot, l_mis = _score_case(case, lt["labels"], lt["details"])
                 d_match, d_tot, d_mis = _score_case(case, d["labels"], d["details"])
                 gen_records.append(
                     {
@@ -945,6 +986,16 @@ def main() -> int:
                         "expected_count": g_tot,
                         "mismatches": g_mis,
                         **g,
+                    }
+                )
+                lite_records.append(
+                    {
+                        "case_id": case.case_id,
+                        "workload": case.workload,
+                        "matched": l_match,
+                        "expected_count": l_tot,
+                        "mismatches": l_mis,
+                        **lt,
                     }
                 )
                 dec_records.append(
@@ -959,18 +1010,25 @@ def main() -> int:
                 )
 
     gen_summary = _summarize(gen_records, args.gen_input_price, args.gen_output_price)
+    lite_summary = _summarize(
+        lite_records, args.lite_input_price, args.lite_output_price
+    )
     dec_summary = _summarize(dec_records, DECISION1_INPUT_PER_M, DECISION1_OUTPUT_PER_M)
     e2e_savings = _compute_end_to_end_savings(dec_records)
     gen_mismatches = _aggregate_mismatches(gen_records)
+    lite_mismatches = _aggregate_mismatches(lite_records)
     dec_mismatches = _aggregate_mismatches(dec_records)
 
     markdown = _format_markdown(
         args.gen_model,
+        args.lite_model,
         args.decision_model,
         gen_summary,
+        lite_summary,
         dec_summary,
         e2e_savings,
         gen_mismatches,
+        lite_mismatches,
         dec_mismatches,
         dry_run=args.dry_run,
         no_thinking=args.no_thinking,
@@ -978,22 +1036,30 @@ def main() -> int:
     print(markdown)
 
     if args.md_out:
-        pathlib.Path(args.md_out).write_text(markdown + "\n")
+        md_path = pathlib.Path(args.md_out)
+        md_path.parent.mkdir(parents=True, exist_ok=True)
+        md_path.write_text(markdown + "\n")
     if args.json_out:
         payload = {
             "dry_run": args.dry_run,
             "no_thinking": args.no_thinking,
             "gen_model": args.gen_model,
+            "lite_model": args.lite_model,
             "decision_model": args.decision_model,
             "generative_summary": gen_summary,
+            "flash_lite_summary": lite_summary,
             "decision1_summary": dec_summary,
             "end_to_end_savings": e2e_savings,
             "generative_mismatches": gen_mismatches,
+            "flash_lite_mismatches": lite_mismatches,
             "decision1_mismatches": dec_mismatches,
             "generative_calls": gen_records,
+            "flash_lite_calls": lite_records,
             "decision1_calls": dec_records,
         }
-        pathlib.Path(args.json_out).write_text(json.dumps(payload, indent=2) + "\n")
+        json_path = pathlib.Path(args.json_out)
+        json_path.parent.mkdir(parents=True, exist_ok=True)
+        json_path.write_text(json.dumps(payload, indent=2) + "\n")
 
     return 0
 

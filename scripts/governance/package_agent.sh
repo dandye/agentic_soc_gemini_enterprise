@@ -28,6 +28,7 @@ readonly AGENTS=(
 ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
 readonly ROOT
 readonly SRC_ROOT="$ROOT/governed_agents"
+readonly SHARED_GUARDS_DIR="$SRC_ROOT/shared_decision_guards"
 readonly DIST="$ROOT/terraform/dist"
 
 note() { printf '%s: %s\n' "$SELF" "$*" >&2; }
@@ -77,22 +78,42 @@ package_one() {
 
   [[ -d $dir ]] || die "no such agent directory: $dir"
 
-  local files=()
+  local own_files=()
   local f
-  while IFS= read -r f; do files+=("$f"); done < <(source_files "$dir")
-  ((${#files[@]} > 0)) || die "$name: no source files found in $dir"
+  while IFS= read -r f; do own_files+=("$f"); done < <(source_files "$dir")
+  ((${#own_files[@]} > 0)) || die "$name: no source files found in $dir"
 
-  printf '%s\n' "${files[@]}" | grep -qx 'agent.py' ||
+  printf '%s\n' "${own_files[@]}" | grep -qx 'agent.py' ||
     die "$name: agent.py is missing from $dir (entrypoint_module = \"agent\")"
-  printf '%s\n' "${files[@]}" | grep -qx 'requirements.txt' ||
+  printf '%s\n' "${own_files[@]}" | grep -qx 'requirements.txt' ||
     die "$name: requirements.txt is missing from $dir"
+
+  local stage_dir
+  stage_dir=$(mktemp -d)
+
+  for f in "${own_files[@]}"; do
+    mkdir -p -- "$stage_dir/$(dirname -- "$f")"
+    cp -- "$dir/$f" "$stage_dir/$f"
+  done
+
+  if [[ -d $SHARED_GUARDS_DIR ]]; then
+    local guard_files=()
+    while IFS= read -r f; do guard_files+=("$f"); done < <(source_files "$SHARED_GUARDS_DIR")
+    for f in "${guard_files[@]}"; do
+      mkdir -p -- "$stage_dir/shared_decision_guards/$(dirname -- "$f")"
+      cp -- "$SHARED_GUARDS_DIR/$f" "$stage_dir/shared_decision_guards/$f"
+    done
+  fi
+
+  local files=()
+  while IFS= read -r f; do files+=("$f"); done < <(source_files "$stage_dir")
 
   mkdir -p -- "$DIST"
 
   tar \
     --create \
     --file - \
-    --directory "$dir" \
+    --directory "$stage_dir" \
     --no-recursion \
     --sort=name \
     --format=gnu \
@@ -110,6 +131,7 @@ package_one() {
     case "$entry" in
       /* | ./* | ../* | */../*)
         rm -f -- "$out.tmp"
+        rm -rf -- "$stage_dir"
         die "$name: archive entry '$entry' is not a plain path under the archive root"
         ;;
     esac
@@ -118,15 +140,18 @@ package_one() {
 
   grep -qx 'agent.py' <<<"$listing" || {
     rm -f -- "$out.tmp"
+    rm -rf -- "$stage_dir"
     die "$name: agent.py is not at the archive root"
   }
   grep -qx 'requirements.txt' <<<"$listing" || {
     rm -f -- "$out.tmp"
+    rm -rf -- "$stage_dir"
     die "$name: requirements.txt is not at the archive root"
   }
 
   mv -- "$out.tmp" "$out"
-  source_hash "$dir" >"$DIST/$name.sha256"
+  source_hash "$stage_dir" >"$DIST/$name.sha256"
+  rm -rf -- "$stage_dir"
 
   note "$name: $(printf '%s' "${#files[@]}") files -> $(realpath --relative-to="$ROOT" -- "$out" 2>/dev/null || printf '%s' "$out")"
 }

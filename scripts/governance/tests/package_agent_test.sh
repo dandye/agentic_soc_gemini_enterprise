@@ -101,17 +101,33 @@ entries() { tar --list --file "$1" --gzip | LC_ALL=C sort | tr '\n' ' '; }
 
 # Independent reimplementation of the hash in package_agent.sh (a here-doc
 # pipeline, not the function under test), so a typo in one isn't mirrored.
-expected_hash() { # expected_hash DIR
-  local dir=$1 f
-  (
-    cd "$dir" || exit 1
-    find . -type f ! -path '*/__pycache__/*' ! -name '*.pyc' ! -name '*.pyo' |
-      sed 's|^\./||' | LC_ALL=C sort |
-      while IFS= read -r f; do
-        printf '%s\n' "$f"
-        sha256sum "$f" | cut -c1-64
-      done
-  ) | sha256sum | cut -c1-64
+expected_hash() { # expected_hash DIR [SHARED_GUARDS_DIR]
+  local dir=$1
+  local shared_dir=${2:-}
+  local f
+  {
+    (
+      cd "$dir" || exit 1
+      find . -type f ! -path '*/__pycache__/*' ! -name '*.pyc' ! -name '*.pyo' |
+        sed 's|^\./||' |
+        while IFS= read -r f; do
+          printf '%s\t%s\n' "$f" "$(sha256sum "$f" | cut -c1-64)"
+        done
+    )
+    if [[ -n $shared_dir && -d $shared_dir ]]; then
+      (
+        cd "$shared_dir" || exit 1
+        find . -type f ! -path '*/__pycache__/*' ! -name '*.pyc' ! -name '*.pyo' |
+          sed 's|^\./||' |
+          while IFS= read -r f; do
+            printf 'shared_decision_guards/%s\t%s\n' "$f" "$(sha256sum "$f" | cut -c1-64)"
+          done
+      )
+    fi
+  } | LC_ALL=C sort -t$'\t' -k1,1 |
+    while IFS=$'\t' read -r p h; do
+      printf '%s\n%s\n' "$p" "$h"
+    done | sha256sum | cut -c1-64
 }
 
 DIST="$WORK/root/terraform/dist"
@@ -265,10 +281,11 @@ for a in "${AGENTS[@]}"; do
     "$(entries "$ARCHIVE")" "$a/"
   check "$a: agent.py is at the root" "$(entries "$ARCHIVE")" "agent.py"
   check "$a: requirements.txt is at the root" "$(entries "$ARCHIVE")" "requirements.txt"
+  check "$a: bundles shared_decision_guards/decision_client.py" "$(entries "$ARCHIVE")" "shared_decision_guards/decision_client.py"
   refute "$a: no __pycache__ shipped" "$(entries "$ARCHIVE")" "__pycache__"
   equal "$a: source hash matches the formula" \
     "$(cat "$HASHFILE")" \
-    "$(expected_hash "$REPO_ROOT/governed_agents/$a")"
+    "$(expected_hash "$REPO_ROOT/governed_agents/$a" "$REPO_ROOT/governed_agents/shared_decision_guards")"
   FIRST_REAL[$a]=$(sha256sum <"$ARCHIVE")
 done
 sleep 1

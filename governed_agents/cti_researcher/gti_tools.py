@@ -14,16 +14,21 @@ import urllib.parse
 from typing import Any
 
 import httpx
-from decision_client import (
-    choice_question,
-    evaluate_decisions,
-    noul_question,
-    score_question,
-)
+from decision_client import evaluate_decisions
 from google.cloud.agentidentitycredentials_v1 import (
     AuthProviderCredentialsServiceClient,
     RetrieveCredentialsRequest,
 )
+
+
+try:
+    from shared_decision_guards.multimodal_cti_ingress import (
+        triage_multimodal_security_artifact,
+    )
+except ImportError:
+    from governed_agents.shared_decision_guards.multimodal_cti_ingress import (
+        triage_multimodal_security_artifact,
+    )
 
 
 GTI_API_BASE_URL = os.getenv("GTI_API_BASE_URL", "https://www.virustotal.com/api/v3")
@@ -168,162 +173,29 @@ def get_threat_collection(collection_id: str) -> dict[str, Any]:
 def triage_unstructured_cti_artifact(
     content: str, mime_type: str = "text/plain"
 ) -> dict[str, Any]:
-    """Triages unstructured CTI prose, OSINT reports, PDFs, or screenshots."""
-    cleaned = (content or "").strip()
-    if not cleaned:
-        return {
-            "enabled": False,
-            "error": "content must not be empty.",
-        }
-
+    """Backwards-compatible wrapper delegating to pre-agent multimodal ingress."""
     cleaned_mime = (mime_type or "text/plain").strip().lower()
-    if cleaned_mime.startswith("text/"):
-        decision_input: str | list[dict[str, Any]] = (
-            f"Unstructured CTI artifact ({cleaned_mime}):\n{cleaned}"
-        )
-    else:
-        if cleaned_mime.startswith("image/"):
-            part_type = "image"
-        elif cleaned_mime.startswith("audio/"):
-            part_type = "audio"
-        elif cleaned_mime.startswith("video/"):
-            part_type = "video"
+    captured_answers: dict[str, Any] = {}
+
+    def _compat_eval(**kwargs: Any) -> dict[str, Any]:
+        reply = evaluate_decisions(**kwargs)
+        if isinstance(reply, dict) and isinstance(reply.get("answers"), dict):
+            captured_answers.update(reply["answers"])
+        return reply
+
+    res = triage_multimodal_security_artifact(
+        content,
+        mime_type=cleaned_mime,
+        is_base64=not cleaned_mime.startswith("text/"),
+        evaluator=_compat_eval,
+    )
+    if res.get("enabled") and "error" not in res and "confidence_score" not in res:
+        conf_ans = captured_answers.get("confidence_score")
+        if isinstance(conf_ans, dict):
+            raw_conf = conf_ans.get("raw_score", conf_ans.get("score"))
+            res["confidence_score"] = (
+                round(float(raw_conf) + 1.0, 2) if raw_conf is not None else None
+            )
         else:
-            part_type = "document"
-        decision_input = [
-            {
-                "type": "text",
-                "text": (
-                    f"Triage this unstructured CTI artifact ({cleaned_mime}) "
-                    "for threat intelligence and SOC actionability."
-                ),
-            },
-            {
-                "type": part_type,
-                "data": cleaned,
-                "mime_type": cleaned_mime,
-            },
-        ]
-
-    questions = {
-        "is_actionable_threat": noul_question(
-            "True if the artifact describes a concrete, actionable cyber "
-            "threat, active campaign, or malicious infrastructure relevant to "
-            "SOC defense; false if informational, benign, or unactionable."
-        ),
-        "threat_category": choice_question(
-            instructions=(
-                "Select the primary threat category described in the artifact."
-            ),
-            criteria={
-                "malware_delivery": (
-                    "Payload hosting, dropper, downloader, or malicious "
-                    "executable distribution."
-                ),
-                "command_and_control": (
-                    "Command-and-control server, beaconing domain/IP, or covert "
-                    "exfiltration channel."
-                ),
-                "phishing_credential_theft": (
-                    "Phishing lure, credential harvesting infrastructure, or "
-                    "brand impersonation."
-                ),
-                "scanning_exploitation": (
-                    "Vulnerability scanner, brute-force source, or active "
-                    "exploit delivery."
-                ),
-                "benign_infrastructure": (
-                    "Legitimate CDN, cloud provider, DNS resolver, or trusted "
-                    "enterprise service."
-                ),
-                "other_or_unknown": (
-                    "Threat category does not match the above options or "
-                    "insufficient data is present."
-                ),
-            },
-        ),
-        "severity": score_question(
-            instructions=(
-                "Rate operational threat severity from lowest (level 0) to "
-                "critical (level 4) based on impact and urgency."
-            ),
-            criteria=[
-                "Informational or benign: no active threat or operational impact.",
-                "Low severity: minor reconnaissance or low-impact opportunistic activity.",
-                "Moderate severity: suspicious campaign or commodity malware requiring standard triage.",
-                "High severity: confirmed active malware, C2, or targeted intrusion activity.",
-                "Critical severity: active ransomware, zero-day exploitation, or crown-jewel compromise.",
-            ],
-        ),
-        "requires_immediate_hunt": noul_question(
-            "True if the artifact warrants immediate internal SIEM/UDM threat "
-            "hunting across endpoints, network logs, or DNS telemetry; false "
-            "otherwise."
-        ),
-        "confidence_score": score_question(
-            instructions=(
-                "Rate triage confidence from lowest (level 0) to highest "
-                "(level 4) based on technical detail and corroboration in the "
-                "artifact."
-            ),
-            criteria=[
-                "Very low confidence: vague, unreadable, or minimal threat context.",
-                "Low confidence: unverified claims with sparse technical indicators.",
-                "Moderate confidence: plausible threat reporting with partial technical detail.",
-                "High confidence: detailed TTPs, IOCs, or clear malware/campaign attribution.",
-                "Very high confidence: comprehensive technical evidence with corroborated attribution.",
-            ],
-        ),
-    }
-
-    decision = evaluate_decisions(
-        input_text=decision_input,
-        questions=questions,
-    )
-    if not decision.get("enabled"):
-        return {
-            "enabled": False,
-            "reason": decision.get("reason", "Decision 1 is not configured."),
-        }
-    if "error" in decision:
-        return {
-            "enabled": True,
-            "error": decision["error"],
-        }
-
-    answers = decision.get("answers", {})
-    actionable_ans = answers.get("is_actionable_threat") or {}
-    category_ans = answers.get("threat_category") or {}
-    severity_ans = answers.get("severity") or {}
-    hunt_ans = answers.get("requires_immediate_hunt") or {}
-    confidence_ans = answers.get("confidence_score") or {}
-
-    raw_severity = severity_ans.get("score")
-    severity = round(float(raw_severity) + 1.0, 2) if raw_severity is not None else None
-    raw_confidence = confidence_ans.get("score")
-    confidence_score = (
-        round(float(raw_confidence) + 1.0, 2) if raw_confidence is not None else None
-    )
-
-    actionable_prob = actionable_ans.get("noul")
-    hunt_prob = hunt_ans.get("noul")
-
-    return {
-        "enabled": True,
-        "mime_type": cleaned_mime,
-        "is_actionable_threat": (
-            bool(float(actionable_prob) >= 0.5)
-            if actionable_prob is not None
-            else False
-        ),
-        "is_actionable_threat_probability": actionable_prob,
-        "threat_category": category_ans.get("choice", "other_or_unknown"),
-        "threat_category_confidence": category_ans.get("confidence"),
-        "severity": severity,
-        "requires_immediate_hunt": (
-            bool(float(hunt_prob) >= 0.5) if hunt_prob is not None else False
-        ),
-        "requires_immediate_hunt_probability": hunt_prob,
-        "confidence_score": confidence_score,
-        "usage": decision.get("usage", {}),
-    }
+            res["confidence_score"] = res.get("confidence")
+    return res

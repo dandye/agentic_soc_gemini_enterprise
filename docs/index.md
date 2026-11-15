@@ -60,9 +60,15 @@ troubleshooting
 agent_governance
 agent_governance_design
 gemini_decision_1
+gemini_decision_1_benchmarks
 gemini_decision_1_case_study
 gemini_decision_1_cti_ioc_triage
 gemini_decision_1_threat_hunting
+gemini_decision_1_v2_workflows
+gemini_decision_1_v2_injection_guard
+gemini_decision_1_v2_tool_pruning
+gemini_decision_1_v2_bayes_gate
+gemini_decision_1_v2_multimodal_ingress
 agent_governance_troubleshooting
 ```
 
