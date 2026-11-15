@@ -371,45 +371,140 @@ def test_zero_emojis_in_demo_files() -> None:
 
 
 def test_simple_demos_ui_and_api_parity() -> None:
-    """Verifies UI/API parity across all 3 tabs, DEMO2_CHAT_PROMPT, and zero emojis/go-links."""
+    """Verifies Option 1 UI/API parity across all 3 tabs and hygiene rules."""
     from starlette.testclient import TestClient
 
     from scripts.governance.demos import simple_demos_app as app_mod
 
     html = app_mod._HTML_PAGE
+    # Pixel-locked 4-band chrome and unified button templates across all 3 tabs
     assert html.count("Copy Prompt for Gemini Enterprise Chat") == 3
-    assert html.count("Without Decision 1") >= 2
-    assert html.count("With Decision 1") >= 2
+    assert "Scan Logs with Decision 1" in html
+    assert "Score Inbox with Decision 1" in html
+    assert "Check Server with Decision 1" in html
+
+    # Non-duplicated column headers: printed once per tab above the 2-row matrix
+    assert html.count(">Without Decision 1<") == 3
+    assert html.count(">With Decision 1<") == 3
+    assert html.count('class="col-headers-3"') == 3
+    assert html.count('class="action-bar"') >= 2  # Tab 1, Tab 3 (+ id-bearing Tab 2)
+
+    # Visible Ready pre-run state across all 6 comparison rows (zero display:none on main stacks)
+    assert html.count("Ready to Score") == 6
+    assert 'id="demo1-results" style="display:none' not in html
+    assert 'id="demo3-results" style="display:none' not in html
+
+    # Two contrasting examples/stages per tab
+    assert "Normal Admin Log" in html
+    assert "Injected PowerShell Log" in html
     assert "IT Maintenance Notice" in html
     assert "Fake Corporate Login Page" in html
+    assert "24-Hour Logs (1 event)" in html
+    assert "7-Day Logs (3 events)" in html
     assert isinstance(app_mod.DEMO2_CHAT_PROMPT, str)
     assert app_mod.DEMO2_CHAT_PROMPT.strip()
 
-    fake_res = {
+    fake_inj_clean = {
+        "quarantined": False,
+        "injection_probability": 0.01,
+        "confidence": 0.99,
+        "latency_ms": 210.0,
+        "fallback": False,
+    }
+    fake_inj_bad = {
+        "quarantined": True,
+        "injection_probability": 0.99,
+        "confidence": 0.99,
+        "latency_ms": 230.0,
+        "fallback": False,
+    }
+    fake_inbox = {
+        "enabled": True,
         "is_actionable_threat": True,
-        "actionable_probability": 0.95,
+        "is_actionable_threat_probability": 0.95,
         "confidence": 0.97,
         "recommended_route": "escalate_threat_hunter",
         "latency_ms": 250.0,
         "fallback": False,
     }
+    fake_d1_gate = SimpleNamespace(
+        action=ContainmentAction.FORCE_PROBE_MORE,
+        p_compromise=0.13,
+        confidence=0.87,
+        latency_ms=310.0,
+        fallback=False,
+        missing_epistemic_checks=["widened_72h_to_168h_on_empty_hunt"],
+    )
+    fake_d2_gate = SimpleNamespace(
+        action=ContainmentAction.AUTO_ISOLATE_CONTAIN,
+        p_compromise=0.99,
+        confidence=0.99,
+        latency_ms=220.0,
+        fallback=False,
+        missing_epistemic_checks=[],
+    )
+
+    def _fake_screen(text: str, source_label: str = "endpoint_log") -> dict[str, Any]:
+        _ = source_label
+        return fake_inj_bad if "ignore this alert" in text else fake_inj_clean
+
     with (
         patch.object(app_mod, "_ensure_gemini_api_key"),
+        patch.object(app_mod, "screen_untrusted_text", side_effect=_fake_screen),
         patch.object(
-            app_mod, "triage_multimodal_security_artifact", return_value=fake_res
+            app_mod, "triage_multimodal_security_artifact", return_value=fake_inbox
+        ),
+        patch.object(
+            app_mod,
+            "aevaluate_bayes_containment_gate",
+            new=AsyncMock(side_effect=[fake_d1_gate, fake_d2_gate]),
         ),
     ):
         client = TestClient(app_mod.create_app())
-        resp = client.post("/api/demo2", json={"sample": "fake_sso_login.png"})
-    assert resp.status_code == 200
-    payload = resp.json()
-    assert payload["copy_prompt"] == app_mod.DEMO2_CHAT_PROMPT
-    assert len(payload["items"]) == 1
+
+        # Demo 1: dual-row batch payload
+        r1 = client.post(
+            "/api/demo1",
+            json={
+                "clean_log": app_mod.DEMO1_CLEAN_LOG,
+                "injected_log": app_mod.DEMO1_DEFAULT_LOG,
+            },
+        )
+        assert r1.status_code == 200
+        p1 = r1.json()
+        assert len(p1["items"]) == 2
+        assert p1["items"][0]["quarantined"] is False
+        assert p1["items"][1]["quarantined"] is True
+        assert p1["copy_prompt"] == app_mod.DEMO1_CHAT_PROMPT
+
+        # Demo 1: backward-compatible single-log payload
+        r1_single = client.post(
+            "/api/demo1", json={"log_text": app_mod.DEMO1_DEFAULT_LOG}
+        )
+        assert r1_single.status_code == 200
+        assert r1_single.json()["quarantined"] is True
+
+        # Demo 2
+        r2 = client.post("/api/demo2", json={"sample": "fake_sso_login.png"})
+        assert r2.status_code == 200
+        p2 = r2.json()
+        assert p2["copy_prompt"] == app_mod.DEMO2_CHAT_PROMPT
+        assert len(p2["items"]) == 1
+
+        # Demo 3
+        r3 = client.post("/api/demo3")
+        assert r3.status_code == 200
+        p3 = r3.json()
+        assert p3["check1"]["action"] == ContainmentAction.FORCE_PROBE_MORE.value
+        assert p3["check2"]["action"] == ContainmentAction.AUTO_ISOLATE_CONTAIN.value
+        assert p3["copy_prompt"] == app_mod.DEMO3_CHAT_PROMPT
 
     for path in (
         _REPO_ROOT / "scripts/governance/demos/simple_demos_app.py",
+        _REPO_ROOT / "scripts/governance/demos/STYLE_GUIDE.md",
         _REPO_ROOT / "docs/gemini_decision_1_simple_demos.md",
     ):
         text = path.read_text(encoding="utf-8")
         assert not _EMOJI_RE.search(text), f"Emoji found in {path}"
+        assert "\u2014" not in text, f"Em-dash found in {path}"
         assert "go/" not in text.lower(), f"Internal shortlink pattern in {path}"
