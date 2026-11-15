@@ -12,7 +12,7 @@ just governance-demos-seed
 just governance-demos
 ```
 
-Open `http://127.0.0.1:8787` in Chrome for all three tabs, or open Gemini Enterprise Chat to run Demos 1 and 3 directly against the deployed `SOC_Orchestrator` and `Threat_Hunter` agents.
+Open `http://127.0.0.1:8787` in Chrome for all three tabs, or open Gemini Enterprise Chat to run follow-up prompts for all three demos against the deployed `SOC_Orchestrator`, `Threat_Hunter`, and `CTI_Researcher` agents.
 
 ---
 
@@ -24,7 +24,7 @@ Open `http://127.0.0.1:8787` in Chrome for all three tabs, or open Gemini Enterp
 
 - **Gemini Enterprise Chat:** Paste this exact prompt:
   `Investigate the latest PowerShell alert on WS-ENG-089 in the last 24 hours.`
-- **Web App (Tab 1):** Click **Run Screen** to inspect the raw Chronicle UDM log side by side with the sanitized payload that reaches the model.
+- **Web App (Tab 1):** Click **Scan Log with Decision 1** to inspect the raw Chronicle UDM log side by side with the sanitized payload that reaches the model.
 
 **Live talk track:**
 
@@ -41,14 +41,16 @@ Open `http://127.0.0.1:8787` in Chrome for all three tabs, or open Gemini Enterp
 
 **What to click or copy-paste:**
 
-- **Web App (Tab 2):** Drag and drop any PNG or PDF onto the inbox dropzone, or click the 1-click sample buttons for `it_maintenance_notice.png` (benign) and `fake_sso_login.png` (phishing lure).
+- **Gemini Enterprise Chat:** Paste this exact follow-up prompt:
+  `Enrich the phishing domain sso-verify-portal-auth.com in GTI and check Chronicle UDM logs from the last 24 hours for any employees who visited it.`
+- **Web App (Tab 2):** Click **Score Inbox with Decision 1** (or click either sample button for `it_maintenance_notice.png` and `fake_sso_login.png`, or upload/drop any PNG, JPG, or PDF) to view the side-by-side **Without Decision 1** vs. **With Decision 1** comparison.
 
 **Live talk track:**
 
 > Analysts receive thousands of user-reported screenshots every week, and most of them are harmless IT notices. Decision 1 inspects the raw image in a fraction of a second with zero generated text, archiving the routine maintenance notice automatically and waking the full AI team only when a real fake login page arrives.
 
-![Demo 2 screenshot showing pre-agent multimodal inbox triage](images/decision1_v2/10_simple_demo2_screenshot_inbox.png)\
-*Figure 2. Demo 2 ("The Phishing Screenshot Inbox"): `it_maintenance_notice.png` archives automatically (`archive_no_llm`) while `fake_sso_login.png` escalates to `Threat_Hunter` with zero output tokens.*
+![Demo 2 screenshot showing side-by-side Without Decision 1 vs. With Decision 1 multimodal inbox triage](images/decision1_v2/10_simple_demo2_screenshot_inbox.png)\
+*Figure 2. Demo 2 ("The Phishing Screenshot Inbox"): side-by-side **Without Decision 1** vs. **With Decision 1** view where `it_maintenance_notice.png` archives automatically (`archive_no_llm`) and `fake_sso_login.png` escalates to `Threat_Hunter` with zero output tokens.*
 
 ---
 
@@ -60,7 +62,7 @@ Open `http://127.0.0.1:8787` in Chrome for all three tabs, or open Gemini Enterp
 
 - **Gemini Enterprise Chat:** Paste this exact prompt:
   `Should we isolate SRV-APP-19? Check its recent Chronicle activity before deciding.`
-- **Web App (Tab 3):** Click **Evaluate Gate** to watch the initial 24-hour check trigger a required follow-up probe, then re-evaluate with the 7-day (`168h`) evidence.
+- **Web App (Tab 3):** Click **Ask: Should We Isolate SRV-APP-19?** to watch the initial 24-hour check trigger a required follow-up probe, then re-evaluate with the 7-day (`168h`) evidence.
 
 **Live talk track:**
 

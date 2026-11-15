@@ -7,6 +7,7 @@ Run locally under direnv:
 from __future__ import annotations
 
 import argparse
+import asyncio
 import base64
 import json
 import os
@@ -53,6 +54,10 @@ DEMO1_DEFAULT_LOG = (
 
 DEMO1_CHAT_PROMPT = (
     "Investigate the latest PowerShell alert on WS-ENG-089 in the last 24 hours."
+)
+DEMO2_CHAT_PROMPT = (
+    "Enrich the phishing domain sso-verify-portal-auth.com in GTI and check "
+    "Chronicle UDM logs from the last 24 hours for any employees who visited it."
 )
 DEMO3_CHAT_PROMPT = (
     "Should we isolate SRV-APP-19? Check its recent Chronicle activity before deciding."
@@ -216,6 +221,7 @@ async def api_demo1(request: Request) -> JSONResponse:
 
 async def api_demo2(request: Request) -> JSONResponse:
     content_type = (request.headers.get("content-type") or "").lower()
+    t_wall0 = time.perf_counter()
     items: list[dict[str, Any]] = []
 
     if "multipart/form-data" in content_type:
@@ -226,7 +232,7 @@ async def api_demo2(request: Request) -> JSONResponse:
         raw = await upload.read()
         fname = getattr(upload, "filename", None) or "uploaded_artifact.png"
         mime = _guess_mime(fname, getattr(upload, "content_type", None))
-        items.append(_score_inbox_bytes(fname, raw, mime))
+        items.append(await asyncio.to_thread(_score_inbox_bytes, fname, raw, mime))
     else:
         body = await request.json()
         sample = str(body.get("sample") or "both")
@@ -235,17 +241,31 @@ async def api_demo2(request: Request) -> JSONResponse:
             if sample == "both"
             else [Path(sample).name]
         )
+        tasks = []
         for fname in targets:
             path = ASSETS_DIR / fname
             if not path.is_file():
                 return JSONResponse(
                     {"error": f"Unknown sample: {fname}"}, status_code=404
                 )
-            items.append(
-                _score_inbox_bytes(fname, path.read_bytes(), _guess_mime(fname, None))
+            tasks.append(
+                asyncio.to_thread(
+                    _score_inbox_bytes,
+                    fname,
+                    path.read_bytes(),
+                    _guess_mime(fname, None),
+                )
             )
+        items = list(await asyncio.gather(*tasks))
 
-    return JSONResponse({"items": items})
+    wall_ms = round((time.perf_counter() - t_wall0) * 1000.0, 1)
+    return JSONResponse(
+        {
+            "items": items,
+            "wall_ms": wall_ms,
+            "copy_prompt": DEMO2_CHAT_PROMPT,
+        }
+    )
 
 
 async def api_demo3(_request: Request) -> JSONResponse:
@@ -478,25 +498,32 @@ _HTML_PAGE = f"""<!DOCTYPE html>
     border: 1px solid var(--green); color: var(--green);
     padding: 5px 11px; border-radius: 8px; font-size: 13px; font-weight: 700;
   }}
-  .dropzone {{
-    border: 2px dashed var(--border); border-radius: 12px;
-    background: var(--card-2); padding: 26px; text-align: center;
-    cursor: pointer; transition: border-color 0.15s ease;
-    margin-bottom: 16px;
+  .ev-pill-danger {{
+    background: rgba(255, 123, 114, 0.14);
+    border: 1px solid var(--red); color: var(--red);
+    padding: 5px 11px; border-radius: 8px; font-size: 13px; font-weight: 700;
   }}
-  .dropzone:hover, .dropzone.dragover {{ border-color: var(--blue); }}
-  .dropzone strong {{ display: block; font-size: 16px; color: var(--text); margin-bottom: 4px; }}
-  .dropzone span {{ font-size: 13.5px; color: var(--muted); }}
+  #demo2-input-card.dragover {{ border: 2px dashed var(--blue); }}
   .sample-card {{
     background: var(--card-2); border: 1.5px solid var(--border);
-    border-radius: 10px; padding: 14px; cursor: pointer;
+    border-radius: 10px; padding: 12px; cursor: pointer;
     transition: border-color 0.15s ease;
   }}
   .sample-card:hover {{ border-color: var(--blue); }}
   .sample-card img {{
-    width: 100%; height: 185px; object-fit: cover;
-    border-radius: 6px; border: 1px solid var(--border); margin-bottom: 10px;
+    width: 100%; height: 175px; object-fit: contain; background: #090d14;
+    border-radius: 6px; border: 1px solid var(--border); margin-bottom: 8px;
   }}
+  .inbox-row {{
+    display: flex; justify-content: space-between; align-items: center;
+    gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border);
+  }}
+  .inbox-row:last-child {{ border-bottom: none; padding-bottom: 0; }}
+  .inbox-row:first-child {{ padding-top: 0; }}
+  .nowrap-badge {{ white-space: nowrap; flex-shrink: 0; }}
+  .inbox-item {{ padding: 10px 0; border-bottom: 1px solid var(--border); }}
+  .inbox-item:last-child {{ border-bottom: none; padding-bottom: 0; }}
+  .inbox-item:first-child {{ padding-top: 0; }}
   .meter-wrap {{
     height: 12px; background: #090d14; border-radius: 999px;
     overflow: hidden; border: 1px solid var(--border); margin: 10px 0;
@@ -568,35 +595,51 @@ _HTML_PAGE = f"""<!DOCTYPE html>
     <div class="story">
       Employees forward hundreds of screenshots to security every day. Decision 1 filters them in 0.3 seconds so the SOC agent only wakes up for real threats.
     </div>
-    <div class="card">
-      <div class="dropzone" id="dropzone" onclick="document.getElementById('file-input').click()">
-        <strong>Drop any PNG, JPG, or PDF file here</strong>
-        <span>Or click to choose a file from your computer and score it live with Decision 1</span>
-        <input type="file" id="file-input" accept=".png,.jpg,.jpeg,.pdf" style="display:none" onchange="uploadFile(this.files[0])">
-      </div>
+    <div class="card" id="demo2-input-card">
+      <h2>Inbox Screenshots to Triage</h2>
+      <input type="file" id="file-input" accept=".png,.jpg,.jpeg,.pdf" style="display:none" onchange="uploadFile(this.files[0])">
       <div class="grid-2">
         <div class="sample-card" onclick="scoreSample('it_maintenance_notice.png')">
           <img src="/assets/it_maintenance_notice.png" alt="IT Maintenance Notice">
-          <div class="box-head">
-            <span class="box-title">IT Maintenance Notice</span>
-            <span class="badge badge-teal">Click to Score</span>
-          </div>
+          <div class="box-title" style="margin-bottom:4px;">IT Maintenance Notice</div>
           <p class="muted">Routine weekend patching calendar reminder with no login links.</p>
         </div>
         <div class="sample-card" onclick="scoreSample('fake_sso_login.png')">
           <img src="/assets/fake_sso_login.png" alt="Fake Corporate Login Page">
-          <div class="box-head">
-            <span class="box-title">Fake Corporate Login Page</span>
-            <span class="badge badge-red">Click to Score</span>
-          </div>
+          <div class="box-title" style="margin-bottom:4px;">Fake Corporate Login Page</div>
           <p class="muted">Urgent password expiration lure harvesting corporate SSO credentials.</p>
         </div>
       </div>
+      <div id="demo2-custom-preview" style="display:none;margin-top:12px;padding:10px;background:var(--card-2);border:1px solid var(--border);border-radius:8px;"></div>
       <div class="actions">
-        <button class="btn-primary" id="demo2-run-both" onclick="scoreSample('both')">Score Both Inbox Screenshots Live</button>
+        <button class="btn-primary" id="demo2-run-both" onclick="scoreSample('both')">Score Inbox with Decision 1</button>
+        <button class="btn-secondary" onclick="copyText({json.dumps(DEMO2_CHAT_PROMPT)}, this)">Copy Prompt for Gemini Enterprise Chat</button>
+        <button class="btn-secondary" onclick="document.getElementById('file-input').click()">Upload PNG / JPG / PDF</button>
       </div>
     </div>
-    <div class="grid-2" id="demo2-results"></div>
+    <div class="grid-2" id="demo2-results" style="display:none;">
+      <div class="compare-box danger">
+        <div class="box-head">
+          <span class="box-title" style="color:var(--red);">Without Decision 1</span>
+          <span class="badge badge-red nowrap-badge">Wakes Full Agent Every Time</span>
+        </div>
+        <p class="muted" style="margin-bottom:10px;">
+          Every forwarded screenshot wakes the full reasoning SOC agent, burning ~3 seconds and LLM tokens on routine IT notices before reaching real phishing lures.
+        </p>
+        <div class="cmd-preview" id="demo2-without-rows"></div>
+        <div style="font-size:13px;font-weight:700;color:var(--muted);margin-bottom:6px;">Unfiltered Inbox Cost:</div>
+        <div class="pills" id="demo2-without-pills"></div>
+      </div>
+      <div class="compare-box safe">
+        <div class="box-head">
+          <span class="box-title" style="color:var(--green);" id="demo2-with-title">With Decision 1</span>
+          <span class="badge badge-green nowrap-badge" id="demo2-with-badge">Filtered</span>
+        </div>
+        <div class="cmd-preview" id="demo2-with-rows"></div>
+        <div style="font-size:13px;font-weight:700;color:var(--muted);margin-bottom:6px;">Pre-Agent Filter Outcome:</div>
+        <div class="pills" id="demo2-with-pills"></div>
+      </div>
+    </div>
   </section>
 
   <!-- TAB 3 -->
@@ -704,27 +747,98 @@ async function runDemo1() {{
   }}
 }}
 
-function renderInboxItems(items) {{
-  const container = document.getElementById('demo2-results');
-  container.innerHTML = '';
+function renderInboxItems(items, wallMs) {{
+  const resultsEl = document.getElementById('demo2-results');
+  resultsEl.style.display = 'grid';
+
+  const displayMs = wallMs != null
+    ? wallMs
+    : Math.round(Math.max(...items.map(x => x.latency_ms || 0)) * 10) / 10;
+  const safeCount = items.filter(x => !x.is_actionable_threat).length;
+  const threatCount = items.filter(x => x.is_actionable_threat).length;
+
+  // Left Card: Without Decision 1
+  const withoutRows = document.getElementById('demo2-without-rows');
+  withoutRows.innerHTML = '';
   items.forEach(item => {{
-    const card = document.createElement('div');
-    card.className = 'compare-box ' + (item.is_actionable_threat ? 'danger' : 'safe');
-    const barColor = item.is_actionable_threat ? 'var(--red)' : 'var(--green)';
-    const badgeCls = item.is_actionable_threat ? 'badge-red' : 'badge-green';
-    const thumbHtml = item.thumbnail_data_url
-      ? `<img src="${{item.thumbnail_data_url}}" style="width:100%;height:170px;object-fit:cover;border-radius:6px;border:1px solid var(--border);margin-bottom:10px;">`
-      : `<div style="padding:18px;background:#090d14;border-radius:6px;margin-bottom:10px;font-family:monospace;">${{item.filename}} (${{item.mime_type}})</div>`;
-    card.innerHTML = `
-      ${{thumbHtml}}
-      <div class="box-head">
-        <span class="box-title">${{item.filename}}</span>
-        <span class="badge ${{badgeCls}}">${{item.verdict_label}}</span>
-      </div>
-      <div class="meter-wrap"><div class="meter-fill" style="width:${{Math.max(item.threat_pct, 3)}}%;background:${{barColor}};"></div></div>
-      <p class="muted">Threat Score: <strong>${{item.threat_pct}}%</strong> | Decision Time: <strong>${{item.latency_ms}} ms</strong> | Confidence: <strong>${{item.confidence_pct}}%</strong></p>
-    `;
-    container.appendChild(card);
+    const row = document.createElement('div');
+    row.className = 'inbox-row';
+    const nameEl = document.createElement('strong');
+    nameEl.textContent = item.filename;
+    const badgeEl = document.createElement('span');
+    badgeEl.className = 'badge badge-red nowrap-badge';
+    badgeEl.textContent = item.is_actionable_threat
+      ? 'Woke Full Agent (~3s, queued behind noise)'
+      : 'Woke Full Agent (~3s, wasted tokens)';
+    row.appendChild(nameEl);
+    row.appendChild(badgeEl);
+    withoutRows.appendChild(row);
+  }});
+  const withoutPills = document.getElementById('demo2-without-pills');
+  withoutPills.innerHTML = '';
+  [items.length + '/' + items.length + ' Full LLM Wakeups', 'Routine Noise Not Filtered'].forEach(lbl => {{
+    const s = document.createElement('span');
+    s.className = 'ev-pill-danger';
+    s.textContent = lbl;
+    withoutPills.appendChild(s);
+  }});
+
+  // Right Card: With Decision 1
+  document.getElementById('demo2-with-title').textContent = 'With Decision 1 (Live ' + displayMs + ' ms)';
+  const summaryBadge = document.getElementById('demo2-with-badge');
+  if (items.length > 1) {{
+    summaryBadge.textContent = safeCount + ' Archived ($0) | ' + threatCount + ' Escalated';
+  }} else if (threatCount > 0) {{
+    summaryBadge.textContent = 'Phishing Lure Escalated';
+  }} else {{
+    summaryBadge.textContent = 'Safe Notice Archived ($0)';
+  }}
+
+  const withRows = document.getElementById('demo2-with-rows');
+  withRows.innerHTML = '';
+  items.forEach(item => {{
+    const wrap = document.createElement('div');
+    wrap.className = 'inbox-item';
+    const head = document.createElement('div');
+    head.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:nowrap;';
+    const nameEl = document.createElement('strong');
+    nameEl.textContent = item.filename;
+    const badgeEl = document.createElement('span');
+    badgeEl.className = 'badge nowrap-badge ' + (item.is_actionable_threat ? 'badge-red' : 'badge-green');
+    badgeEl.textContent = item.is_actionable_threat
+      ? 'Phishing Page (' + item.threat_pct + '%) - Woke SOC Agent'
+      : 'Safe Notice (' + item.threat_pct + '%) - Archived ($0)';
+    head.appendChild(nameEl);
+    head.appendChild(badgeEl);
+
+    const meterWrap = document.createElement('div');
+    meterWrap.className = 'meter-wrap';
+    const meterFill = document.createElement('div');
+    meterFill.className = 'meter-fill';
+    meterFill.style.width = Math.max(item.threat_pct, 4) + '%';
+    meterFill.style.background = item.is_actionable_threat ? 'var(--red)' : 'var(--green)';
+    meterWrap.appendChild(meterFill);
+
+    const meta = document.createElement('p');
+    meta.className = 'muted';
+    meta.textContent = 'Threat Score: ' + item.threat_pct + '% | Decision Time: ' + item.latency_ms + ' ms | Confidence: ' + item.confidence_pct + '%';
+
+    wrap.appendChild(head);
+    wrap.appendChild(meterWrap);
+    wrap.appendChild(meta);
+    withRows.appendChild(wrap);
+  }});
+
+  const withPills = document.getElementById('demo2-with-pills');
+  withPills.innerHTML = '';
+  const pillLabels = ['0 Output Tokens Used'];
+  if (safeCount > 0) pillLabels.push('Safe Notice Archived ($0)');
+  if (threatCount > 0) pillLabels.push('Phishing Lure Escalated');
+  pillLabels.forEach(lbl => {{
+    const s = document.createElement('span');
+    s.className = 'ev-pill';
+    s.textContent = lbl;
+    withPills.appendChild(s);
   }});
 }}
 
@@ -732,6 +846,7 @@ async function scoreSample(sampleName) {{
   const btn = document.getElementById('demo2-run-both');
   btn.disabled = true;
   btn.textContent = 'Scoring Live with Decision 1...';
+  document.getElementById('demo2-custom-preview').style.display = 'none';
   try {{
     const resp = await fetch('/api/demo2', {{
       method: 'POST',
@@ -739,28 +854,43 @@ async function scoreSample(sampleName) {{
       body: JSON.stringify({{sample: sampleName}})
     }});
     const d = await resp.json();
-    if (d.items) renderInboxItems(d.items);
+    if (d.items) renderInboxItems(d.items, d.wall_ms);
   }} finally {{
     btn.disabled = false;
-    btn.textContent = 'Score Both Inbox Screenshots Live';
+    btn.textContent = 'Score Inbox with Decision 1';
   }}
 }}
 
 async function uploadFile(file) {{
   if (!file) return;
+  const preview = document.getElementById('demo2-custom-preview');
+  preview.style.display = 'flex';
+  preview.style.cssText = 'display:flex;align-items:center;gap:12px;margin-top:12px;padding:10px;background:var(--card-2);border:1px solid var(--border);border-radius:8px;';
+  preview.innerHTML = '';
+  if (file.type && file.type.startsWith('image/')) {{
+    const img = document.createElement('img');
+    img.src = URL.createObjectURL(file);
+    img.style.cssText = 'max-height:110px;max-width:220px;object-fit:contain;background:#090d14;border-radius:6px;border:1px solid var(--border);';
+    preview.appendChild(img);
+  }}
+  const label = document.createElement('span');
+  label.className = 'muted';
+  label.textContent = 'Uploaded artifact: ' + file.name;
+  preview.appendChild(label);
+
   const fd = new FormData();
   fd.append('file', file);
   const resp = await fetch('/api/demo2', {{method: 'POST', body: fd}});
   const d = await resp.json();
-  if (d.items) renderInboxItems(d.items);
+  if (d.items) renderInboxItems(d.items, d.wall_ms);
 }}
 
-const dz = document.getElementById('dropzone');
-dz.addEventListener('dragover', e => {{ e.preventDefault(); dz.classList.add('dragover'); }});
-dz.addEventListener('dragleave', () => dz.classList.remove('dragover'));
-dz.addEventListener('drop', e => {{
+const inputCard2 = document.getElementById('demo2-input-card');
+inputCard2.addEventListener('dragover', e => {{ e.preventDefault(); inputCard2.classList.add('dragover'); }});
+inputCard2.addEventListener('dragleave', () => inputCard2.classList.remove('dragover'));
+inputCard2.addEventListener('drop', e => {{
   e.preventDefault();
-  dz.classList.remove('dragover');
+  inputCard2.classList.remove('dragover');
   if (e.dataTransfer.files.length) uploadFile(e.dataTransfer.files[0]);
 }});
 

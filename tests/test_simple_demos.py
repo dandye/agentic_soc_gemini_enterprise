@@ -368,3 +368,46 @@ def test_zero_emojis_in_demo_files() -> None:
     for path in paths:
         content = path.read_text(encoding="utf-8")
         assert not _EMOJI_RE.search(content), f"Emoji found in {path}"
+
+
+def test_simple_demos_ui_and_api_parity() -> None:
+    """Verifies UI/API parity across all 3 tabs, DEMO2_CHAT_PROMPT, and zero emojis/go-links."""
+    from starlette.testclient import TestClient
+
+    from scripts.governance.demos import simple_demos_app as app_mod
+
+    html = app_mod._HTML_PAGE
+    assert html.count("Copy Prompt for Gemini Enterprise Chat") == 3
+    assert html.count("Without Decision 1") >= 2
+    assert html.count("With Decision 1") >= 2
+    assert isinstance(app_mod.DEMO2_CHAT_PROMPT, str)
+    assert app_mod.DEMO2_CHAT_PROMPT.strip()
+
+    fake_res = {
+        "is_actionable_threat": True,
+        "actionable_probability": 0.95,
+        "confidence": 0.97,
+        "recommended_route": "escalate_threat_hunter",
+        "latency_ms": 250.0,
+        "fallback": False,
+    }
+    with (
+        patch.object(app_mod, "_ensure_gemini_api_key"),
+        patch.object(
+            app_mod, "triage_multimodal_security_artifact", return_value=fake_res
+        ),
+    ):
+        client = TestClient(app_mod.create_app())
+        resp = client.post("/api/demo2", json={"sample": "fake_sso_login.png"})
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["copy_prompt"] == app_mod.DEMO2_CHAT_PROMPT
+    assert len(payload["items"]) == 1
+
+    for path in (
+        _REPO_ROOT / "scripts/governance/demos/simple_demos_app.py",
+        _REPO_ROOT / "docs/gemini_decision_1_simple_demos.md",
+    ):
+        text = path.read_text(encoding="utf-8")
+        assert not _EMOJI_RE.search(text), f"Emoji found in {path}"
+        assert "go/" not in text.lower(), f"Internal shortlink pattern in {path}"
