@@ -37,7 +37,6 @@ from triage_tools import (
     _inject_current_utc_time_callback,
 )
 from vertexai.agent_engines.templates.a2a import A2aAgent, create_agent_card
-from wiz_mcp import build_wiz_toolset
 
 
 try:
@@ -71,14 +70,6 @@ CHRONICLE_PROJECT_ID = os.environ["CHRONICLE_PROJECT_ID"]
 CHRONICLE_CUSTOMER_ID = os.environ["CHRONICLE_CUSTOMER_ID"]
 CHRONICLE_REGION = os.getenv("CHRONICLE_REGION", "us")
 
-WIZ_AUTH_PROVIDER = os.getenv("WIZ_AUTH_PROVIDER", "").strip()
-WIZ_MCP_URL = os.getenv("WIZ_MCP_URL", "https://mcp.app.wiz.io/").strip()
-WIZ_ALLOWED_TOOLS = [
-    t.strip()
-    for t in os.getenv("WIZ_ALLOWED_TOOLS", "discover,execute").split(",")
-    if t.strip()
-]
-
 ALLOWED_TOOLS = [
     "udm_search",
     "search_raw_logs",
@@ -109,16 +100,6 @@ chronicle_tools = build_chronicle_toolset(
     project_id=CHRONICLE_PROJECT_ID,
     tool_filter=ALLOWED_TOOLS + ADVERTISED_DENIED_TOOLS,
 )
-
-threat_hunter_tools: list[Any] = [chronicle_tools]
-if WIZ_AUTH_PROVIDER:
-    threat_hunter_tools.append(
-        build_wiz_toolset(
-            mcp_url=WIZ_MCP_URL,
-            auth_provider=WIZ_AUTH_PROVIDER,
-            tool_filter=WIZ_ALLOWED_TOOLS,
-        )
-    )
 
 DESCRIPTION = (
     "Chronicle SIEM Threat Hunter specialist that runs UDM event searches, "
@@ -172,9 +153,6 @@ its recent Chronicle activity:
     `summarize_entity`, `get_ioc_match`
   * Inspecting existing Chronicle SIEM YARA-L 2.0 detection rules and detections:
     `list_rules`, `get_rule`, `list_rule_detections`
-  * Correlating cloud posture, vulnerabilities, toxic combinations, network
-    exposure, IAM graph paths, and AI-SPM findings via Wiz Remote MCP (when
-    attached): `wiz_discover`, `wiz_execute`
   * Inspecting configured Chronicle data ingestion feeds: `list_feeds`
   * Creating a rule (`create_rule`), deleting a data feed (`delete_feed`),
     creating a reference list (`create_reference_list`), or running a manual
@@ -256,7 +234,7 @@ threat_hunter_llm = LlmAgent(
     model=Gemini(model=MODEL, client_kwargs={"location": MODEL_LOCATION}),
     description=DESCRIPTION,
     instruction=INSTRUCTION,
-    tools=threat_hunter_tools,
+    tools=[chronicle_tools],
     generate_content_config=types.GenerateContentConfig(
         thinking_config=types.ThinkingConfig(thinking_budget=0)
     ),

@@ -169,26 +169,26 @@ resource "terraform_data" "gemini_auth_provider_grant" {
 
   input = {
     name    = local.gemini_auth_provider_name
-    members = { for name in local.agent_names : name => local.agent_principals[name] }
+    members = { for name in local.core_agent_names : name => local.agent_principals[name] }
     role    = "roles/agentidentity.user"
   }
 
   triggers_replace = [
     terraform_data.gemini_auth_provider[0].id,
-    jsonencode({ for name in local.agent_names : name => local.agent_principals[name] }),
+    jsonencode({ for name in local.core_agent_names : name => local.agent_principals[name] }),
   ]
 
   lifecycle {
     precondition {
-      condition     = alltrue([for name in local.agent_names : local.agent_identity_ok[name]])
-      error_message = join("; ", [for name in local.agent_names : local.agent_identity_error[name] if !local.agent_identity_ok[name]])
+      condition     = alltrue([for name in local.core_agent_names : local.agent_identity_ok[name]])
+      error_message = join("; ", [for name in local.core_agent_names : local.agent_identity_error[name] if !local.agent_identity_ok[name]])
     }
   }
 
   provisioner "local-exec" {
     command = <<-EOT
       set -euo pipefail
-      for member in ${join(" ", [for name in local.agent_names : format("'%s'", local.agent_principals[name])])}; do
+      for member in ${join(" ", [for name in local.core_agent_names : format("'%s'", local.agent_principals[name])])}; do
         AUTH_PROVIDER_MEMBER="$member" bash "${local.auth_provider_script}" grant
       done
     EOT
@@ -211,8 +211,47 @@ resource "terraform_data" "gemini_auth_provider_grant" {
   ]
 }
 
+resource "terraform_data" "gemini_auth_provider_grant_wizard" {
+  count = local.gemini_auth_provider_enabled && var.enable_wiz_mcp ? 1 : 0
+
+  input = {
+    name   = local.gemini_auth_provider_name
+    member = local.agent_principals["wizard_agent"]
+    role   = "roles/agentidentity.user"
+  }
+
+  triggers_replace = [
+    terraform_data.gemini_auth_provider[0].id,
+    local.agent_principals["wizard_agent"],
+  ]
+
+  lifecycle {
+    precondition {
+      condition     = local.agent_identity_ok["wizard_agent"]
+      error_message = local.agent_identity_error["wizard_agent"]
+    }
+  }
+
+  provisioner "local-exec" {
+    command = "bash \"${local.auth_provider_script}\" grant"
+
+    environment = {
+      AUTH_PROVIDER_PROJECT  = var.project_id
+      AUTH_PROVIDER_LOCATION = var.region
+      AUTH_PROVIDER_ID       = local.gemini_auth_provider_id
+      AUTH_PROVIDER_MEMBER   = local.agent_principals["wizard_agent"]
+      AUTH_PROVIDER_ROLE     = "roles/agentidentity.user"
+    }
+  }
+
+  depends_on = [
+    terraform_data.gemini_auth_provider,
+    google_vertex_ai_reasoning_engine.wizard_agent,
+  ]
+}
+
 # Optional Wiz Remote MCP OAuth credential stored in Agent Platform Auth Manager
-# when `var.enable_wiz_mcp = true`. Granted exclusively to `threat_hunter`.
+# when `var.enable_wiz_mcp = true`. Granted exclusively to `wizard_agent`.
 resource "terraform_data" "wiz_auth_provider" {
   count = var.enable_wiz_mcp ? 1 : 0
 
@@ -248,7 +287,7 @@ resource "terraform_data" "wiz_auth_provider" {
       AUTH_PROVIDER_PROJECT      = var.project_id
       AUTH_PROVIDER_LOCATION     = var.region
       AUTH_PROVIDER_ID           = local.wiz_auth_provider_id
-      AUTH_PROVIDER_DESCRIPTION  = "Wiz Remote MCP OAuth credential retrieved at tool-call time by threat_hunter under its SPIFFE workload identity."
+      AUTH_PROVIDER_DESCRIPTION  = "Wiz Remote MCP OAuth credential retrieved at tool-call time by wizard_agent under its SPIFFE workload identity."
       AUTH_PROVIDER_VERSION      = tostring(var.wiz_oauth_token_version)
       AUTH_PROVIDER_WORKLOAD_IDS = jsonencode(var.wiz_auth_provider_workload_ids)
       AUTH_PROVIDER_SECRET       = var.wiz_oauth_token
@@ -275,19 +314,19 @@ resource "terraform_data" "wiz_auth_provider_grant" {
 
   input = {
     name   = local.wiz_auth_provider_name
-    member = local.agent_principals["threat_hunter"]
+    member = local.agent_principals["wizard_agent"]
     role   = "roles/agentidentity.user"
   }
 
   triggers_replace = [
     terraform_data.wiz_auth_provider[0].id,
-    local.agent_principals["threat_hunter"],
+    local.agent_principals["wizard_agent"],
   ]
 
   lifecycle {
     precondition {
-      condition     = local.agent_identity_ok["threat_hunter"]
-      error_message = local.agent_identity_error["threat_hunter"]
+      condition     = local.agent_identity_ok["wizard_agent"]
+      error_message = local.agent_identity_error["wizard_agent"]
     }
   }
 
@@ -298,13 +337,13 @@ resource "terraform_data" "wiz_auth_provider_grant" {
       AUTH_PROVIDER_PROJECT  = var.project_id
       AUTH_PROVIDER_LOCATION = var.region
       AUTH_PROVIDER_ID       = local.wiz_auth_provider_id
-      AUTH_PROVIDER_MEMBER   = local.agent_principals["threat_hunter"]
+      AUTH_PROVIDER_MEMBER   = local.agent_principals["wizard_agent"]
       AUTH_PROVIDER_ROLE     = "roles/agentidentity.user"
     }
   }
 
   depends_on = [
     terraform_data.wiz_auth_provider,
-    google_vertex_ai_reasoning_engine.threat_hunter,
+    google_vertex_ai_reasoning_engine.wizard_agent,
   ]
 }

@@ -22,6 +22,7 @@ readonly AGENTS=(
   threat_hunter
   detection_engineer
   tier2_responder
+  wizard_agent
   soc_orchestrator
 )
 

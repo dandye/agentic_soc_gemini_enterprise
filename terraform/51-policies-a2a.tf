@@ -9,22 +9,27 @@ locals {
   a2a_policies_enabled = var.enable_agent_registry_policies
 
   agent_card_names = {
-    for name in local.agent_names : name => jsondecode(local.agent_card_json[name]).name
+    for name in local.all_agent_names : name => jsondecode(local.agent_card_json[name]).name
   }
 
   agent_registry_filters = {
-    for name in local.agent_names :
+    for name in local.all_agent_names :
     name => lookup(var.agent_registry_filters, name, "displayName=\"${local.agent_card_names[name]}\"")
   }
 
   # Value-level ordering on each specialist engine's numeric `name` without
   # `depends_on` (so perpetual `- agent_card` diffs do not defer plan-time reads).
-  agent_registry_read_after = {
-    cti_researcher     = substr(google_vertex_ai_reasoning_engine.cti_researcher.name, 0, 0)
-    threat_hunter      = substr(google_vertex_ai_reasoning_engine.threat_hunter.name, 0, 0)
-    detection_engineer = substr(google_vertex_ai_reasoning_engine.detection_engineer.name, 0, 0)
-    tier2_responder    = substr(google_vertex_ai_reasoning_engine.tier2_responder.name, 0, 0)
-  }
+  agent_registry_read_after = merge(
+    {
+      cti_researcher     = substr(google_vertex_ai_reasoning_engine.cti_researcher.name, 0, 0)
+      threat_hunter      = substr(google_vertex_ai_reasoning_engine.threat_hunter.name, 0, 0)
+      detection_engineer = substr(google_vertex_ai_reasoning_engine.detection_engineer.name, 0, 0)
+      tier2_responder    = substr(google_vertex_ai_reasoning_engine.tier2_responder.name, 0, 0)
+    },
+    var.enable_wiz_mcp ? {
+      wizard_agent = substr(google_vertex_ai_reasoning_engine.wizard_agent[0].name, 0, 0)
+    } : {},
+  )
 }
 
 data "google_agent_registry_agent" "cti_researcher" {
@@ -63,6 +68,15 @@ data "google_agent_registry_agent" "tier2_responder" {
   filter   = "${local.agent_registry_filters["tier2_responder"]}${local.agent_registry_read_after["tier2_responder"]}"
 }
 
+data "google_agent_registry_agent" "wizard_agent" {
+  count = local.a2a_policies_enabled && var.enable_wiz_mcp ? 1 : 0
+
+  provider = google-beta
+  project  = var.project_id
+  location = var.region
+  filter   = "${local.agent_registry_filters["wizard_agent"]}${local.agent_registry_read_after["wizard_agent"]}"
+}
+
 resource "google_vertex_ai_reasoning_engine_iam_member" "orch_to_specialist" {
   for_each = {
     cti_researcher     = google_vertex_ai_reasoning_engine.cti_researcher
@@ -75,6 +89,24 @@ resource "google_vertex_ai_reasoning_engine_iam_member" "orch_to_specialist" {
   project          = var.project_id
   region           = var.region
   reasoning_engine = each.value.name
+  role             = "roles/aiplatform.viewer"
+  member           = local.agent_principals["soc_orchestrator"]
+
+  lifecycle {
+    precondition {
+      condition     = local.agent_identity_ok["soc_orchestrator"]
+      error_message = local.agent_identity_error["soc_orchestrator"]
+    }
+  }
+}
+
+resource "google_vertex_ai_reasoning_engine_iam_member" "orch_to_wizard_agent" {
+  count = var.enable_wiz_mcp ? 1 : 0
+
+  provider         = google-beta
+  project          = var.project_id
+  region           = var.region
+  reasoning_engine = google_vertex_ai_reasoning_engine.wizard_agent[0].name
   role             = "roles/aiplatform.viewer"
   member           = local.agent_principals["soc_orchestrator"]
 

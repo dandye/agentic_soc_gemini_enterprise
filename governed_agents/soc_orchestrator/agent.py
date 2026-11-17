@@ -72,6 +72,9 @@ CTI_RESEARCHER_URL = os.environ["CTI_RESEARCHER_URL"]
 THREAT_HUNTER_URL = os.environ["THREAT_HUNTER_URL"]
 DETECTION_ENGINEER_URL = os.environ["DETECTION_ENGINEER_URL"]
 TIER2_RESPONDER_URL = os.environ["TIER2_RESPONDER_URL"]
+WIZARD_AGENT_CARD_URL = (
+    os.getenv("WIZARD_AGENT_CARD_URL") or os.getenv("WIZARD_AGENT_URL") or ""
+).strip()
 
 A2A_TENANT = os.getenv("A2A_TENANT", "")
 _CLOUD_PLATFORM_SCOPE = "https://www.googleapis.com/auth/cloud-platform"
@@ -249,6 +252,40 @@ tier2_responder_peer = RemoteA2aAgent(
     httpx_client=_a2a_http_client,
 )
 
+wizard_agent_peer: RemoteA2aAgent | None = (
+    RemoteA2aAgent(
+        name="Wizard_Agent",
+        description=(
+            "Inspects cloud posture, Attack Paths, Toxic Combinations, IAM scope "
+            "exposure, vulnerabilities, AI-SPM findings, and least-privilege "
+            "Terraform remediations via Wiz Remote MCP (`wiz_discover`, read-only "
+            "`wiz_execute`)."
+        ),
+        agent_card=_peer_card(
+            name="wizard_agent",
+            description="Wiz Cloud Security Graph and Attack Path MCP specialist.",
+            url=WIZARD_AGENT_CARD_URL,
+            skills=[
+                AgentSkill(
+                    id="wiz_cloud_graph_and_attack_path",
+                    name="Wiz Cloud Graph, Attack Path, and AI-SPM analysis",
+                    description=(
+                        "Queries Wiz Remote MCP for Attack Paths, IAM privilege hops, "
+                        "CVEs, AI-SPM findings, and Terraform remediation guidance."
+                    ),
+                    tags=["wiz", "cloud-security", "attack-path", "ai-spm"],
+                    examples=[
+                        "Inspect Wiz Attack Path and Terraform remediation for DataBot"
+                    ],
+                )
+            ],
+        ),
+        httpx_client=_a2a_http_client,
+    )
+    if WIZARD_AGENT_CARD_URL
+    else None
+)
+
 DESCRIPTION = (
     "Governed SOC Orchestrator that coordinates Cyber Threat Intelligence "
     "(CTI_Researcher), Chronicle SIEM UDM Threat Hunting (Threat_Hunter), "
@@ -256,13 +293,22 @@ DESCRIPTION = (
     "Incident Response (Tier2_Responder) over A2A with zero direct tools."
 )
 
-INSTRUCTION = """\
+_WIZARD_BULLET = (
+    "  * `Wizard_Agent` -- Wiz Cloud Security Graph, Attack Path visualization, "
+    "Toxic Combinations, IAM/OAuth scope exposure, vulnerabilities, AI-SPM "
+    "findings, and least-privilege Terraform remediation via Wiz Remote MCP.\n"
+    if wizard_agent_peer is not None
+    else ""
+)
+_SPECIALIST_COUNT_WORD = "five" if wizard_agent_peer is not None else "four"
+
+INSTRUCTION = f"""\
 You are the Governed SOC Orchestrator for enterprise security operations. You
 hold zero direct MCP servers, API keys, or containment tools of your own: every
 investigation, enrichment, rule validation, administrative request, or response
-action is delegated over A2A to one or more of your four specialist agents:
+action is delegated over A2A to one or more of your {_SPECIALIST_COUNT_WORD} specialist agents:
 
-  * `CTI_Researcher` — External Google Threat Intelligence (VirusTotal v3)
+{_WIZARD_BULLET}  * `CTI_Researcher` -- External Google Threat Intelligence (VirusTotal v3)
     reputation lookups for file hashes, domains, IP addresses, and threat
     collections.
   * `Threat_Hunter` — Chronicle SIEM UDM telemetry searches, security alert
@@ -342,6 +388,17 @@ _PREFLIGHT_QUESTIONS: dict[str, dict[str, Any]] = {
         "Does the request ask to isolate or quarantine an endpoint host, disable a "
         "user account, update an alert status, or modify a containment reference list?"
     ),
+    **(
+        {
+            "needs_wiz_cloud": noul_question(
+                "Does the request ask to inspect cloud security posture, Attack Paths, "
+                "Toxic Combinations, IAM or OAuth scope exposure, cloud vulnerabilities, "
+                "AI-SPM findings, or Terraform remediation in Wiz?"
+            )
+        }
+        if wizard_agent_peer is not None
+        else {}
+    ),
     "workflow_mode": choice_question(
         "Select the most appropriate orchestration workflow mode for this request.",
         {
@@ -368,7 +425,7 @@ _SPECIALIST_ROUTING_LABELS = (
     ("needs_threat_hunt", "Threat_Hunter"),
     ("needs_detection_eng", "Detection_Engineer"),
     ("needs_tier2_response", "Tier2_Responder"),
-)
+) + ((("needs_wiz_cloud", "Wizard_Agent"),) if wizard_agent_peer is not None else ())
 
 
 def _extract_latest_user_prompt(llm_request: LlmRequest) -> str | None:
@@ -486,18 +543,22 @@ async def _preflight_before_model_callback(
     return None
 
 
+orchestrator_peers: list[RemoteA2aAgent] = [
+    cti_researcher_peer,
+    threat_hunter_peer,
+    detection_engineer_peer,
+    tier2_responder_peer,
+]
+if wizard_agent_peer is not None:
+    orchestrator_peers.append(wizard_agent_peer)
+
 orchestrator_llm = LlmAgent(
     name=APP_NAME,
     model=Gemini(model=MODEL, client_kwargs={"location": MODEL_LOCATION}),
     description=DESCRIPTION,
     instruction=INSTRUCTION,
     before_model_callback=_preflight_before_model_callback,
-    tools=[
-        AgentTool(agent=cti_researcher_peer),
-        AgentTool(agent=threat_hunter_peer),
-        AgentTool(agent=detection_engineer_peer),
-        AgentTool(agent=tier2_responder_peer),
-    ],
+    tools=[AgentTool(agent=peer) for peer in orchestrator_peers],
 )
 
 

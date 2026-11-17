@@ -39,7 +39,6 @@ locals {
 
   gti_endpoint_name         = "projects/${var.project_id}/locations/${var.region}/endpoints/${local.gti_endpoint_id}"
   chronicle_mcp_server_name = "projects/${var.project_id}/locations/${var.region}/mcpServers/${local.chronicle_mcp_server_id}"
-  wiz_mcp_server_name       = var.enable_wiz_mcp ? "projects/${var.project_id}/locations/${var.region}/mcpServers/${local.wiz_mcp_server_id}" : ""
 
   # IAM v3 `iap.googleapis.com` CEL rules cap every `in [...]` list literal at 10
   # items (in addition to the 1024-character per-rule cap), so chunk each
@@ -98,35 +97,6 @@ locals {
     }
   }
 
-  wiz_mcp_chunks = var.enable_wiz_mcp ? chunklist(var.wiz_mcp_allowed_tools, local.mcp_tools_per_rule) : []
-
-  wiz_mcp_cels = [
-    for idx, chunk in local.wiz_mcp_chunks : (
-      idx == 0
-      ? "destination.agent_registry.mcp_server.name == '${local.wiz_mcp_server_name}' && (destination.agent_registry.mcp_server.tool.name in [${join(", ", [for t in chunk : "'${t}'"])}] || destination.agent_registry.mcp_server.method == 'tools/list')"
-      : "destination.agent_registry.mcp_server.name == '${local.wiz_mcp_server_name}' && destination.agent_registry.mcp_server.tool.name in [${join(", ", [for t in chunk : "'${t}'"])}]"
-    )
-  ]
-
-  wiz_mcp_rules = var.enable_wiz_mcp ? (
-    var.chronicle_enforce_tool_allowlist ? {
-      for idx, expr in local.wiz_mcp_cels :
-      "threat_hunter_wiz_mcp_${idx + 1}" => {
-        description = "Threat Hunter -> Wiz Remote MCP allowlist (part ${idx + 1} of ${length(local.wiz_mcp_cels)}${idx == 0 ? ", plus tools/list" : ""})"
-        effect      = "ALLOW"
-        principal   = local.agent_principals["threat_hunter"]
-        expression  = expr
-      }
-      } : {
-      threat_hunter_wiz_mcp_all = {
-        description = "Threat Hunter -> Wiz Remote MCP (all tools diagnostic)"
-        effect      = "ALLOW"
-        principal   = local.agent_principals["threat_hunter"]
-        expression  = "destination.agent_registry.mcp_server.name == '${local.wiz_mcp_server_name}'"
-      }
-    }
-  ) : {}
-
   agent_tool_rules = merge(
     {
       cti_gti = {
@@ -136,36 +106,45 @@ locals {
         expression  = "destination.agent_registry.endpoint.name == '${local.gti_endpoint_name}'"
       }
     },
-    local.wiz_mcp_rules,
     local.mcp_specialist_rules,
   )
 
-  agent_a2a_rules = local.a2a_policies_enabled ? {
-    orch_to_cti_researcher = {
-      description = "SOC Orchestrator -> CTI Researcher (A2A)"
-      effect      = "ALLOW"
-      principal   = local.agent_principals["soc_orchestrator"]
-      expression  = "destination.agent_registry.agent.name == 'projects/${var.project_id}/locations/${var.region}/agents/${data.google_agent_registry_agent.cti_researcher[0].agent_id}'"
-    }
-    orch_to_threat_hunter = {
-      description = "SOC Orchestrator -> Threat Hunter (A2A)"
-      effect      = "ALLOW"
-      principal   = local.agent_principals["soc_orchestrator"]
-      expression  = "destination.agent_registry.agent.name == 'projects/${var.project_id}/locations/${var.region}/agents/${data.google_agent_registry_agent.threat_hunter[0].agent_id}'"
-    }
-    orch_to_detection_engineer = {
-      description = "SOC Orchestrator -> Detection Engineer (A2A)"
-      effect      = "ALLOW"
-      principal   = local.agent_principals["soc_orchestrator"]
-      expression  = "destination.agent_registry.agent.name == 'projects/${var.project_id}/locations/${var.region}/agents/${data.google_agent_registry_agent.detection_engineer[0].agent_id}'"
-    }
-    orch_to_tier2_responder = {
-      description = "SOC Orchestrator -> Tier-2 Responder (A2A)"
-      effect      = "ALLOW"
-      principal   = local.agent_principals["soc_orchestrator"]
-      expression  = "destination.agent_registry.agent.name == 'projects/${var.project_id}/locations/${var.region}/agents/${data.google_agent_registry_agent.tier2_responder[0].agent_id}'"
-    }
-  } : {}
+  agent_a2a_rules = local.a2a_policies_enabled ? merge(
+    {
+      orch_to_cti_researcher = {
+        description = "SOC Orchestrator -> CTI Researcher (A2A)"
+        effect      = "ALLOW"
+        principal   = local.agent_principals["soc_orchestrator"]
+        expression  = "destination.agent_registry.agent.name == 'projects/${var.project_id}/locations/${var.region}/agents/${data.google_agent_registry_agent.cti_researcher[0].agent_id}'"
+      }
+      orch_to_threat_hunter = {
+        description = "SOC Orchestrator -> Threat Hunter (A2A)"
+        effect      = "ALLOW"
+        principal   = local.agent_principals["soc_orchestrator"]
+        expression  = "destination.agent_registry.agent.name == 'projects/${var.project_id}/locations/${var.region}/agents/${data.google_agent_registry_agent.threat_hunter[0].agent_id}'"
+      }
+      orch_to_detection_engineer = {
+        description = "SOC Orchestrator -> Detection Engineer (A2A)"
+        effect      = "ALLOW"
+        principal   = local.agent_principals["soc_orchestrator"]
+        expression  = "destination.agent_registry.agent.name == 'projects/${var.project_id}/locations/${var.region}/agents/${data.google_agent_registry_agent.detection_engineer[0].agent_id}'"
+      }
+      orch_to_tier2_responder = {
+        description = "SOC Orchestrator -> Tier-2 Responder (A2A)"
+        effect      = "ALLOW"
+        principal   = local.agent_principals["soc_orchestrator"]
+        expression  = "destination.agent_registry.agent.name == 'projects/${var.project_id}/locations/${var.region}/agents/${data.google_agent_registry_agent.tier2_responder[0].agent_id}'"
+      }
+    },
+    var.enable_wiz_mcp ? {
+      orch_to_wizard_agent = {
+        description = "SOC Orchestrator -> Wizard Agent (A2A)"
+        effect      = "ALLOW"
+        principal   = local.agent_principals["soc_orchestrator"]
+        expression  = "destination.agent_registry.agent.name == 'projects/${var.project_id}/locations/${var.region}/agents/${data.google_agent_registry_agent.wizard_agent[0].agent_id}'"
+      }
+    } : {},
+  ) : {}
 }
 
 resource "google_org_policy_policy" "allow_access_policy_binding" {

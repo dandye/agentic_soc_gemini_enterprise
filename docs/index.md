@@ -1,43 +1,50 @@
 # Agentic SOC for Gemini Enterprise
 
-Autonomous multi-agent Security Operations Center (SOC) reference architecture built on the Google Agent Development Kit (ADK), Vertex AI Agent Engine, Google Security Operations (Chronicle SIEM & SOAR), Google Threat Intelligence (GTI), and Gemini Enterprise.
+End-to-end multi-agent Security Operations Center (SOC) platform built on the Google Agent Development Kit (ADK), Vertex AI Agent Engine, Google Security Operations (Chronicle SIEM and SOAR), Wiz Cloud Security Graph, Google Threat Intelligence (GTI), AlloyDB `pgvector`, and Gemini Enterprise.
 
-```{grid} 1 2 2 2
+```{grid} 1 2 2 3
 :gutter: 3
 
-:::{grid-item-card} Getting Started & Setup
+:::{grid-item-card} Getting Started & Gemini Enterprise Hub
 :link: setup
 :link-type: doc
 
-Configure Google Cloud APIs, Vertex AI Reasoning Engines, Secret Manager credentials, OAuth 3LO bindings, and Gemini Enterprise registration.
+Configure Google Cloud APIs, Vertex AI Reasoning Engines, 3LO OAuth Interactions API passthrough, `GLiNER 2.5` (373.5 ms CPU router), evolved `Gemma` Tier-1 triage, and Gemini Enterprise registration.
 :::
 
-:::{grid-item-card} Governed Multi-Agent Stack
-:link: agent_governance
-:link-type: doc
-
-Deploy and verify the default-deny egress Agent Gateway, per-agent SPIFFE workload identities, IAM v3 CEL tool allowlists, inline Model Armor, and Semantic Governance policies.
-:::
-
-:::{grid-item-card} Gemini Decision 1 Triage & Routing
-:link: gemini_decision_1
-:link-type: doc
-
-Zero-output-token `LlmResponse` pre-flight routing, ADK v2 lifecycle guards (IOC-preserving prompt-injection redaction, progressive tool pruning, Bayes containment gating, multimodal CTI ingress), and the 3-tab 30-second Simple Demos (`just governance-demos`).
-:::
-
-:::{grid-item-card} Multi-Agent Architecture & Grounding
+:::{grid-item-card} Multi-Agent SOC & Wizard_Agent
 :link: architecture
 :link-type: doc
 
-Explore the coordinated A2A Orchestrator and specialist agents (`cti_researcher`, `threat_hunter`, `detection_engineer`, `tier2_responder`), AlloyDB pgvector similarity search, and Neo4j attack graphs.
+Coordinate `SOC_Orchestrator`, `tier1_analyst` (`SkillToolset` runbooks), `Wizard_Agent` (Wiz Cloud Graph & Attack Path MCP), `Threat_Hunter`, `CTI_Researcher`, `Detection_Engineer` (Chronicle SIEM YARA-L 2.0), and `Tier2_Responder`.
 :::
 
-:::{grid-item-card} Evaluation & Quality Assurance
+:::{grid-item-card} Multi-Store Grounding & 5D Memory
+:link: grounding_architecture
+:link-type: doc
+
+Ground investigations across AlloyDB `pgvector` (258 cases, 1,183 entities, 5D similarity profiles), Neo4j Attack Graphs, Dataplex Threat Actor Glossaries, Elasticsearch, RAG runbooks, and Vertex Memory Bank.
+:::
+
+:::{grid-item-card} Sandboxed Python & Google Chat ChatOps
+:link: code_execution_architecture
+:link-type: doc
+
+Execute DGA entropy, C2 beacon jitter, and dropper forensics inside Cloud MicroVM/gVisor Python sandboxes, paired with 55 HMAC-SHA256 Google Chat ChatOps approval cards.
+:::
+
+:::{grid-item-card} Evaluation & AQuA Quality Loop
 :link: evaluations
 :link-type: doc
 
-Run offline governance harnesses, live A2A smoke suites, ADK rubric evaluations, and Ambient Quality Agent (AQuA) production trace diagnostics.
+Measure agent quality across 10 `.evalset.json` suites (54 cases including 25 multi-turn pivots), Cloud Trace AQuA outer-loop diagnostics, a 3-persona simulator, and the 30% to 95% Expert benchmark.
+:::
+
+:::{grid-item-card} Agent Gateway & Decision 1 Governance
+:link: agent_governance
+:link-type: doc
+
+Enforce keyless SPIFFE identities, default-deny Agent Gateway egress, IAM v3 CEL allowlists (`agw-secops-wiz-tools`), Model Armor, `CHG-*` Semantic Governance, sub-300 ms `gemini-decision-1` v2 guards, and `$0/hr` idle scale-to-zero.
 :::
 ```
 
@@ -55,7 +62,39 @@ troubleshooting
 
 ```{toctree}
 :maxdepth: 2
-:caption: Agent Governance
+:caption: Architecture & Multi-Store Grounding
+
+architecture
+grounding_architecture
+databases
+alloydb_gcp_deployment_guide
+alloydb_similarity_engine_summary
+similarity_profiles
+knowledge_catalog_vs_neo4j
+threat_actor_glossary
+```
+
+```{toctree}
+:maxdepth: 2
+:caption: Sandboxed Analytics & ChatOps
+
+code_execution_architecture
+chatops_chat_app
+```
+
+```{toctree}
+:maxdepth: 2
+:caption: Evaluation & AQuA Quality Loop
+
+evaluations
+adk_evals_framework_guide
+experimentation_playbook
+aqua_goal
+```
+
+```{toctree}
+:maxdepth: 2
+:caption: Agent Governance & Decision 1 Guards
 
 agent_governance
 agent_governance_design
@@ -71,32 +110,6 @@ gemini_decision_1_v2_tool_pruning
 gemini_decision_1_v2_bayes_gate
 gemini_decision_1_v2_multimodal_ingress
 agent_governance_troubleshooting
-```
-
-```{toctree}
-:maxdepth: 2
-:caption: Architecture & Grounding
-
-architecture
-grounding_architecture
-databases
-alloydb_gcp_deployment_guide
-alloydb_similarity_engine_summary
-similarity_profiles
-knowledge_catalog_vs_neo4j
-threat_actor_glossary
-code_execution_architecture
-chatops_chat_app
-```
-
-```{toctree}
-:maxdepth: 2
-:caption: Evaluation & Experimentation
-
-evaluations
-adk_evals_framework_guide
-experimentation_playbook
-aqua_goal
 ```
 
 ```{toctree}

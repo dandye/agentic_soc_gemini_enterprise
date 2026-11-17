@@ -20,7 +20,7 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 readonly SCRIPT_DIR
 readonly TARGET="$SCRIPT_DIR/package_agent.sh"
 readonly REPO_ROOT="${SCRIPT_DIR%/scripts/governance}"
-readonly AGENTS=(cti_researcher threat_hunter detection_engineer tier2_responder soc_orchestrator)
+readonly AGENTS=(cti_researcher threat_hunter detection_engineer tier2_responder wizard_agent soc_orchestrator)
 
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT

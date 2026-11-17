@@ -1,353 +1,232 @@
-# GE SecOps Agent
+# Agentic SOC for Gemini Enterprise
 
-Deploy security-focused AI agents to Gemini Enterprise with integrated access to Google Security Operations (SIEM and SOAR), Google Threat Intelligence, and Security Command Center through the Model Context Protocol (MCP).
-
-Built with [Google ADK](https://google.github.io/adk-docs/) (Agent Development Kit) and deployed via Vertex AI Reasoning Engine.
-
-> [!TIP]
-> **Recommended starting point: Governed Multi-Agent Stack (`governed_agents/` + `terraform/`).**
-> For enterprise deployments with dynamic SPIFFE workload identities, Auth Manager credential injection, default-deny Agent Gateway egress, per-tool IAM v3 CEL allowlists, inline cyber-tuned Model Armor, Semantic Governance policies, `gemini-decision-1` v2 calibrated epistemic gating, and a 5-layer Cloud Monitoring dashboard (`min_instances = 1` warm default, configurable to `min_instances = 0` for `$0/hr` idle compute), start with the [Agent Governance Guide](https://dandye.github.io/agentic_soc_gemini_enterprise/agent_governance.html) ([`docs/agent_governance.md`](docs/agent_governance.md)), [Gemini Decision 1 v2 Workflows](docs/gemini_decision_1_v2_workflows.md), and [Simple 30-Second Demos](docs/gemini_decision_1_simple_demos.md) (`just governance-demos`).
+Autonomous multi-agent Security Operations Center (SOC) reference platform built with [Google ADK](https://google.github.io/adk-docs/), Vertex AI Agent Engine, Google Security Operations (Chronicle SIEM and SOAR), Wiz Cloud Security Graph, Google Threat Intelligence (GTI), Security Command Center (SCC), and Gemini Enterprise.
 
 **Documentation site:** [https://dandye.github.io/agentic_soc_gemini_enterprise/](https://dandye.github.io/agentic_soc_gemini_enterprise/) (WCAG 2.1 Level AA Sphinx site, buildable locally with `just docs-serve`).
 
 [![Watch the video](https://img.youtube.com/vi/KB2dJQEpjsw/maxresdefault.jpg)](https://www.youtube.com/watch?v=KB2dJQEpjsw)
 
+## Five Core Capabilities
+
+1. **Full-Lifecycle Multi-Agent SOC and `Wizard_Agent`**: `secops_assistant` / `SOC_Orchestrator` coordinates `tier1_analyst` (`SkillToolset` modular runbooks) alongside five domain specialists over Agent-to-Agent (A2A) protocol: `Wizard_Agent` (Wiz Cloud Graph, Attack Paths, Toxic Combinations, AI-SPM, and Terraform remediation via Wiz Remote MCP), `Threat_Hunter` (Chronicle SIEM UDM hunting plus Vertex Agent Engine Cloud MicroVM/gVisor Python `code_executor` for DGA Shannon entropy, C2 beacon jitter, and dropper forensics), `CTI_Researcher` (GTI, SCC, and Dataplex Threat Actor Glossaries), `Detection_Engineer` (Chronicle SIEM YARA-L 2.0 authoring and validation), and `Tier2_Responder` (SOAR playbooks, Case Wall synthesis, and containment).
+2. **Multi-Store Enterprise Grounding and 5D Incident Memory**: AlloyDB `pgvector` similarity engine over 258 harvested investigations and 1,183 entities (`S_sem`, IDF `S_ent`, MITRE `S_ttp`, `S_flow`, and 14-day `S_time` across 5 operational profiles), Neo4j Operational Security Graph (`_reject_write_cypher`), Dataplex Knowledge Catalog and Threat Actor Glossaries, Elasticsearch and Vertex AI RAG runbooks, Vertex AI Memory Bank (`SharedScopePreloadMemoryTool`), and Gemini Enterprise Discovery Engine Federated DataStores (AlloyDB MCP, BigQuery, Chronicle MCP).
+3. **Gemini Enterprise Multi-Agent Hub, 3LO OAuth, and Google Chat ChatOps**: Purpose-built Gemini Enterprise agent portfolio (Unified ADK Agent, 3LO OAuth Interactions API Agent, `GLiNER 2.5` 373.5 ms CPU Decision Router, evolved `Gemma` Tier-1 Triage Agent, and Governed A2A Orchestrator) paired with 55 interactive HMAC-SHA256 Google Chat ChatOps cards (`host_isolation_approval`, `traveler_confirmation`, `ai_privilege_access_v2`) backed by Cloud Tasks.
+4. **AQuA Two-Loop Agent Quality and Evaluation Loop**: 10 `.evalset.json` suites (54 cases including 25 multi-turn pivots and 5 sandboxed code-analytics hunts), outer-loop Cloud Trace harvesting and custom trajectory metrics, a 3-persona multi-turn user simulator, a Human-vs-AI Turing benchmark (improving from 30% baseline to 95% Expert parity), and Git-tracked prompt optimization ledgers.
+5. **Platform Choke-Point Governance and Calibrated `gemini-decision-1` Guards**: 9-layer egress Agent Gateway (`AGENT_IDENTITY` SPIFFE workload identities, IAM v3 CEL tool allowlists including dedicated `${var.resource_prefix}-wiz-tools`, cyber-tuned Model Armor, and Vertex Semantic Governance `CHG-*` Crown Jewel change control), sub-300 ms `gemini-decision-1` v2 lifecycle guards with 3-tab Simple Demos (`just governance-demos`), a Cloud Monitoring audit dashboard, and `$0/hr` idle scale-to-zero (`minInstances=0`).
+
 ## Table of Contents
 
-- [Quick Start](#quick-start)
 - [Architecture](#architecture)
-- [Installation](#installation)
-- [Configuration](#configuration)
-- [Usage](#usage)
-- [RAG Corpus Management](#rag-corpus-management)
-- [Gemini Enterprise Integration](#gemini-enterprise-integration)
-- [Agent Governance](#agent-governance)
-- [CLI Reference](#cli-reference)
-- [Local Development](#local-development)
-- [Troubleshooting](#troubleshooting)
-- [FAQ](#faq)
-
-## Quick Start
-
-### Local Development (Recommended for Getting Started)
-
-```bash
-# Clone and setup
-git clone --recurse-submodules https://github.com/dandye/agentic_soc_gemini_enterprise.git
-cd agentic_soc_gemini_enterprise
-
-# Configure environment
-cp .env.example .env
-# Edit .env with your Google Cloud credentials
-
-# Install dependencies
-python -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-
-# Run locally with ADK Web
-cd soc_agent
-GOOGLE_GENAI_USE_VERTEXAI=True \
-GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json \
-GOOGLE_CLOUD_PROJECT=your-project-id \
-GOOGLE_CLOUD_LOCATION=us-central1 \
-adk web
-```
-
-This opens an interactive web UI at `http://localhost:8000` where you can test all features instantly.
-
-### Production Deployment
-
-```bash
-# 1. Verify setup and configure IAM (one-time)
-python manage.py vertex verify
-python manage.py iam setup
-
-# 2. Deploy to Reasoning Engine
-just agent-engine-deploy
-
-# 3. Register with Gemini Enterprise
-just gem-ent-register
-```
-
-Run `just` to see all available commands.
+- [Pillar 1: Multi-Agent SOC Specialists and `Wizard_Agent`](#pillar-1-multi-agent-soc-specialists-and-wizard_agent)
+- [Pillar 2: Multi-Store Enterprise Grounding and 5D Incident Memory](#pillar-2-multi-store-enterprise-grounding-and-5d-incident-memory)
+- [Pillar 3: Gemini Enterprise Hub, 3LO OAuth, and Google Chat ChatOps](#pillar-3-gemini-enterprise-hub-3lo-oauth-and-google-chat-chatops)
+- [Pillar 4: AQuA Two-Loop Quality and Evaluation Framework](#pillar-4-aqua-two-loop-quality-and-evaluation-framework)
+- [Pillar 5: Agent Gateway Governance and `gemini-decision-1` Guards](#pillar-5-agent-gateway-governance-and-gemini-decision-1-guards)
+- [Quick Start and Installation](#quick-start-and-installation)
+- [Configuration and RAG Corpus Management](#configuration-and-rag-corpus-management)
+- [CLI Reference and Troubleshooting](#cli-reference-and-troubleshooting)
 
 ## Architecture
 
 ```mermaid
 flowchart TB
-    subgraph GE["Gemini Enterprise"]
-        UI["User Interface<br/><i>Conversational UI</i>"]
+    subgraph Hub["Gemini Enterprise & ChatOps Surface"]
+        GE["Gemini Enterprise Agent Hub<br/>Unified ADK | 3LO OAuth | GLiNER 2.5 | Gemma T1 | Governed A2A"]
+        Chat["Google Chat ChatOps<br/>55 HMAC-SHA256 Cards + Cloud Tasks"]
     end
 
-    subgraph RE["Vertex AI Reasoning Engine (us-central1)"]
-        subgraph Orch["SOC Agent Orchestrator"]
-            Model["gemini-3.1-pro-preview<br/><i>via global endpoint</i>"]
-
-            subgraph RAG["Direct Tool Access"]
-                RAGTool["VertexAiRagRetrieval<br/><i>us-east4</i>"]
-                Runbooks["170+ SOC Runbooks<br/>IR Procedures<br/>Security Docs"]
-            end
-
-            subgraph Specialists["Sub-Agents"]
-                CTI["CTI Researcher<br/><i>gemini-3-flash-preview</i><br/><br/>• Threat Intel<br/>• IOC Analysis<br/>• Threat Actors<br/>• Campaigns"]
-                T1["Tier 1 Analyst<br/><i>gemini-3-flash-preview</i><br/><br/>• Alert Triage<br/>• Case Mgmt<br/>• Investigation<br/>• Escalation"]
-            end
-        end
+    subgraph Coord["Orchestration & Tier-1 Triage"]
+        Orch["secops_assistant / SOC_Orchestrator"]
+        T1["tier1_analyst<br/>SkillToolset Runbooks + Memory Bank"]
     end
 
-    subgraph MCP["MCP Security Servers"]
-        SIEM["SecOps SIEM<br/><i>UDM Search, Entity Timeline<br/>IOC Prevalence, Alerts</i>"]
-        SOAR["SecOps SOAR<br/><i>Case Management<br/>Findings, Collaboration</i>"]
-        GTI["GTI<br/><i>IOC Lookup, Threat Actors<br/>Campaigns, MITRE ATT&CK</i>"]
-        SCC["SCC<br/><i>Findings, Assets<br/>Compliance</i>"]
+    subgraph Memory["Multi-Store Grounding & 5D Incident Memory"]
+        Alloy["AlloyDB pgvector<br/>258 Cases, 1,183 Entities, 5D Profiles"]
+        Neo4j["Neo4j Security Graph<br/>Read-Only Cypher"]
+        Catalog["Dataplex Glossaries +<br/>Elasticsearch & RAG Runbooks"]
     end
 
-    subgraph Cache["GTI Response Cache"]
-        CacheTTL["File: 24h | IP: 12h<br/>Domain: 30m | URL: 30m"]
+    subgraph Specialists["A2A Domain Specialists (Vertex AI Reasoning Engines)"]
+        Wiz["Wizard_Agent<br/>Wiz Cloud Graph & Attack Path MCP"]
+        Hunt["Threat_Hunter<br/>Chronicle UDM + gVisor Python Sandbox"]
+        CTI["CTI_Researcher<br/>GTI + SCC + Actor Aliases"]
+        Det["Detection_Engineer<br/>Chronicle SIEM YARA-L 2.0"]
+        T2["Tier2_Responder<br/>SOAR Playbooks & Containment"]
     end
 
-    UI --> Orch
-    RAGTool --> Runbooks
-    Model --> RAG
-    Model --> Specialists
-    CTI --> SIEM & SOAR & GTI & SCC
-    T1 --> SIEM & SOAR & GTI
-    GTI --> Cache
+    subgraph Gov["Egress Agent Gateway & Decision 1 Guards"]
+        GW["agw-secops-egress (SPIFFE + IAM v3 CEL + Model Armor + SGP CHG-*)"]
+        D1["gemini-decision-1 v2 (<300 ms Log Redact & Bayes Gate)"]
+    end
 
-    style GE fill:#4285f4,color:#fff
-    style RE fill:#34a853,color:#fff
-    style Orch fill:#fbbc04,color:#000
-    style RAG fill:#ea4335,color:#fff
-    style Specialists fill:#9334e6,color:#fff
-    style MCP fill:#185abc,color:#fff
-    style Cache fill:#137333,color:#fff
+    GE --> Orch
+    Orch <--> Chat
+    Orch --> T1
+    Orch & T1 --> Alloy & Neo4j & Catalog
+    Orch --> Wiz & Hunt & CTI & Det & T2
+    Wiz & Hunt & CTI & Det & T2 --> D1 --> GW
 ```
 
-**Key Design Decisions:**
-- **Orchestrator + Specialists**: Single user-facing agent delegates to persona-based specialists
-- **RAG Isolation**: VertexAiRagRetrieval on orchestrator only (ADK constraint - cannot coexist with function tools)
-- **MCP Integration**: Security tools accessed via Model Context Protocol servers
-- **Response Caching**: GTI lookups cached with TTLs optimized by data volatility
+## Pillar 1: Multi-Agent SOC Specialists and `Wizard_Agent`
 
-## Installation
+Rather than packing every security tool and credential into one monolithic prompt, the platform splits investigation, cloud posture analysis, computational hunting, detection engineering, and response across focused ADK agents (`agent_soc_manager/`, `agent_a2a_*/`, and `governed_agents/`):
 
-### Prerequisites
+| Agent | Primary Modules | Core Tools & Security Domain |
+| :--- | :--- | :--- |
+| **`secops_assistant` / `SOC_Orchestrator`** | [`agent_soc_manager/`](agent_soc_manager/), [`governed_agents/soc_orchestrator/`](governed_agents/soc_orchestrator/) | Coordinates single-specialist and parallel multi-specialist investigations (`delegate_concurrently`), synthesizes cross-product findings, and manages human escalation. |
+| **`tier1_analyst`** | [`agent_soc_manager/agent.py`](agent_soc_manager/agent.py), [`agent_soc_manager/skills/`](agent_soc_manager/skills/) | Executes modular `SkillToolset` runbooks (`malware-triage-skill`, `secops-wiz-cloud-security`, `chatops-skill`), initial SOAR alert triage, and duplicate/false-positive checks. |
+| **`Wizard_Agent` (`wizard_agent`)** | [`governed_agents/wizard_agent/`](governed_agents/wizard_agent/), [`agent_soc_manager/wiz_mcp.py`](agent_soc_manager/wiz_mcp.py) | Connects to Wiz Remote MCP (`wiz_discover` and read-only `wiz_execute` guarded by `enforce_wiz_readonly_callback`) to map internet Attack Paths, Toxic Combinations, OAuth/IAM privilege hops, AI-SPM findings, DAST scanner context, and Wiz Green Agent Terraform fixes. |
+| **`Threat_Hunter`** | [`agent_a2a_threat_hunter/`](agent_a2a_threat_hunter/), [`governed_agents/threat_hunter/`](governed_agents/threat_hunter/) | Runs 7-day Chronicle SIEM UDM hunts and executes statistical Python analytics inside an isolated Vertex Agent Engine Cloud MicroVM/gVisor `code_executor` (`AgentEngineSandboxCodeExecutor`) to calculate Shannon entropy for DGA domains, C2 beacon inter-arrival jitter, and untrusted dropper filesystem diffs (`detonate_and_capture_forensics`) without blowing up model token context. |
+| **`CTI_Researcher`** | [`agent_a2a_cti_researcher/`](agent_a2a_cti_researcher/), [`governed_agents/cti_researcher/`](governed_agents/cti_researcher/) | Enriches external IPs, domains, SHA-256 hashes, and threat collections via Google Threat Intelligence (VirusTotal v3), correlates SCC findings, triages multimodal phishing artifacts, and resolves vendor actor aliases through Dataplex Glossaries. |
+| **`Detection_Engineer`** | [`agent_a2a_detection_engineer/`](agent_a2a_detection_engineer/), [`governed_agents/detection_engineer/`](governed_agents/detection_engineer/) | Authors, validates (`validate_rule`), and backtests **Chronicle SIEM YARA-L 2.0** UDM event correlation rules (explicitly distinct from standard YARA file/payload binary signatures). |
+| **`Tier2_Responder`** | [`agent_a2a_tier2/`](agent_a2a_tier2/), [`governed_agents/tier2_responder/`](governed_agents/tier2_responder/) | Posts unified triage briefs to the Google SecOps Case Wall, updates alert dispositions and IOC reference lists, and executes endpoint isolation (`isolate_endpoint_host`) and account disablement (`disable_compromised_account`). |
 
-- Python 3.10+
-- Google Cloud SDK configured
-- GCP project with billing enabled
+See [Architecture](docs/architecture.md) and [Vertex AI Code Execution Sandbox Architecture](docs/code_execution_architecture.md) for full specialist and MicroVM sandbox design details.
 
-### Required APIs
+## Pillar 2: Multi-Store Enterprise Grounding and 5D Incident Memory
+
+Stateless LLM triage repeats past false positives and misses slow multi-host campaigns. Every investigation is grounded across six complementary enterprise stores:
+
+- **AlloyDB `pgvector` 5D Similarity Engine** ([`installation_scripts/manage_alloydb.py`](installation_scripts/manage_alloydb.py), [AlloyDB Summary](docs/alloydb_similarity_engine_summary.md)): Stores 258 harvested Chronicle investigations and 1,183 extracted entities indexed with 768-dimensional Vertex AI `text-embedding-004` HNSW vectors. [`AlloyDBManager.find_similar`](installation_scripts/manage_alloydb.py) scores historical precedent across five orthogonal dimensions (`S_sem` vector cosine, IDF-weighted `S_ent` entity Jaccard, hierarchical MITRE `S_ttp`, analytical step `S_flow`, and 14-day exponential `S_time` decay) using five operational profiles (`balanced`, `threat-hunt`, `compromise-pivot`, `false-positive`, and `semantic`).
+- **Neo4j Operational Security Graph** ([`installation_scripts/manage_neo4j.py`](installation_scripts/manage_neo4j.py), [Knowledge Catalog vs. Neo4j](docs/knowledge_catalog_vs_neo4j.md)): Maps multi-hop `(User)-[:LOGGED_ON_TO]->(Host)-[:CONNECTED_TO]->(Domain)` lateral movement paths via `query_knowledge_graph`, protected by `_reject_write_cypher` read-only enforcement.
+- **Dataplex Knowledge Catalog & Threat Actor Glossaries** ([Threat Actor Glossary](docs/threat_actor_glossary.md)): Normalizes vendor-specific adversary synonyms (for example resolving `Midnight Blizzard`, `Nobelium`, and `UNC2452` to canonical `APT29`) at query time.
+- **Elasticsearch & Vertex AI RAG Runbooks** ([`installation_scripts/manage_elasticsearch.py`](installation_scripts/manage_elasticsearch.py), [`installation_scripts/manage_rag.py`](installation_scripts/manage_rag.py)): Serves curated Incident Response Plans (IRPs) and dual-use administrative triage procedures with verbatim source citations.
+- **Vertex AI Memory Bank** (`SharedScopePreloadMemoryTool` and `LoadMemoryTool` in [`agent_soc_manager/agent.py`](agent_soc_manager/agent.py)): Persists 12 custom SOC memory topics across shifts, including `approved_exceptions`, `investigation_patterns`, `active_campaign_intelligence`, and `detection_rule_feedback`.
+- **Gemini Enterprise Federated DataStores** ([`installation_scripts/manage_datastore.py`](installation_scripts/manage_datastore.py)): Connects Discovery Engine search directly across AlloyDB MCP, BigQuery telemetry tables, and Chronicle MCP.
 
 ```bash
-gcloud services enable aiplatform.googleapis.com storage.googleapis.com \
-  cloudbuild.googleapis.com compute.googleapis.com discoveryengine.googleapis.com
+just harvest                        # Harvest investigations and detections from Chronicle SIEM
+just alloydb-init && just alloydb-ingest && just alloydb-embed
+just alloydb-find-similar <INV_ID> profile="false-positive"
+just neo4j-sync                     # Recalculate and ingest entity graph into Neo4j
 ```
 
-### Setup Steps
+## Pillar 3: Gemini Enterprise Hub, 3LO OAuth, and Google Chat ChatOps
 
-1. **Clone and configure:**
-   ```bash
-   git clone --recurse-submodules https://github.com/dandye/agentic_soc_gemini_enterprise.git
-   cd agentic_soc_gemini_enterprise
-   cp .env.example .env
-   # Edit .env with your configuration
-   ```
+The repository publishes a purpose-built portfolio of agents into Gemini Enterprise alongside asynchronous human-in-the-loop collaboration in Google Chat:
 
-2. **Install dependencies:**
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-3. **Verify setup and configure IAM:**
-   ```bash
-   python manage.py vertex verify
-   python manage.py iam setup
-   ```
-
-4. **Deploy:**
-   ```bash
-   just agent-engine-deploy
-   # Save AGENT_ENGINE_RESOURCE_NAME to .env
-   ```
-
-5. **Register with Gemini Enterprise:**
-   ```bash
-   just gem-ent-register
-   ```
-
-## Configuration
-
-See [.env.example](.env.example) for all environment variables. Key variables:
-
-| Variable | Description |
-|----------|-------------|
-| `GCP_PROJECT_ID` | Google Cloud Project ID |
-| `GCP_PROJECT_NUMBER` | Project number (numeric) |
-| `GCP_LOCATION` | Deployment region (e.g., us-central1) |
-| `GCP_STAGING_BUCKET` | GCS bucket for staging (gs://...) |
-| `CHRONICLE_PROJECT_ID` | SecOps SIEM project |
-| `CHRONICLE_CUSTOMER_ID` | SecOps customer ID |
-| `SOAR_URL` | SOAR platform URL |
-| `SOAR_API_KEY` | SOAR API key |
-| `GTI_API_KEY` | Google Threat Intelligence API key |
-| `RAG_CORPUS_ID` | RAG corpus resource name |
-
-## Usage
-
-### Example Queries
-
-```
-"What's the procedure for handling a ransomware incident?"
-"Analyze the APT29 threat actor and their recent campaigns"
-"Triage this phishing alert for user john.doe@company.com"
-"Hunt for lateral movement using SMB in the last 7 days"
-"Check IP 198.51.100.42 reputation and search for related activity"
-```
-
-### Common Commands
+- **Gemini Enterprise Agent Portfolio** ([`installation_scripts/manage_gem_ent.py`](installation_scripts/manage_gem_ent.py), [`installation_scripts/manage_oauth.py`](installation_scripts/manage_oauth.py)):
+  - **Unified ADK SOC Orchestrator (`agent_soc_manager`)**: Full-featured multi-store grounded coordinator with local `tier1_analyst` / `wizard_agent` sub-agents and remote A2A specialist tools.
+  - **3LO OAuth Interactions API Agent**: Propagates end-user 3-legged OAuth credentials (`authorizations` token passthrough) so Chronicle SIEM and SOAR actions execute under each analyst's own IAM permissions.
+  - **`GLiNER 2.5` CPU Decision Router**: Sub-400 ms (`373.5 ms` CPU) zero-GPU entity extraction and intent router for high-volume alert queues.
+  - **Evolved `Gemma` Tier-1 Triage Agent**: Prompt-optimized lightweight Tier-1 triage worker for routine alert classification.
+  - **Governed A2A SOC Orchestrator (`governed_agents/soc_orchestrator`)**: Zero-tool front door bound to the egress Agent Gateway.
+- **55 Interactive Google Chat ChatOps Cards** ([`agent_soc_manager/tools/chatops/`](agent_soc_manager/tools/chatops/), [ChatOps Native Chat App](docs/chatops_chat_app.md)): Native Google Chat App (`CHATOPS_ENABLED` feature gate) with 55 structured Card v2 templates (`host_isolation_approval`, `traveler_confirmation`, `ai_privilege_access_v2`, `vulnerability_patch_approval`, and more). Clicks verify Google-issued JWTs plus HMAC-SHA256 action tokens, enqueue deduplicated Cloud Tasks jobs so responses stay inside Google Chat's 30-second deadline, and update cards in place with the real execution outcome.
 
 ```bash
-just agent-engine-deploy      # Deploy agent
-just agent-engine-redeploy    # Redeploy existing agent
-just gem-ent-register      # Register with Gemini Enterprise
-just gem-ent-update        # Update registration
-just agent-engine-warmup      # Pre-warm MCP connections
-just status                   # Check system status
+just oauth-workflow                 # Configure and verify 3LO OAuth in Discovery Engine
+just gem-ent-list-agents            # Inspect registered agents in Gemini Enterprise
+just chatops-list                   # List all 55 interactive Google Chat card templates
 ```
 
-## RAG Corpus Management
+## Pillar 4: AQuA Two-Loop Quality and Evaluation Framework
+
+Agent behavior is measured continuously across an inner offline/staging rubric loop and an outer production trace diagnostic loop ([Evaluations Guide](docs/evaluations.md), [ADK Evals Guide](docs/adk_evals_framework_guide.md), [AQuA Goal Spec](docs/aqua_goal.md)):
+
+- **10 Evaluation Suites (54 Cases)**: Checked-in `.evalset.json` suites under [`evalsets/`](evalsets/) covering `soc_basic`, `tier1_triage`, `cti_research`, `threat_hunting` (including 5 sandboxed Python code-analytics hunts), `detection_engineering`, `incident_response`, `multi_specialist`, 25 multi-turn investigation pivots, and promoted `aqua_regressions`.
+- **Outer-Loop AQuA Sidecar & Cloud Trace Metrics** ([`installation_scripts/manage_aqua.py`](installation_scripts/manage_aqua.py), [`aqua/`](aqua/)): Harvests OpenTelemetry Reasoning Engine traces, checks 5 behavioral invariants (investigation completeness, SOAR case fallback, A2A context propagation across `delegate_to_*`, HITL containment safety, and attribution footers), and promotes production regressions into `evalsets/aqua_regressions.evalset.json`.
+- **3-Persona Multi-Turn Simulator & Human-vs-AI Benchmark**: Evaluates multi-turn adaptability across junior analyst, incident commander, and adversarial red-team personas, lifting composite investigation quality from a 30% naive baseline to 95% Expert analyst parity through Git-tracked hypothesis experiments (`evalsets/experiments/`).
+
+```bash
+just test-eval-all                  # Run rubric evaluation suites and log to evalsets/eval_runs/
+just test-compare threat_hunting    # Diff tool trajectories and git commits across runs
+just aqua-run start_time="-24h"     # Audit production Cloud Traces against docs/aqua_goal.md
+```
+
+## Pillar 5: Agent Gateway Governance and `gemini-decision-1` Guards
+
+For CISO-governed production rollouts, [`governed_agents/`](governed_agents/) and [`terraform/`](terraform/) wrap the multi-agent SOC in a 9-layer platform choke point paired with sub-300 ms calibrated `gemini-decision-1` runtime guards:
+
+- **Keyless SPIFFE & Auth Manager Isolation**: Each Reasoning Engine (`soc_orchestrator`, `cti_researcher`, `threat_hunter`, `detection_engineer`, `tier2_responder`, and opt-in `wizard_agent` when `enable_wiz_mcp = true`) runs under its own `AGENT_IDENTITY` SPIFFE workload principal. Agent Platform Auth Manager binds external GTI and Wiz OAuth tokens solely to the single authorized specialist.
+- **Default-Deny Egress Gateway (`agw-secops-egress`)**: Enforces per-tool IAM v3 CEL allowlists (`agw-secops-agent-tools` plus dedicated `agw-secops-wiz-tools` chunked at `<= 9` tools/rule), inline cyber-tuned Model Armor (`HIGH` jailbreak confidence with `malicious_uri = false` so real threat IOCs pass), and Vertex Semantic Governance (`agw-secops-tier2-crown-jewel-change-control` requiring an approved `CHG-*` emergency ticket before isolating `DC-*` domain controllers).
+- **Calibrated `gemini-decision-1` v2 Guards & Simple Demos**: Zero-output-token (`249.13 ms` mean) ADK callbacks redact indirect prompt injections hidden in raw logs while keeping hostnames/IPs/hashes intact, prune irrelevant MCP schemas (`83.87%` prefill reduction), and enforce a 7-day Chronicle UDM lookback before recommending server isolation. All runtimes support `$0/hr` idle scale-to-zero (`minInstances=0` via `reasoning_engine_scaling.sh`).
+
+![Egress Agent Gateway details showing Agent-to-Anywhere mode, regional Agent Registry binding, three Service Extensions, and the Semantic Governance PSC network attachment](docs/images/governance/04-agent-gateway.png)\
+*Figure 1. **Agent Platform > Gateways** details for `agw-secops-egress` enforcing inline IAM v3 CEL tool allowlists, Model Armor, and Semantic Governance.*
+
+```bash
+just governance-validate            # Package 6 agent archives, generate A2A cards, validate Terraform
+just governance-test                # Run offline governance shell harnesses (zero credentials needed)
+just governance-demos               # Launch the 3-tab Gemini Decision 1 interactive demo UI
+```
+
+See the [Agent Governance Guide](docs/agent_governance.md), [Gemini Decision 1 v2 Workflows](docs/gemini_decision_1_v2_workflows.md), and [Simple 30-Second Demos](docs/gemini_decision_1_simple_demos.md).
+
+## Quick Start and Installation
+
+### Prerequisites and APIs
+
+- Python 3.12+ (`uv` recommended) and Google Cloud SDK
+- Enable core Google Cloud APIs:
+  ```bash
+  gcloud services enable aiplatform.googleapis.com storage.googleapis.com \
+    cloudbuild.googleapis.com compute.googleapis.com discoveryengine.googleapis.com
+  ```
+
+### Local Development with ADK Web
+
+```bash
+git clone --recurse-submodules https://github.com/dandye/agentic_soc_gemini_enterprise.git
+cd agentic_soc_gemini_enterprise
+cp .env.example .env
+# Populate .env with your test Google SecOps tenant and project settings
+
+uv venv --python 3.12 .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+
+GOOGLE_GENAI_USE_VERTEXAI=True \
+GOOGLE_CLOUD_PROJECT=your-project-id \
+GOOGLE_CLOUD_LOCATION=us-central1 \
+adk web agent_soc_manager
+```
+
+### Deploy to Vertex AI Reasoning Engine & Gemini Enterprise
+
+```bash
+python manage.py vertex verify
+python manage.py iam setup
+just agent-engine-deploy
+just gem-ent-register
+```
+
+To enable opt-in Wiz Remote MCP (`Wizard_Agent`), authenticate once via `python -m agent_soc_manager.wiz_mcp login` (for local OAuth DCR + PKCE) or set `enable_wiz_mcp = true` with `TF_VAR_wiz_oauth_token` for Agent Platform Auth Manager provisioning.
+
+## Configuration and RAG Corpus Management
+
+See [`.env.example`](.env.example) for all configuration variables (`GCP_PROJECT_ID`, `CHRONICLE_PROJECT_ID`, `CHRONICLE_CUSTOMER_ID`, `SOAR_URL`, `ALLOYDB_*`, `NEO4J_*`, `WIZ_MCP_*`, and `CHATOPS_*`).
+
+### RAG Corpus Management
 
 > [!WARNING]
-> One user has reported ~$30/day expense in Spanner and a concern that it is due to the optional legacy Vertex AI RAG Corpus feature. Monitor billing carefully if you provision a RAG Corpus (the default governed deployment under `terraform/` does not create a RAG Corpus).
+> One user has reported ~$30/day expense in Spanner and a concern that it is due to the optional legacy Vertex AI RAG Corpus feature. Monitor billing carefully if you provision a RAG Corpus (AlloyDB, Elasticsearch, and the governed Terraform stack under `terraform/` do not create a RAG Corpus).
 
 ```bash
-just rag-list                 # List all RAG corpora
-just rag-create "Security Runbooks"
-just rag-info RAG_CORPUS_ID=projects/.../ragCorpora/...
+just rag-list
+just sync-runbooks
 just rag-delete RAG_CORPUS_ID=projects/.../ragCorpora/...
 ```
 
-## Gemini Enterprise Integration
+## CLI Reference and Troubleshooting
 
-> [!IMPORTANT]
-> When creating apps via API/CLI, include `--app-type APP_TYPE_INTRANET` and `--industry-vertical GENERIC` for visibility in the Gemini Enterprise UI.
+| Workflow | `just` Shortcut | Python / Script Entrypoint |
+| :--- | :--- | :--- |
+| List / deploy Reasoning Engines | `just agent-engine-list` / `just agent-engine-deploy` | `python manage.py agent-engine list` |
+| Register / verify Gemini Enterprise | `just gem-ent-register` / `just gem-ent-verify` | `python manage.py gem-ent verify` |
+| Search / score AlloyDB 5D memory | `just alloydb-search "<query>"` / `just alloydb-find-similar <id>` | `python installation_scripts/manage_alloydb.py` |
+| Run AQuA & rubric evaluations | `just test-eval-all` / `just aqua-run` | `python installation_scripts/manage_eval.py` |
+| Validate governed Terraform & Wiz | `just governance-validate` / `just governance-lint` | `bash scripts/governance/package_agent.sh all` |
+| Public-repo hygiene gate | `just security-hygiene` | `python scripts/check_public_repo_hygiene.py --all-tracked` |
 
-> [!TIP]
-> To view all of your deployed Reasoning Engine (Agent Engine) backend runtimes in the Google Cloud Console (including private, remote A2A specialist agents that are not directly registered in Gemini Enterprise Agent Platform), you can navigate to the Google Cloud Agent Platform Runtimes page:
-> `https://console.cloud.google.com/agent-platform/runtimes?project=your-project-id`
+| Issue | Resolution |
+| :--- | :--- |
+| **403 / 401 Auth Error** | Run `gcloud auth application-default login` and verify `python manage.py iam verify`. |
+| **MCP submodule missing** | Run `git submodule update --init --recursive`. |
+| **Agent not visible in Gemini Enterprise** | Include `--app-type APP_TYPE_INTRANET` and `--industry-vertical GENERIC`, then run `just gem-ent-verify`. |
+| **Inspect private A2A runtimes** | Open `https://console.cloud.google.com/agent-platform/runtimes?project=your-project-id`. |
 
-**Create via Console (Recommended):**
-1. Navigate to Vertex AI > Search & Conversation > Apps
-2. Click **Create App** > Select **Agent** type
-3. Copy App ID to `.env` as `GEM_ENT_APP_ID`
-4. Run `just gem-ent-register`
+## Resources and Support
 
-## Agent Governance
-
-The `governed_agents/` and `terraform/` directories add a governed deployment of the SOC agents: a zero-tool `soc_orchestrator` and four narrow specialists (`cti_researcher`, `threat_hunter`, `detection_engineer`, `tier2_responder`), each running as a Reasoning Engine with its own workload identity, with all egress routed through a default-deny Agent Gateway. Per-tool CEL allowlists, inline Model Armor, a Semantic Governance crown-jewel policy, `gemini-decision-1` v2 ADK lifecycle guards (IOC-preserving prompt-injection redaction, session-pinned progressive tool pruning, Bayes containment gating, and pre-agent multimodal CTI ingress), and a Cloud Monitoring dashboard enforce and evidence every decision.
-
-![Egress Agent Gateway details showing Agent-to-Anywhere mode, regional Agent Registry binding, three Service Extensions, and the Semantic Governance PSC network attachment](docs/images/governance/04-agent-gateway.png)\
-*Figure 1. **Agent Platform > Gateways** details for `agw-secops-egress` in `Agent-to-Anywhere (egress)` mode, showing the bound regional Agent Registry, the three Service Extensions (`agw-secops-ma-content-authz`, `agw-secops-iap-authz`, and `agw-secops-sgp-content-authz`), and the Semantic Governance PSC network attachment.*
-
-![Cloud Monitoring SecOps Governance dashboard showing allowed and denied outbound gateway verdicts, destination hosts, and inline 403 enforcement logs](docs/images/governance/08-governance-dashboard.png)\
-*Figure 2. **Monitoring > Dashboards > SecOps Governance** (**Gateway** section) showing outbound denied counts, allowed versus denied verdicts over time, destination hosts, and inline `200` and `403` gateway request log entries.*
-
-```bash
-just governance-init        # terraform init
-just governance-validate    # package agents, generate agent cards, terraform validate
-just governance-plan        # terraform plan against your terraform/terraform.tfvars
-just governance-test        # offline shell harnesses (no credentials needed)
-just governance-demos-seed  # seed fresh Chronicle SIEM UDM events for Demos 1 and 3
-just governance-demos       # launch the 3-tab Gemini Decision 1 simple demos web app
-```
-
-- [Deploy, verify, and operate](docs/agent_governance.md)
-- [Design notes](docs/agent_governance_design.md)
-- [Gemini Decision 1 overview and benchmarks](docs/gemini_decision_1.md)
-- [Gemini Decision 1 v2 lifecycle workflows](docs/gemini_decision_1_v2_workflows.md)
-- [Gemini Decision 1 simple 30-second demos](docs/gemini_decision_1_simple_demos.md)
-- [Troubleshooting](docs/agent_governance_troubleshooting.md)
-
-## CLI Reference
-
-| justfile | Python CLI |
-|----------|------------|
-| `just agent-engine-list` | `python manage.py agent-engine list` |
-| `just gem-ent-register` | `python manage.py gem-ent register` |
-| `just rag-list` | `python manage.py rag list` |
-| `just status` | `python manage.py workflow status` |
-
-Run `python manage.py --help` for all commands.
-
-## Local Development
-
-### ADK Web (Recommended)
-
-```bash
-cd soc_agent
-GOOGLE_GENAI_USE_VERTEXAI=True \
-GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json \
-GOOGLE_CLOUD_PROJECT=your-project-id \
-GOOGLE_CLOUD_LOCATION=us-central1 \
-adk web
-```
-
-Opens `http://localhost:8000` with:
-- Real-time chat with agent
-- Live tool call visualization
-- Instant iteration without deployment
-
-### Testing MCP Servers
-
-```bash
-cd mcp-security/server/secops-soar/secops_soar_mcp
-uv run server.py
-```
-
-## Troubleshooting
-
-| Issue | Solution |
-|-------|----------|
-| **403/401 Auth Error** | `gcloud auth application-default login` |
-| **API not enabled** | `gcloud services enable aiplatform.googleapis.com` |
-| **MCP module missing** | `git submodule update --init --recursive` |
-| **Agent not in Gemini Enterprise** | `just gem-ent-verify` then `just gem-ent-link-agent` |
-| **Agent not responding** | `gcloud logging tail "resource.type=aiplatform.googleapis.com/ReasoningEngine"` |
-
-## FAQ
-
-**Can I use this without SOAR?**
-Yes. All security tool integrations are optional.
-
-**What AI models are supported?**
-Default is `gemini-3.1-pro-preview` for orchestrator, `gemini-3-flash-preview` for sub-agents. Configurable in agent.py.
-
-**How do I update the agent?**
-```bash
-git pull && just agent-engine-redeploy && just gem-ent-update
-```
-
-**What are the costs?**
-Vertex AI charges per API call. Security products require separate licensing.
-
-## Best Practices
-
-- **Security**: Use Secret Manager for credentials, enable audit logging
-- **Development**: Separate dev/staging/prod projects
-- **Operations**: Set budget alerts, monitor quotas
-
-## Resources
-
-- [ChatOps Chat App](docs/chatops_chat_app.md) - Background approval actions in Google Chat (DISABLED by default pending redesign; `CHATOPS_ENABLED` gate)
-- [Google ADK Docs](https://google.github.io/adk-docs/) - Agent Development Kit
-- [Vertex AI Docs](https://cloud.google.com/vertex-ai/docs) - Platform documentation
-- [MCP Protocol](https://modelcontextprotocol.io/) - Model Context Protocol
-- [SecOps Docs](https://cloud.google.com/chronicle/docs) - SIEM documentation
-- [Security Command Center](https://cloud.google.com/security-command-center/docs)
-
-## Support
-
-- [GitHub Issues](https://github.com/dandye/agentic_soc_gemini_enterprise/issues) - Report bugs or request features
-- [Google Cloud Support](https://console.cloud.google.com/support) - Production issues
+- [Documentation Site](https://dandye.github.io/agentic_soc_gemini_enterprise/) | [Setup Guide](docs/setup.md) | [Commands Reference](docs/commands.md) | [Troubleshooting](docs/troubleshooting.md)
+- [Google ADK Docs](https://google.github.io/adk-docs/) | [Google SecOps Docs](https://cloud.google.com/chronicle/docs) | [Model Context Protocol](https://modelcontextprotocol.io/)
+- [GitHub Issues](https://github.com/dandye/agentic_soc_gemini_enterprise/issues)

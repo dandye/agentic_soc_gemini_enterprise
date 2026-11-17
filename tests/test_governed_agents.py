@@ -65,6 +65,7 @@ _AGENT_SIBLING_MODULES = (
     "response_tools",
     "secops_mcp",
     "triage_tools",
+    "wiz_mcp",
 )
 
 
@@ -139,9 +140,10 @@ def test_zero_emojis_across_governance_files() -> None:
 
 
 def test_all_five_agent_cards_build_cleanly() -> None:
-    """Imports all five governed agent entrypoints and verifies A2A AgentCard metadata."""
+    """Imports all governed agent entrypoints (5 core + opt-in wizard_agent) and verifies A2A AgentCard metadata."""
     test_env = {
         "GTI_AUTH_PROVIDER": "projects/example-proj/locations/us-central1/authProviders/agw-secops-gti-api-key",
+        "WIZ_AUTH_PROVIDER": "projects/example-proj/locations/us-central1/authProviders/agw-secops-wiz-oauth",
         "CHRONICLE_PROJECT_ID": "example-proj",
         "CHRONICLE_CUSTOMER_ID": "00000000-0000-0000-0000-000000000000",
         "CHRONICLE_REGION": "us",
@@ -155,6 +157,7 @@ def test_all_five_agent_cards_build_cleanly() -> None:
         "threat_hunter": "threat_hunter_agent",
         "detection_engineer": "detection_engineer_agent",
         "tier2_responder": "tier2_responder_agent",
+        "wizard_agent": "wizard_agent",
         "soc_orchestrator": "soc_orchestrator_agent",
     }
     for folder, card_name in expected_names.items():
@@ -170,6 +173,7 @@ def test_all_five_agent_cards_build_cleanly() -> None:
                 "response_tools",
                 "secops_mcp",
                 "triage_tools",
+                "wiz_mcp",
             ):
                 sys.modules.pop(helper_mod, None)
             mod = _load_module(f"test_card_{folder}", agent_dir / "agent.py", test_env)
@@ -865,12 +869,13 @@ def test_smoke_test_capability_enumeration_predicate() -> None:
 
 
 def test_terraform_scaling_and_multi_env_templates() -> None:
-    """All five engines wire min/max_instances, and multi-env templates are present."""
+    """All governed engines (5 core + opt-in wizard_agent) wire min/max_instances, and multi-env templates are present."""
     tf_dir = REPO_ROOT / "terraform"
     agents_tf = (tf_dir / "41-agents.tf").read_text(encoding="utf-8")
-    assert agents_tf.count("min_instances = var.min_instances") == 5
-    assert agents_tf.count("max_instances = var.max_instances") == 5
+    assert agents_tf.count("min_instances = var.min_instances") == 6
+    assert agents_tf.count("max_instances = var.max_instances") == 6
     assert 'resource "terraform_data" "reasoning_engine_min_instances"' in agents_tf
+    assert 'resource "terraform_data" "wizard_agent_min_instances"' in agents_tf
     assert "replace_triggered_by" in agents_tf
     assert "each.value.update_time" not in agents_tf
     assert "reasoning_engine_scaling.sh ensure" in agents_tf

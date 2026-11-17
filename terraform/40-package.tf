@@ -1,14 +1,25 @@
-# Verifies deterministic source-tree hashes for all five governed SecOps agent
+# Verifies deterministic source-tree hashes for all governed SecOps agent
 # archives (`terraform/dist/<name>.tar.gz`) at plan time.
 
 locals {
-  agent_names = toset([
+  core_agent_names = toset([
     "cti_researcher",
     "threat_hunter",
     "detection_engineer",
     "tier2_responder",
     "soc_orchestrator",
   ])
+
+  all_agent_names = toset([
+    "cti_researcher",
+    "threat_hunter",
+    "detection_engineer",
+    "tier2_responder",
+    "wizard_agent",
+    "soc_orchestrator",
+  ])
+
+  agent_names = var.enable_wiz_mcp ? local.all_agent_names : local.core_agent_names
 
   agents_dir        = "${path.module}/../governed_agents"
   shared_guards_dir = "${local.agents_dir}/shared_decision_guards"
@@ -20,14 +31,14 @@ locals {
   ]
 
   agent_own_files = {
-    for name in local.agent_names : name => [
+    for name in local.all_agent_names : name => [
       for f in fileset("${local.agents_dir}/${name}", "**") : f
       if !can(regex("(^|/)__pycache__/", f)) && !can(regex("\\.py[co]$", f))
     ]
   }
 
   agent_source_files = {
-    for name in local.agent_names : name => sort(concat(
+    for name in local.all_agent_names : name => sort(concat(
       local.agent_own_files[name],
       local.shared_guard_files,
     ))
@@ -40,17 +51,17 @@ locals {
   }
 
   agent_packaged_hash = {
-    for name in local.agent_names :
+    for name in local.all_agent_names :
     name => try(trimspace(file("${local.dist_dir}/${name}.sha256")), "")
   }
 
   agent_source_archive = {
-    for name in local.agent_names :
+    for name in local.all_agent_names :
     name => try(filebase64("${local.dist_dir}/${name}.tar.gz"), "")
   }
 
   agent_package_ok = {
-    for name in local.agent_names :
+    for name in local.all_agent_names :
     name => (
       local.agent_packaged_hash[name] == local.agent_source_hash[name]
       && local.agent_source_archive[name] != ""
@@ -58,7 +69,7 @@ locals {
   }
 
   agent_package_error = {
-    for name in local.agent_names : name => join("", [
+    for name in local.all_agent_names : name => join("", [
       "terraform/dist/${name}.tar.gz is missing or stale. Run:\n\n",
       "    ./scripts/governance/package_agent.sh all\n\n",
       "expected source hash ${local.agent_source_hash[name]}, ",

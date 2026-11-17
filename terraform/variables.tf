@@ -110,7 +110,7 @@ variable "gemini_auth_provider_workload_ids" {
 # Wiz Remote MCP integration (opt-in; defaults keep baseline plan drift at zero)
 
 variable "enable_wiz_mcp" {
-  description = "Register Wiz Remote MCP in Agent Registry, provision its Auth Manager provider, and attach `wiz_discover` / `wiz_execute` to `threat_hunter`."
+  description = "Register Wiz Remote MCP in Agent Registry, provision its Auth Manager provider, deploy `wizard_agent` (`<resource_prefix>-wizard-agent`), and bind `<resource_prefix>-wiz-tools`."
   type        = bool
   default     = false
 }
@@ -127,13 +127,13 @@ variable "wiz_mcp_url" {
 }
 
 variable "wiz_mcp_allowed_tools" {
-  description = "Wiz Remote MCP tools permitted for `threat_hunter` at the Agent Gateway (chunked at <= 9 tools per IAM v3 CEL rule)."
+  description = "Wiz Remote MCP tools permitted for `wizard_agent` at the Agent Gateway inside dedicated policy `<resource_prefix>-wiz-tools` (chunked at <= 9 tools per IAM v3 CEL rule)."
   type        = list(string)
   default     = ["discover", "execute"]
 
   validation {
-    condition     = length(var.wiz_mcp_allowed_tools) > 0 && length(var.wiz_mcp_allowed_tools) <= 27 && alltrue([for t in var.wiz_mcp_allowed_tools : can(regex("^[a-zA-Z0-9_-]+$", t))])
-    error_message = "wiz_mcp_allowed_tools must contain 1..27 valid MCP tool names so agent_tool_edges stays within the 10-rule IAM v3 policy ceiling."
+    condition     = length(var.wiz_mcp_allowed_tools) > 0 && length(var.wiz_mcp_allowed_tools) <= 90 && alltrue([for t in var.wiz_mcp_allowed_tools : can(regex("^[a-zA-Z0-9_-]+$", t))])
+    error_message = "wiz_mcp_allowed_tools must contain 1..90 valid MCP tool names so wiz_tools stays within the 10-rule IAM v3 policy ceiling (9 tools per rule)."
   }
 }
 
@@ -151,7 +151,7 @@ variable "wiz_oauth_token_version" {
 }
 
 variable "wiz_auth_provider_workload_ids" {
-  description = "Optional create-time SPIFFE workload IDs on the Wiz AuthProvider. Leave empty; 20-authmanager.tf binds `roles/agentidentity.user` directly to `threat_hunter`."
+  description = "Optional create-time SPIFFE workload IDs on the Wiz AuthProvider. Leave empty; 20-authmanager.tf binds `roles/agentidentity.user` directly to `wizard_agent`."
   type        = list(string)
   default     = []
 }
@@ -325,9 +325,10 @@ variable "agent_registry_filters" {
       "threat_hunter",
       "detection_engineer",
       "tier2_responder",
+      "wizard_agent",
       "soc_orchestrator",
     ])) == 0
-    error_message = "agent_registry_filters keys must be among: cti_researcher, threat_hunter, detection_engineer, tier2_responder, soc_orchestrator."
+    error_message = "agent_registry_filters keys must be among: cti_researcher, threat_hunter, detection_engineer, tier2_responder, wizard_agent, soc_orchestrator."
   }
 }
 

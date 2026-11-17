@@ -2774,6 +2774,94 @@ async def delegate_to_detection_engineer(query: str, tool_context: Context) -> s
         return f"Failed to communicate with the remote Detection Engineer specialist agent: {e}"
 
 
+async def delegate_to_wizard_agent(query: str, tool_context: Context) -> str:
+    """
+    Delegates cloud security posture, Wiz Cloud Security Graph, Attack Path visualization,
+    Toxic Combinations, IAM scope over-privilege, AI-SPM findings, and Terraform root-cause
+    remediation queries to the standalone Wizard_Agent specialist via Agent-to-Agent (A2A) call.
+
+    Args:
+        query: The cloud posture or Attack Path question for Wizard_Agent (for example,
+            'Inspect Wiz Attack Path, OAuth scope exposure, and Terraform remediation for DataBot').
+    """
+    logger.info(f"A2A_DELEGATION: Attempting to delegate to Wizard_Agent for: {query}")
+    try:
+        engine_name = get_secret("WIZARD_AGENT_RESOURCE_NAME")
+        if not engine_name:
+            logger.error("A2A_DELEGATION_ERROR: WIZARD_AGENT_RESOURCE_NAME not set.")
+            return "Error: Wizard_Agent is not configured in the environment."
+
+        import re
+
+        m = re.search(r"locations/([^/]+)/", engine_name)
+        target_location = m.group(1) if m else "us-central1"
+
+        import vertexai
+
+        client = vertexai.Client(
+            project=os.environ.get("GCP_PROJECT_ID"), location=target_location
+        )
+        remote_engine = client.agent_engines.get(name=engine_name)
+        session_id = None
+        user_id = "secops_assistant"
+
+        if (
+            hasattr(tool_context, "_invocation_context")
+            and tool_context._invocation_context
+        ):
+            root_ctx = tool_context._invocation_context
+            if hasattr(root_ctx, "user_id"):
+                user_id = root_ctx.user_id
+
+        logger.info(
+            f"A2A_DELEGATION: Calling remote Wizard_Agent ({engine_name}) with User: {user_id}"
+        )
+
+        response_parts = []
+        async for event in remote_engine.async_stream_query(
+            user_id=user_id, session_id=session_id, message=query
+        ):
+
+            def get_field(obj, field_name):
+                if obj is None:
+                    return None
+                if isinstance(obj, dict):
+                    return obj.get(field_name)
+                return getattr(obj, field_name, None)
+
+            content = get_field(event, "content")
+            if content:
+                parts = get_field(content, "parts")
+                if parts and isinstance(parts, list):
+                    for part in parts:
+                        text = get_field(part, "text")
+                        if text:
+                            response_parts.append(text)
+
+                        function_call = get_field(part, "function_call")
+                        if function_call:
+                            name = get_field(function_call, "name")
+                            response_parts.append(
+                                f"[Specialist Action] Invoking Wiz Cloud Graph tool: {name}"
+                            )
+
+        final_text = "".join(response_parts).strip()
+        if not final_text:
+            final_text = "The Wizard_Agent specialist completed the request without generating a text response."
+
+        logger.info(
+            "A2A_DELEGATION_SUCCESS: Successfully completed remote A2A call to Wizard_Agent."
+        )
+        return f"--- Response from Wizard_Agent Specialist ---\n{final_text}"
+
+    except Exception as e:
+        logger.error(
+            f"A2A_DELEGATION_ERROR: Failed to delegate to Wizard_Agent: {e}",
+            exc_info=True,
+        )
+        return f"Failed to communicate with the remote Wizard_Agent specialist: {e}"
+
+
 def _find_mcp_paths() -> list[str]:
     root_dir = Path(__file__).parent.parent.absolute()
 
@@ -2921,7 +3009,16 @@ def create_remote_wiz_toolset_if_enabled():
             "or configure WIZ_AUTH_PROVIDER / WIZ_OAUTH_TOKEN_CACHE to enable)."
         )
         return None
-    return create_remote_wiz_toolset()
+    return create_remote_wiz_toolset(tool_filter=["discover", "execute"])
+
+
+def _get_wiz_readonly_callback():
+    """Imports `enforce_wiz_readonly_callback` from `wiz_mcp`."""
+    try:
+        from .wiz_mcp import enforce_wiz_readonly_callback
+    except ImportError:
+        from agent_soc_manager.wiz_mcp import enforce_wiz_readonly_callback
+    return enforce_wiz_readonly_callback
 
 
 def get_secret(secret_name: str, project_id: str | None = None) -> str:
@@ -3276,10 +3373,8 @@ def create_agent():
         )
     )
 
-    # Wiz Remote MCP for cloud posture, vulnerabilities, toxic combinations, and runtime detections
+    # Wiz Remote MCP is owned by the dedicated opt-in `wizard_agent` specialist
     wiz_toolset = create_remote_wiz_toolset_if_enabled()
-    if wiz_toolset is not None:
-        tier1_tools.append(wiz_toolset)
 
     # GTI for basic reputation checks
     tier1_tools.append(
@@ -3337,6 +3432,43 @@ You MUST use the following exact values for any Chronicle or SecOps tool calls (
         generate_content_config=strict_config,
         disallow_transfer_to_peers=True,
     )
+
+    wizard_subagent = None
+    if wiz_toolset is not None:
+        WIZARD_AGENT_MODEL = os.environ.get("WIZARD_AGENT_MODEL", TIER1_ANALYST_MODEL)
+        wizard_tools = [wiz_toolset]
+        if wiz_skill_dir.is_dir():
+            wizard_tools.append(
+                skill_toolset.SkillToolset(skills=[load_skill_from_dir(wiz_skill_dir)])
+            )
+        wizard_instruction = (
+            "You are Wizard_Agent, the dedicated cloud security posture, Attack Path, "
+            "and AI-SPM specialist connected to Wiz Remote MCP (`wiz_discover` and "
+            "read-only `wiz_execute`). Use `wiz_discover` to inspect domain schemas and "
+            "read-only `wiz_execute` across `issues`, `detections`, `vulnerabilities`, "
+            "`network_exposure`, `iam_and_graph`, and `ai_spm` to map internet exposure, "
+            "Toxic Combinations, IAM privilege paths, DAST scanner dispositions, and "
+            "least-privilege Terraform remediations. Never attempt mutating Wiz calls, "
+            "distinguish Chronicle SIEM YARA-L 2.0 rules from standard YARA file rules, "
+            "and return a structured Markdown summary back to the Orchestrator."
+        )
+        wizard_subagent = PatchedAgent(
+            name="wizard_agent",
+            model=WIZARD_AGENT_MODEL,
+            description=(
+                "Wizard_Agent cloud security specialist for Wiz Cloud Security Graph, "
+                "Attack Paths, Toxic Combinations, IAM scope exposure, AI-SPM findings, "
+                "and Terraform root-cause remediation."
+            ),
+            instruction=wizard_instruction,
+            tools=wizard_tools,
+            before_model_callback=prevent_runaway_loop_callback,
+            before_tool_callback=[_get_wiz_readonly_callback(), before_tool_cache],
+            after_tool_callback=after_tool_cache,
+            after_agent_callback=generate_memory,
+            generate_content_config=strict_config,
+            disallow_transfer_to_peers=True,
+        )
 
     # Flash agent removed - orchestrator will route simple queries to CTI or Tier1 based on complexity
 
@@ -3407,6 +3539,11 @@ You MUST use the following exact values for any Chronicle or SecOps tool calls (
         delegate_to_detection_engineer,
         delegate_concurrently,
     ]
+    if (
+        os.environ.get("WIZARD_AGENT_RESOURCE_NAME", "").strip()
+        or wiz_toolset is not None
+    ):
+        orchestrator_tools.append(delegate_to_wizard_agent)
     orchestrator_tools = _strip_chatops(orchestrator_tools)
 
     # Add grounding/retrieval tool based on configuration
@@ -3459,6 +3596,10 @@ You MUST use the following exact values for any Chronicle or SecOps tool calls (
     )
     orchestrator_instruction = orchestrator_instruction_base + routing_context
 
+    orchestrator_sub_agents = [tier1_subagent]
+    if wizard_subagent is not None:
+        orchestrator_sub_agents.append(wizard_subagent)
+
     # Create orchestrator with LLM delegation to specialists (as sub_agents or AgentTool wrappers)
     orchestrator = PatchedAgent(
         name="secops_assistant",
@@ -3466,7 +3607,7 @@ You MUST use the following exact values for any Chronicle or SecOps tool calls (
         description="SecOps Security Agent - An intelligent SOC orchestrator for Google SecOps that delegates security operations to specialized persona-based agents.",
         instruction=orchestrator_instruction,
         tools=orchestrator_tools,
-        sub_agents=[tier1_subagent],  # LLM delegation to specialists
+        sub_agents=orchestrator_sub_agents,  # LLM delegation to specialists
         before_tool_callback=before_tool_cache,
         after_tool_callback=after_tool_cache,
         after_agent_callback=generate_memory,
@@ -3594,6 +3735,7 @@ except Exception as e:
 # Export key functions and the root agent
 __all__ = [
     "create_agent",
+    "delegate_to_wizard_agent",
     "root_agent",
     "memory_bank_config",
 ]

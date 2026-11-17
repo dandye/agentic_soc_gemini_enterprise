@@ -21,6 +21,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import select
 import sys
 import threading
@@ -43,6 +44,112 @@ DEFAULT_WIZ_MCP_URL = "https://mcp.app.wiz.io/"
 DEFAULT_WIZ_TOKEN_CACHE = Path.home() / ".config" / "agentic_soc" / "wiz_tokens.json"
 LEGACY_WIZ_TOKEN_CACHE = Path.home() / ".config" / "wiz-secops-mcp" / "tokens.json"
 DEFAULT_WIZ_CLIENT_NAME = "agentic-soc-wiz-mcp"
+
+_ALLOWED_WIZ_TOOL_NAMES = frozenset(
+    {
+        "discover",
+        "execute",
+        "wiz_discover",
+        "wiz_execute",
+    }
+)
+_WRITE_HTTP_METHODS = frozenset({"PUT", "PATCH", "DELETE"})
+_MUTATING_ACTION_RE = re.compile(
+    r"(?:^|[._/\s-])(?:create|update|delete|remove|close|resolve|reopen|dismiss|"
+    r"ignore|suppress|assign|comment|add_comment|create_comment|patch|modify|"
+    r"apply|trigger|remediate|run_remediation|quarantine|isolate|disable|revoke|"
+    r"rotate|set|write|mutate)(?:$|[._/\sA-Z0-9-])",
+    re.IGNORECASE,
+)
+_GRAPHQL_MUTATION_RE = re.compile(
+    r"(?:^\s*mutation\b|\bmutation\s+[A-Za-z_][A-Za-z0-9_]*\s*[\({]|\bmutation\s*\{)",
+    re.MULTILINE,
+)
+_ACTION_KEYS = frozenset(
+    {
+        "tool",
+        "tool_name",
+        "toolName",
+        "name",
+        "action",
+        "operation",
+        "operation_name",
+        "operationName",
+        "command",
+        "subtool",
+        "endpoint",
+        "path",
+    }
+)
+_QUERY_KEYS = frozenset(
+    {
+        "query",
+        "graphql",
+        "graphql_query",
+        "gql",
+        "statement",
+    }
+)
+_METHOD_KEYS = frozenset({"method", "http_method", "httpMethod", "verb"})
+
+
+def _detect_mutating_wiz_arg(payload: Any) -> str | None:
+    """Returns a descriptive reason if `payload` requests a Wiz write/mutation."""
+    if isinstance(payload, dict):
+        for key, value in payload.items():
+            key_str = str(key)
+            if key_str in _METHOD_KEYS and isinstance(value, str):
+                upper_method = value.strip().upper()
+                if upper_method in _WRITE_HTTP_METHODS:
+                    return f"{key_str}={upper_method}"
+            if key_str in _ACTION_KEYS and isinstance(value, str):
+                candidate = value.strip()
+                if candidate and _MUTATING_ACTION_RE.search(candidate):
+                    return f"{key_str}={candidate}"
+            if key_str in _QUERY_KEYS and isinstance(value, str):
+                if _GRAPHQL_MUTATION_RE.search(value):
+                    return f"GraphQL mutation in {key_str}"
+            if isinstance(value, (dict, list, tuple)):
+                nested = _detect_mutating_wiz_arg(value)
+                if nested is not None:
+                    return nested
+    elif isinstance(payload, (list, tuple)):
+        for item in payload:
+            nested = _detect_mutating_wiz_arg(item)
+            if nested is not None:
+                return nested
+    return None
+
+
+def enforce_wiz_readonly_callback(
+    tool: Any,
+    args: dict[str, Any],
+    tool_context: Any,
+) -> dict[str, Any] | None:
+    """Blocks mutating Wiz MCP calls while allowing `wiz_discover` and read-only `wiz_execute`."""
+    del tool_context
+    tool_name = str(getattr(tool, "name", "") or tool or "").strip()
+    if tool_name in {"discover", "wiz_discover"}:
+        return None
+    if tool_name not in _ALLOWED_WIZ_TOOL_NAMES:
+        return {
+            "error": (
+                f"TOOL_ERROR: {tool_name or 'unknown'} -- Read-only policy violation: "
+                "Wizard_Agent only permits wiz_discover and read-only wiz_execute."
+            )
+        }
+
+    violation = _detect_mutating_wiz_arg(args or {})
+    if violation is not None:
+        return {
+            "error": (
+                f"TOOL_ERROR: {tool_name} -- Read-only policy violation: "
+                "Wizard_Agent is restricted to read-only Wiz Cloud Graph, Attack Path, "
+                f"vulnerability, and AI-SPM inspection ({violation} is blocked)."
+            )
+        }
+    return None
+
 
 _SUCCESS_HTML = """<!doctype html>
 <html lang="en">
