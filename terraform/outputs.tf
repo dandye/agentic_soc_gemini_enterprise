@@ -23,9 +23,19 @@ output "chronicle_mcp_server_id" {
   value       = local.chronicle_mcp_server_id
 }
 
+output "wiz_mcp_server_id" {
+  description = "Agent Registry MCP server ID for Wiz Remote MCP when `enable_wiz_mcp` is true."
+  value       = var.enable_wiz_mcp ? local.wiz_mcp_server_id : null
+}
+
 output "gti_auth_provider_name" {
   description = "Agent Platform Auth Manager resource name holding the GTI / VirusTotal v3 API key."
   value       = terraform_data.gti_auth_provider.output.name
+}
+
+output "wiz_auth_provider_name" {
+  description = "Agent Platform Auth Manager resource name holding the Wiz Remote MCP credential when `enable_wiz_mcp` is true."
+  value       = var.enable_wiz_mcp ? terraform_data.wiz_auth_provider[0].output.name : null
 }
 
 output "agent_gateway_name" {

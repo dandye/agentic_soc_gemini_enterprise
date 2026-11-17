@@ -34,11 +34,17 @@ die() {
 
 redact() {
   local text=$1
+  if [[ -n ${AUTH_PROVIDER_SECRET:-} ]]; then
+    text="${text//"$AUTH_PROVIDER_SECRET"/[REDACTED]}"
+  fi
   if [[ -n ${GTI_API_KEY:-} ]]; then
     text="${text//"$GTI_API_KEY"/[REDACTED]}"
   fi
   if [[ -n ${TF_VAR_gti_api_key:-} ]]; then
     text="${text//"$TF_VAR_gti_api_key"/[REDACTED]}"
+  fi
+  if [[ -n ${TF_VAR_wiz_oauth_token:-} ]]; then
+    text="${text//"$TF_VAR_wiz_oauth_token"/[REDACTED]}"
   fi
   printf '%s' "$text"
 }
@@ -109,14 +115,12 @@ key_fingerprint() {
 }
 
 do_upsert() {
-  if [[ -z ${GTI_API_KEY:-} ]]; then
-    GTI_API_KEY=${TF_VAR_gti_api_key:-}
-  fi
-  [[ -n ${GTI_API_KEY:-} ]] ||
-    die "no GTI API key supplied. Set GTI_API_KEY or TF_VAR_gti_api_key in the environment."
+  local secret=${AUTH_PROVIDER_SECRET:-${GTI_API_KEY:-${TF_VAR_gti_api_key:-}}}
+  [[ -n ${secret:-} ]] ||
+    die "no secret supplied. Set GTI_API_KEY or TF_VAR_gti_api_key (or AUTH_PROVIDER_SECRET) in the environment."
 
   local fp version marker base_desc desc
-  fp=$(key_fingerprint "$GTI_API_KEY")
+  fp=$(key_fingerprint "$secret")
   version=${AUTH_PROVIDER_VERSION:-1}
   marker="[v${version} sha256:${fp}]"
   base_desc=${AUTH_PROVIDER_DESCRIPTION:-}
@@ -132,7 +136,7 @@ do_upsert() {
 
   local body
   body=$(jq -n \
-    --arg key "$GTI_API_KEY" \
+    --arg key "$secret" \
     --arg desc "$desc" \
     --argjson workloadIds "$workload_ids" \
     '{

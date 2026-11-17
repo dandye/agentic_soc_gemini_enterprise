@@ -23,6 +23,29 @@ resource "google_agent_registry_service" "chronicle_mcp" {
   depends_on = [google_project_service.apis]
 }
 
+resource "google_agent_registry_service" "wiz_mcp" {
+  count = var.enable_wiz_mcp ? 1 : 0
+
+  provider     = google-beta
+  project      = var.project_id
+  location     = var.region
+  service_id   = "${var.resource_prefix}-wiz-mcp"
+  display_name = "Wiz Remote MCP"
+  description  = "Wiz Remote MCP server with per-agent IAM v3 CEL tool allowlists."
+
+  interfaces {
+    url              = trimsuffix(var.wiz_mcp_url, "/")
+    protocol_binding = "JSONRPC"
+  }
+
+  mcp_server_spec {
+    type = "NO_SPEC"
+  }
+
+  depends_on = [google_project_service.apis]
+}
+
 locals {
   chronicle_mcp_server_id = basename(google_agent_registry_service.chronicle_mcp.registry_resource)
+  wiz_mcp_server_id       = var.enable_wiz_mcp ? basename(google_agent_registry_service.wiz_mcp[0].registry_resource) : ""
 }

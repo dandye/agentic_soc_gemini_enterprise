@@ -11,6 +11,9 @@ locals {
   gemini_auth_provider_enabled = nonsensitive(trimspace(var.gemini_api_key) != "")
   gemini_auth_provider_id      = "${var.resource_prefix}-gemini-api-key"
   gemini_auth_provider_name    = "projects/${var.project_id}/locations/${var.region}/authProviders/${local.gemini_auth_provider_id}"
+
+  wiz_auth_provider_id   = "${var.resource_prefix}-wiz-oauth"
+  wiz_auth_provider_name = "projects/${var.project_id}/locations/${var.region}/authProviders/${local.wiz_auth_provider_id}"
 }
 
 resource "terraform_data" "gti_auth_provider" {
@@ -205,5 +208,103 @@ resource "terraform_data" "gemini_auth_provider_grant" {
     google_vertex_ai_reasoning_engine.detection_engineer,
     google_vertex_ai_reasoning_engine.tier2_responder,
     google_vertex_ai_reasoning_engine.soc_orchestrator,
+  ]
+}
+
+# Optional Wiz Remote MCP OAuth credential stored in Agent Platform Auth Manager
+# when `var.enable_wiz_mcp = true`. Granted exclusively to `threat_hunter`.
+resource "terraform_data" "wiz_auth_provider" {
+  count = var.enable_wiz_mcp ? 1 : 0
+
+  input = {
+    project_id  = var.project_id
+    location    = var.region
+    provider_id = local.wiz_auth_provider_id
+    name        = local.wiz_auth_provider_name
+    script      = local.auth_provider_script
+  }
+
+  triggers_replace = [
+    local.wiz_auth_provider_name,
+    var.wiz_oauth_token_version,
+    jsonencode(var.wiz_auth_provider_workload_ids),
+  ]
+
+  lifecycle {
+    precondition {
+      condition     = can(regex("^[a-z][a-z0-9-]{0,61}[a-z0-9]$", local.wiz_auth_provider_id))
+      error_message = "Derived auth provider ID '${local.wiz_auth_provider_id}' is not valid. Adjust var.resource_prefix."
+    }
+    precondition {
+      condition     = trimspace(var.wiz_oauth_token) != ""
+      error_message = "var.wiz_oauth_token is empty when enable_wiz_mcp=true. Export TF_VAR_wiz_oauth_token in the shell environment before running Terraform."
+    }
+  }
+
+  provisioner "local-exec" {
+    command = "bash \"${local.auth_provider_script}\" upsert"
+
+    environment = {
+      AUTH_PROVIDER_PROJECT      = var.project_id
+      AUTH_PROVIDER_LOCATION     = var.region
+      AUTH_PROVIDER_ID           = local.wiz_auth_provider_id
+      AUTH_PROVIDER_DESCRIPTION  = "Wiz Remote MCP OAuth credential retrieved at tool-call time by threat_hunter under its SPIFFE workload identity."
+      AUTH_PROVIDER_VERSION      = tostring(var.wiz_oauth_token_version)
+      AUTH_PROVIDER_WORKLOAD_IDS = jsonencode(var.wiz_auth_provider_workload_ids)
+      AUTH_PROVIDER_SECRET       = var.wiz_oauth_token
+    }
+  }
+
+  provisioner "local-exec" {
+    when       = destroy
+    on_failure = continue
+    command    = "bash \"${self.input.script}\" delete"
+
+    environment = {
+      AUTH_PROVIDER_PROJECT  = self.input.project_id
+      AUTH_PROVIDER_LOCATION = self.input.location
+      AUTH_PROVIDER_ID       = self.input.provider_id
+    }
+  }
+
+  depends_on = [google_project_service.apis]
+}
+
+resource "terraform_data" "wiz_auth_provider_grant" {
+  count = var.enable_wiz_mcp ? 1 : 0
+
+  input = {
+    name   = local.wiz_auth_provider_name
+    member = local.agent_principals["threat_hunter"]
+    role   = "roles/agentidentity.user"
+  }
+
+  triggers_replace = [
+    terraform_data.wiz_auth_provider[0].id,
+    local.agent_principals["threat_hunter"],
+  ]
+
+  lifecycle {
+    precondition {
+      condition     = local.agent_identity_ok["threat_hunter"]
+      error_message = local.agent_identity_error["threat_hunter"]
+    }
+  }
+
+  provisioner "local-exec" {
+    command = "bash \"${local.auth_provider_script}\" grant"
+
+    environment = {
+      AUTH_PROVIDER_PROJECT  = var.project_id
+      AUTH_PROVIDER_LOCATION = var.region
+      AUTH_PROVIDER_ID       = local.wiz_auth_provider_id
+      AUTH_PROVIDER_MEMBER   = local.agent_principals["threat_hunter"]
+      AUTH_PROVIDER_ROLE     = "roles/agentidentity.user"
+    }
+  }
+
+  depends_on = [
+    terraform_data.wiz_auth_provider,
+    google_vertex_ai_reasoning_engine.threat_hunter,
   ]
 }

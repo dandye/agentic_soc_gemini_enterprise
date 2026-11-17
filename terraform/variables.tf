@@ -107,6 +107,55 @@ variable "gemini_auth_provider_workload_ids" {
   default     = []
 }
 
+# Wiz Remote MCP integration (opt-in; defaults keep baseline plan drift at zero)
+
+variable "enable_wiz_mcp" {
+  description = "Register Wiz Remote MCP in Agent Registry, provision its Auth Manager provider, and attach `wiz_discover` / `wiz_execute` to `threat_hunter`."
+  type        = bool
+  default     = false
+}
+
+variable "wiz_mcp_url" {
+  description = "Wiz Remote MCP endpoint URL registered in Agent Registry."
+  type        = string
+  default     = "https://mcp.app.wiz.io/"
+
+  validation {
+    condition     = can(regex("^https://[a-zA-Z0-9.-]+(/.*)?$", var.wiz_mcp_url))
+    error_message = "wiz_mcp_url must be a valid https:// URL."
+  }
+}
+
+variable "wiz_mcp_allowed_tools" {
+  description = "Wiz Remote MCP tools permitted for `threat_hunter` at the Agent Gateway (chunked at <= 9 tools per IAM v3 CEL rule)."
+  type        = list(string)
+  default     = ["discover", "execute"]
+
+  validation {
+    condition     = length(var.wiz_mcp_allowed_tools) > 0 && length(var.wiz_mcp_allowed_tools) <= 27 && alltrue([for t in var.wiz_mcp_allowed_tools : can(regex("^[a-zA-Z0-9_-]+$", t))])
+    error_message = "wiz_mcp_allowed_tools must contain 1..27 valid MCP tool names so agent_tool_edges stays within the 10-rule IAM v3 policy ceiling."
+  }
+}
+
+variable "wiz_oauth_token" {
+  description = "Wiz Remote MCP OAuth bearer token stored in Agent Platform Auth Manager when `enable_wiz_mcp = true`. Pass via `TF_VAR_wiz_oauth_token` in the shell environment, never in a committed file."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "wiz_oauth_token_version" {
+  description = "Monotonic version counter used to trigger rotation of the Wiz OAuth token in Agent Platform Auth Manager."
+  type        = number
+  default     = 1
+}
+
+variable "wiz_auth_provider_workload_ids" {
+  description = "Optional create-time SPIFFE workload IDs on the Wiz AuthProvider. Leave empty; 20-authmanager.tf binds `roles/agentidentity.user` directly to `threat_hunter`."
+  type        = list(string)
+  default     = []
+}
+
 # Gemini Enterprise integration (opt-in defaults so shared apps remain untouched)
 
 variable "ge_engine_id" {

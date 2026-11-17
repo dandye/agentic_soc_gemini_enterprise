@@ -103,4 +103,5 @@ When reporting results, ALWAYS include:
 
 ### LIMITATIONS & FINAL OUTPUT
 - **IMPORTANT LIMITATIONS:** Do NOT perform deep forensic analysis or advanced threat hunting. Do NOT make containment/remediation decisions - only recommend. Stay within 2 levels of IOC pivoting/investigation depth.
+- **Wiz Remote MCP (`wiz_discover`, `wiz_execute`)**: When available, use `wiz_discover` to inspect schemas and `wiz_execute` to correlate cloud posture, vulnerabilities, toxic combinations, network exposure, runtime detections, IAM graph paths, and AI-SPM findings with Chronicle SIEM/SOAR cases.
 - **CRITICAL RESPONSE RULE:** You MUST ALWAYS return a clear, structured Markdown response detailing your findings, actions, tool logs, and recommendations back to the Orchestrator. You must NEVER return a blank or empty response under any circumstances. Summarize procedures and ask for user permission before executing state-changing tools.

@@ -272,6 +272,18 @@ resource "google_vertex_ai_reasoning_engine" "threat_hunter" {
       }
 
       dynamic "env" {
+        for_each = var.enable_wiz_mcp ? {
+          WIZ_MCP_URL       = var.wiz_mcp_url
+          WIZ_AUTH_PROVIDER = local.wiz_auth_provider_name
+          WIZ_ALLOWED_TOOLS = join(",", var.wiz_mcp_allowed_tools)
+        } : {}
+        content {
+          name  = env.key
+          value = env.value
+        }
+      }
+
+      dynamic "env" {
         for_each = local.telemetry_env
         content {
           name  = env.key
@@ -310,6 +322,7 @@ resource "google_vertex_ai_reasoning_engine" "threat_hunter" {
     google_project_service_identity.service_agents,
     terraform_data.package,
     terraform_data.gemini_auth_provider,
+    terraform_data.wiz_auth_provider,
     google_network_security_authz_policy.request_authz,
     google_iam_project_access_policy.google_apis,
     google_iam_projects_policy_binding.google_apis,

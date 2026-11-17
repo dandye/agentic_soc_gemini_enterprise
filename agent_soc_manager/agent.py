@@ -2905,6 +2905,25 @@ def create_remote_secops_toolset(region, tool_filter=None) -> McpToolset:
     )
 
 
+def create_remote_wiz_toolset_if_enabled():
+    """Returns a Wiz Remote McpToolset when Wiz MCP is enabled/configured."""
+    try:
+        from .wiz_mcp import create_remote_wiz_toolset, is_wiz_mcp_enabled
+    except ImportError:
+        from agent_soc_manager.wiz_mcp import (
+            create_remote_wiz_toolset,
+            is_wiz_mcp_enabled,
+        )
+
+    if not is_wiz_mcp_enabled():
+        logger.info(
+            "Wiz Remote MCP disabled or unconfigured (set WIZ_MCP_ENABLED=True "
+            "or configure WIZ_AUTH_PROVIDER / WIZ_OAUTH_TOKEN_CACHE to enable)."
+        )
+        return None
+    return create_remote_wiz_toolset()
+
+
 def get_secret(secret_name: str, project_id: str | None = None) -> str:
     """Retrieve a secret from Google Cloud Secret Manager with local env fallback."""
     val = os.environ.get(secret_name, "")
@@ -3177,6 +3196,9 @@ def create_agent():
     skill_dir = Path(__file__).parent / "skills"
     malware_triage_skill = load_skill_from_dir(skill_dir / "malware-triage-skill")
     tier1_skills = [malware_triage_skill]
+    wiz_skill_dir = skill_dir / "secops-wiz-cloud-security"
+    if wiz_skill_dir.is_dir():
+        tier1_skills.append(load_skill_from_dir(wiz_skill_dir))
     if CHATOPS_ENABLED:
         chatops_skill = load_skill_from_dir(skill_dir / "chatops-skill")
         tier1_skills.append(chatops_skill)
@@ -3253,6 +3275,11 @@ def create_agent():
             ],
         )
     )
+
+    # Wiz Remote MCP for cloud posture, vulnerabilities, toxic combinations, and runtime detections
+    wiz_toolset = create_remote_wiz_toolset_if_enabled()
+    if wiz_toolset is not None:
+        tier1_tools.append(wiz_toolset)
 
     # GTI for basic reputation checks
     tier1_tools.append(
