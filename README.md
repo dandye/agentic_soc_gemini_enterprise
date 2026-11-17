@@ -1,11 +1,12 @@
-> [!WARNING]
-> One user has reported ~$30/day expense in Spanner and a concern that it is due to the RAG Corpus from this project. I do not see this in my own projects but I am investigating further. In the meantime, please carefully monitor your expenses.
-
 # GE SecOps Agent
 
-Deploy security-focused AI agents to Gemini Enterprise with integrated access to SecOps SIEM, SOAR, Google Threat Intelligence, and Security Command Center through the Model Context Protocol (MCP).
+Deploy security-focused AI agents to Gemini Enterprise with integrated access to Google Security Operations (SIEM and SOAR), Google Threat Intelligence, and Security Command Center through the Model Context Protocol (MCP).
 
 Built with [Google ADK](https://google.github.io/adk-docs/) (Agent Development Kit) and deployed via Vertex AI Reasoning Engine.
+
+> [!TIP]
+> **Recommended starting point: Governed Multi-Agent Stack (`governed_agents/` + `terraform/`).**
+> For enterprise deployments with dynamic SPIFFE workload identities, Auth Manager credential injection, default-deny Agent Gateway egress, per-tool IAM v3 CEL allowlists, inline cyber-tuned Model Armor, Semantic Governance policies, `gemini-decision-1` v2 calibrated epistemic gating, and a 5-layer Cloud Monitoring dashboard (`min_instances = 1` warm default, configurable to `min_instances = 0` for `$0/hr` idle compute), start with the [Agent Governance Guide](https://dandye.github.io/agentic_soc_gemini_enterprise/agent_governance.html) ([`docs/agent_governance.md`](docs/agent_governance.md)), [Gemini Decision 1 v2 Workflows](docs/gemini_decision_1_v2_workflows.md), and [Simple 30-Second Demos](docs/gemini_decision_1_simple_demos.md) (`just governance-demos`).
 
 **Documentation site:** [https://dandye.github.io/agentic_soc_gemini_enterprise/](https://dandye.github.io/agentic_soc_gemini_enterprise/) (WCAG 2.1 Level AA Sphinx site, buildable locally with `just docs-serve`).
 
@@ -32,8 +33,8 @@ Built with [Google ADK](https://google.github.io/adk-docs/) (Agent Development K
 
 ```bash
 # Clone and setup
-git clone --recurse-submodules https://github.com/googleSandy/ge-secops-agent.git
-cd ge-secops-agent
+git clone --recurse-submodules https://github.com/dandye/agentic_soc_gemini_enterprise.git
+cd agentic_soc_gemini_enterprise
 
 # Configure environment
 cp .env.example .env
@@ -148,8 +149,8 @@ gcloud services enable aiplatform.googleapis.com storage.googleapis.com \
 
 1. **Clone and configure:**
    ```bash
-   git clone --recurse-submodules https://github.com/googleSandy/ge-secops-agent.git
-   cd ge-secops-agent
+   git clone --recurse-submodules https://github.com/dandye/agentic_soc_gemini_enterprise.git
+   cd agentic_soc_gemini_enterprise
    cp .env.example .env
    # Edit .env with your configuration
    ```
@@ -218,6 +219,9 @@ just status                   # Check system status
 
 ## RAG Corpus Management
 
+> [!WARNING]
+> One user has reported ~$30/day expense in Spanner and a concern that it is due to the optional legacy Vertex AI RAG Corpus feature. Monitor billing carefully if you provision a RAG Corpus (the default governed deployment under `terraform/` does not create a RAG Corpus).
+
 ```bash
 just rag-list                 # List all RAG corpora
 just rag-create "Security Runbooks"
@@ -242,7 +246,7 @@ just rag-delete RAG_CORPUS_ID=projects/.../ragCorpora/...
 
 ## Agent Governance
 
-The `governed_agents/` and `terraform/` directories add a governed deployment of the SOC agents: a zero-tool `soc_orchestrator` and four narrow specialists (`cti_researcher`, `threat_hunter`, `detection_engineer`, `tier2_responder`), each running as a Reasoning Engine with its own workload identity, with all egress routed through a default-deny Agent Gateway. Per-tool CEL allowlists, inline Model Armor, a Semantic Governance crown-jewel policy, and a Cloud Monitoring dashboard enforce and evidence every decision.
+The `governed_agents/` and `terraform/` directories add a governed deployment of the SOC agents: a zero-tool `soc_orchestrator` and four narrow specialists (`cti_researcher`, `threat_hunter`, `detection_engineer`, `tier2_responder`), each running as a Reasoning Engine with its own workload identity, with all egress routed through a default-deny Agent Gateway. Per-tool CEL allowlists, inline Model Armor, a Semantic Governance crown-jewel policy, `gemini-decision-1` v2 ADK lifecycle guards (IOC-preserving prompt-injection redaction, session-pinned progressive tool pruning, Bayes containment gating, and pre-agent multimodal CTI ingress), and a Cloud Monitoring dashboard enforce and evidence every decision.
 
 ![Egress Agent Gateway details showing Agent-to-Anywhere mode, regional Agent Registry binding, three Service Extensions, and the Semantic Governance PSC network attachment](docs/images/governance/04-agent-gateway.png)\
 *Figure 1. **Agent Platform > Gateways** details for `agw-secops-egress` in `Agent-to-Anywhere (egress)` mode, showing the bound regional Agent Registry, the three Service Extensions (`agw-secops-ma-content-authz`, `agw-secops-iap-authz`, and `agw-secops-sgp-content-authz`), and the Semantic Governance PSC network attachment.*
@@ -255,10 +259,15 @@ just governance-init        # terraform init
 just governance-validate    # package agents, generate agent cards, terraform validate
 just governance-plan        # terraform plan against your terraform/terraform.tfvars
 just governance-test        # offline shell harnesses (no credentials needed)
+just governance-demos-seed  # seed fresh Chronicle SIEM UDM events for Demos 1 and 3
+just governance-demos       # launch the 3-tab Gemini Decision 1 simple demos web app
 ```
 
 - [Deploy, verify, and operate](docs/agent_governance.md)
 - [Design notes](docs/agent_governance_design.md)
+- [Gemini Decision 1 overview and benchmarks](docs/gemini_decision_1.md)
+- [Gemini Decision 1 v2 lifecycle workflows](docs/gemini_decision_1_v2_workflows.md)
+- [Gemini Decision 1 simple 30-second demos](docs/gemini_decision_1_simple_demos.md)
 - [Troubleshooting](docs/agent_governance_troubleshooting.md)
 
 ## CLI Reference
@@ -340,5 +349,5 @@ Vertex AI charges per API call. Security products require separate licensing.
 
 ## Support
 
-- [GitHub Issues](https://github.com/googleSandy/ge-secops-agent/issues) - Report bugs or request features
+- [GitHub Issues](https://github.com/dandye/agentic_soc_gemini_enterprise/issues) - Report bugs or request features
 - [Google Cloud Support](https://console.cloud.google.com/support) - Production issues

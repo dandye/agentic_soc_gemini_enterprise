@@ -23,7 +23,7 @@ Deploy and verify the default-deny egress Agent Gateway, per-agent SPIFFE worklo
 :link: gemini_decision_1
 :link-type: doc
 
-Zero-output-token `LlmResponse` pre-flight short-circuit routing, pre-LLM UDM noise filtering, multimodal/unstructured CTI triage, and Auth Manager egress across the governed SOC stack.
+Zero-output-token `LlmResponse` pre-flight routing, ADK v2 lifecycle guards (IOC-preserving prompt-injection redaction, progressive tool pruning, Bayes containment gating, multimodal CTI ingress), and the 3-tab 30-second Simple Demos (`just governance-demos`).
 :::
 
 :::{grid-item-card} Multi-Agent Architecture & Grounding

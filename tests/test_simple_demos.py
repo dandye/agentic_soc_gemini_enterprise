@@ -9,6 +9,7 @@ import os
 import pathlib
 import re
 import sys
+import tempfile
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, patch
@@ -20,6 +21,7 @@ from governed_agents.shared_decision_guards.bayes_containment_gate import (
 
 
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
+_HERMETIC_PROJECT = "test-project"
 _EMOJI_RE = re.compile(
     "[\U0001f300-\U0001faff\U00002702-\U000027b0\U0000fe0f]",
 )
@@ -34,6 +36,27 @@ _SIBLING_MODULES = (
 )
 
 
+def _placeholder_adc_path() -> str:
+    """Returns configured ADC path or creates a hermetic placeholder ADC file."""
+    configured = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "")
+    if configured:
+        return configured
+    path = pathlib.Path(tempfile.gettempdir()) / "governed_agents_placeholder_adc.json"
+    path.write_text(
+        json.dumps(
+            {
+                "type": "authorized_user",
+                "client_id": "placeholder.apps.googleusercontent.com",
+                "client_secret": "placeholder",
+                "refresh_token": "placeholder",
+                "quota_project_id": _HERMETIC_PROJECT,
+            }
+        ),
+        encoding="utf-8",
+    )
+    return str(path)
+
+
 def _load_agent_module(agent_dir_name: str, module_alias: str) -> Any:
     """Loads a governed agent's `agent.py` hermetically with dummy env vars."""
     agent_dir = _REPO_ROOT / "governed_agents" / agent_dir_name
@@ -41,15 +64,17 @@ def _load_agent_module(agent_dir_name: str, module_alias: str) -> Any:
         sys.modules.pop(name, None)
 
     env_overrides = {
-        "CHRONICLE_PROJECT_ID": "test-project",
+        "CHRONICLE_PROJECT_ID": _HERMETIC_PROJECT,
         "CHRONICLE_CUSTOMER_ID": "test-customer",
         "CHRONICLE_REGION": "us",
         "CTI_RESEARCHER_URL": "https://example.invalid/cti",
         "THREAT_HUNTER_URL": "https://example.invalid/hunter",
         "DETECTION_ENGINEER_URL": "https://example.invalid/detection",
         "TIER2_RESPONDER_URL": "https://example.invalid/responder",
-        "GOOGLE_CLOUD_PROJECT": "test-project",
+        "GOOGLE_CLOUD_PROJECT": _HERMETIC_PROJECT,
         "GOOGLE_CLOUD_LOCATION": "us-central1",
+        "GOOGLE_GENAI_USE_VERTEXAI": "TRUE",
+        "GOOGLE_APPLICATION_CREDENTIALS": _placeholder_adc_path(),
     }
     saved_env = {k: os.environ.get(k) for k in env_overrides}
     os.environ.update(env_overrides)

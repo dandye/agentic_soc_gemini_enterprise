@@ -883,6 +883,8 @@ llm_logger.debug = _patched_debug
 # when async generators switch contexts during parallel sub-agent delegation (delegate_concurrently).
 import contextlib  # noqa: E402
 from collections.abc import AsyncIterator  # noqa: E402
+from types import SimpleNamespace  # noqa: E402
+from typing import Any  # noqa: E402
 
 import google.adk.telemetry._instrumentation as adk_instrumentation  # noqa: E402
 from opentelemetry.context.contextvars_context import (  # noqa: E402
@@ -904,37 +906,71 @@ def _safe_otel_context_detach(self, token) -> None:
 ContextVarsRuntimeContext.detach = _safe_otel_context_detach
 
 
-def _build_telemetry_context(adk_instrumentation, span):
-    """Build ADK TelemetryContext across ADK 2.2 (no span kwarg) and ADK 2.9+ (span kwarg)."""
+def _build_telemetry_context(
+    adk_instrumentation,
+    span,
+    *,
+    agent_name: str = "unknown",
+    for_tool: bool = False,
+) -> Any:
+    """Build ADK telemetry scope across ADK 2.2, 2.9, and 2.13+."""
     otel_ctx = adk_instrumentation.context_api.get_current()
-    try:
-        tel_ctx = adk_instrumentation.TelemetryContext(
+    if hasattr(adk_instrumentation, "TelemetryContext"):
+        try:
+            tel_ctx = adk_instrumentation.TelemetryContext(
+                otel_context=otel_ctx,
+                span=span,
+            )
+        except TypeError:
+            tel_ctx = adk_instrumentation.TelemetryContext(
+                otel_context=otel_ctx,
+            )
+            with contextlib.suppress(Exception):
+                tel_ctx.span = span
+        return tel_ctx
+
+    if for_tool and hasattr(adk_instrumentation, "ToolScope"):
+        tel_ctx = adk_instrumentation.ToolScope()
+        tel_ctx.otel_context = otel_ctx
+        tel_ctx.span = span
+        return tel_ctx
+
+    if not for_tool and hasattr(adk_instrumentation, "_AgentInvocationScope"):
+        tel_ctx = adk_instrumentation._AgentInvocationScope(
+            agent_name=agent_name,
             otel_context=otel_ctx,
-            span=span,
         )
-    except TypeError:
-        tel_ctx = adk_instrumentation.TelemetryContext(
-            otel_context=otel_ctx,
-        )
-        with contextlib.suppress(Exception):
-            tel_ctx.span = span
-    return tel_ctx
+        tel_ctx.span = span
+        return tel_ctx
+
+    return SimpleNamespace(
+        otel_context=otel_ctx,
+        span=span,
+        function_response_event=None,
+        error_type=None,
+        skill_telemetry=None,
+        response_source=None,
+    )
 
 
 @contextlib.asynccontextmanager
-async def patched_record_agent_invocation(
-    ctx, agent
-) -> AsyncIterator[adk_instrumentation.TelemetryContext]:
+async def patched_record_agent_invocation(ctx, agent) -> AsyncIterator[Any]:
     start_time = adk_instrumentation.time.monotonic()
     caught_error: Exception | None = None
-    span_name = f"invoke_agent {getattr(agent, 'name', 'unknown')}"
+    agent_name = getattr(agent, "name", "unknown")
+    span_name = f"invoke_agent {agent_name}"
     span = adk_instrumentation.tracing.tracer.start_span(span_name)
     token = adk_instrumentation.context_api.attach(
         adk_instrumentation.trace.set_span_in_context(span)
     )
     try:
         adk_instrumentation.tracing.trace_agent_invocation(span, agent, ctx)
-        tel_ctx = _build_telemetry_context(adk_instrumentation, span)
+        tel_ctx = _build_telemetry_context(
+            adk_instrumentation,
+            span,
+            agent_name=agent_name,
+            for_tool=False,
+        )
         yield tel_ctx
     except Exception as exc:
         caught_error = exc
@@ -947,28 +983,46 @@ async def patched_record_agent_invocation(
                 _safe_otel_context_detach(
                     adk_instrumentation.context_api._RUNTIME_CONTEXT, token
                 )
-            elapsed_ms = adk_instrumentation._get_elapsed_ms(span, start_time)
-            adk_instrumentation._record_agent_metrics(
-                getattr(agent, "name", "unknown"),
-                elapsed_ms,
-                getattr(ctx, "user_content", None),
-                getattr(getattr(ctx, "session", None), "events", []),
-                caught_error,
-            )
+            with contextlib.suppress(Exception):
+                if hasattr(adk_instrumentation, "_get_elapsed_ms"):
+                    elapsed_ms = adk_instrumentation._get_elapsed_ms(span, start_time)
+                    adk_instrumentation._record_agent_metrics(
+                        agent_name,
+                        elapsed_ms,
+                        getattr(ctx, "user_content", None),
+                        getattr(getattr(ctx, "session", None), "events", []),
+                        caught_error,
+                    )
+                else:
+                    elapsed_s = adk_instrumentation._metrics.get_elapsed_s(
+                        span, start_time
+                    )
+                    adk_instrumentation._record_agent_metrics(
+                        agent_name,
+                        elapsed_s,
+                        caught_error,
+                    )
 
 
 @contextlib.asynccontextmanager
 async def patched_record_tool_execution(
-    tool, agent, function_args
-) -> AsyncIterator[adk_instrumentation.TelemetryContext]:
+    tool, agent, function_args, invocation_context=None
+) -> AsyncIterator[Any]:
     start_time = adk_instrumentation.time.monotonic()
     caught_error: Exception | None = None
-    span_name = f"execute_tool {getattr(tool, 'name', 'unknown')}"
+    tool_name = getattr(tool, "name", "unknown")
+    agent_name = getattr(agent, "name", "unknown")
+    span_name = f"execute_tool {tool_name}"
     span = adk_instrumentation.tracing.tracer.start_span(span_name)
     token = adk_instrumentation.context_api.attach(
         adk_instrumentation.trace.set_span_in_context(span)
     )
-    tel_ctx = _build_telemetry_context(adk_instrumentation, span)
+    tel_ctx = _build_telemetry_context(
+        adk_instrumentation,
+        span,
+        agent_name=agent_name,
+        for_tool=True,
+    )
     try:
         try:
             yield tel_ctx
@@ -981,14 +1035,25 @@ async def patched_record_tool_execution(
             )
             error_type = getattr(tel_ctx, "error_type", None)
             try:
-                adk_instrumentation.tracing.trace_tool_call(
-                    tool=tool,
-                    args=function_args,
-                    function_response_event=response_event,
-                    error=caught_error,
-                    span=span,
-                    error_type=error_type,
-                )
+                if invocation_context is not None:
+                    adk_instrumentation.tracing.trace_tool_call(
+                        tool=tool,
+                        args=function_args,
+                        function_response_event=response_event,
+                        error=caught_error,
+                        span=span,
+                        error_type=error_type,
+                        invocation_context=invocation_context,
+                    )
+                else:
+                    adk_instrumentation.tracing.trace_tool_call(
+                        tool=tool,
+                        args=function_args,
+                        function_response_event=response_event,
+                        error=caught_error,
+                        span=span,
+                        error_type=error_type,
+                    )
             except TypeError:
                 try:
                     adk_instrumentation.tracing.trace_tool_call(
@@ -1008,7 +1073,7 @@ async def patched_record_tool_execution(
             except Exception:
                 adk_instrumentation.logger.exception(
                     "Failed to trace tool call for tool %s",
-                    getattr(tool, "name", "unknown"),
+                    tool_name,
                 )
     finally:
         try:
@@ -1019,16 +1084,30 @@ async def patched_record_tool_execution(
                     adk_instrumentation.context_api._RUNTIME_CONTEXT, token
                 )
             try:
-                adk_instrumentation._metrics.record_tool_execution_duration(
-                    tool_name=getattr(tool, "name", "unknown"),
-                    agent_name=getattr(agent, "name", "unknown"),
-                    elapsed_ms=adk_instrumentation._get_elapsed_ms(span, start_time),
-                    error=caught_error,
-                )
+                if hasattr(adk_instrumentation, "_get_elapsed_ms"):
+                    adk_instrumentation._metrics.record_tool_execution_duration(
+                        tool_name=tool_name,
+                        agent_name=agent_name,
+                        elapsed_ms=adk_instrumentation._get_elapsed_ms(
+                            span, start_time
+                        ),
+                        error=caught_error,
+                    )
+                else:
+                    adk_instrumentation._metrics.record_tool_execution_duration(
+                        tool_name=tool_name,
+                        tool_type=tool.__class__.__name__,
+                        agent_name=agent_name,
+                        elapsed_s=adk_instrumentation._metrics.get_elapsed_s(
+                            span, start_time
+                        ),
+                        error=caught_error,
+                        error_type=getattr(tel_ctx, "error_type", None),
+                    )
             except Exception:
                 adk_instrumentation.logger.exception(
                     "Failed to record tool execution duration for tool %s",
-                    getattr(tool, "name", "unknown"),
+                    tool_name,
                 )
 
 
