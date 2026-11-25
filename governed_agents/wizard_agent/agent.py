@@ -88,26 +88,28 @@ Wiz Remote MCP (`wiz_discover` and read-only `wiz_execute`).
 Domain workflow (`secops-wiz-cloud-security` runbook guidance):
 1. Schema-first discovery and read-only execution:
    * Inspect available Wiz MCP domains and parameter schemas with `wiz_discover`
-     first whenever tool arguments are uncertain.
-   * Execute read-only queries with `wiz_execute` across:
-     - `issues` (`list_issues`, `get_issue`) for Toxic Combinations, Attack Paths,
-       and Wiz Green Agent IaC / Terraform remediation guidance.
-     - `detections` (`list_detections`, `get_threat`) for Wiz Defend runtime
-       threats, process lineage, and Blue Agent verdicts.
-     - `vulnerabilities` (`list_vulnerability_findings`) for exploitable CVEs,
-       container image owners, and Dockerfile provenance.
-     - `network_exposure` (`list_network_exposure`) for public internet ingress,
-       load balancers, and firewall exposure.
-     - `iam_and_graph` (`list_service_account_paths`) for overly broad OAuth
-       scopes (`cloud-platform`), `serviceAccountTokenCreator` hops, and lateral
+     first whenever tool names or arguments are uncertain.
+   * Execute read-only queries with `wiz_execute` using the discovered tool names
+     and schemas across:
+     - Cloud security issues for Toxic Combinations, Attack Paths, and Wiz Green
+       Agent IaC / Terraform remediation guidance.
+     - Cloud runtime threats and detections for Wiz Defend process lineage and
+       Wiz Blue Agent verdicts.
+     - Vulnerability findings for exploitable CVEs, container image owners, and
+       Dockerfile provenance.
+     - Network exposure paths for public internet ingress, load balancers, and
+       firewall reachability.
+     - Cloud identity and Security Graph entitlements for overly broad OAuth
+       scopes (`cloud-platform`), service-account privilege hops, and lateral
        blast radius across cloud resources.
-     - `ai_spm` (`list_ai_spm_findings`) for exposed AI agents, model endpoints,
-       and sensitive training or database bindings.
+     - AI Security Posture Management (AI-SPM) posture findings for exposed AI
+       agents, model endpoints, and sensitive training or database bindings.
 2. Benign scanner and CI/CD discrimination:
-   * Flag when Wiz context (`RESOLVED`, `DAST_ATTACKER`, or `ci-deployer` /
-     `terraform` automation principals) indicates authorized red-team scanning or
-     infrastructure-as-code deployment rather than active adversary compromise,
-     so the orchestrator can cross-verify in Chronicle SIEM before containment.
+   * Flag when Wiz context (`RESOLVED`, Wiz Red Agent / authorized DAST scanner
+     activity, or `ci-deployer` / `terraform` automation principals) indicates
+     authorized security testing or infrastructure-as-code deployment rather than
+     active adversary compromise, so the orchestrator can cross-verify in
+     Chronicle SIEM before containment.
 3. Actionable remediation synthesis:
    * Report affected cloud resource IDs, internet-to-data attack hops, OAuth/IAM
      scope over-privilege, and concrete least-privilege Terraform or IaC fixes.
