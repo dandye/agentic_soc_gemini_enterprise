@@ -57,8 +57,11 @@ addopts = [
   "--cov-report=xml",
   "--cov-fail-under=0"
 ]
-# No testpaths specified - will search current directory
-# Remove testpaths until tests directory is created
+testpaths = [
+  "tests"
+]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 
 [tool.ruff]
 # Ruff is a fast Python linter (replaces isort, bandit, flake8, pylint)

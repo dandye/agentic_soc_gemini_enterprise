@@ -883,6 +883,8 @@ llm_logger.debug = _patched_debug
 # when async generators switch contexts during parallel sub-agent delegation (delegate_concurrently).
 import contextlib  # noqa: E402
 from collections.abc import AsyncIterator  # noqa: E402
+from types import SimpleNamespace  # noqa: E402
+from typing import Any  # noqa: E402
 
 import google.adk.telemetry._instrumentation as adk_instrumentation  # noqa: E402
 from opentelemetry.context.contextvars_context import (  # noqa: E402
@@ -904,37 +906,71 @@ def _safe_otel_context_detach(self, token) -> None:
 ContextVarsRuntimeContext.detach = _safe_otel_context_detach
 
 
-def _build_telemetry_context(adk_instrumentation, span):
-    """Build ADK TelemetryContext across ADK 2.2 (no span kwarg) and ADK 2.9+ (span kwarg)."""
+def _build_telemetry_context(
+    adk_instrumentation,
+    span,
+    *,
+    agent_name: str = "unknown",
+    for_tool: bool = False,
+) -> Any:
+    """Build ADK telemetry scope across ADK 2.2, 2.9, and 2.13+."""
     otel_ctx = adk_instrumentation.context_api.get_current()
-    try:
-        tel_ctx = adk_instrumentation.TelemetryContext(
+    if hasattr(adk_instrumentation, "TelemetryContext"):
+        try:
+            tel_ctx = adk_instrumentation.TelemetryContext(
+                otel_context=otel_ctx,
+                span=span,
+            )
+        except TypeError:
+            tel_ctx = adk_instrumentation.TelemetryContext(
+                otel_context=otel_ctx,
+            )
+            with contextlib.suppress(Exception):
+                tel_ctx.span = span
+        return tel_ctx
+
+    if for_tool and hasattr(adk_instrumentation, "ToolScope"):
+        tel_ctx = adk_instrumentation.ToolScope()
+        tel_ctx.otel_context = otel_ctx
+        tel_ctx.span = span
+        return tel_ctx
+
+    if not for_tool and hasattr(adk_instrumentation, "_AgentInvocationScope"):
+        tel_ctx = adk_instrumentation._AgentInvocationScope(
+            agent_name=agent_name,
             otel_context=otel_ctx,
-            span=span,
         )
-    except TypeError:
-        tel_ctx = adk_instrumentation.TelemetryContext(
-            otel_context=otel_ctx,
-        )
-        with contextlib.suppress(Exception):
-            tel_ctx.span = span
-    return tel_ctx
+        tel_ctx.span = span
+        return tel_ctx
+
+    return SimpleNamespace(
+        otel_context=otel_ctx,
+        span=span,
+        function_response_event=None,
+        error_type=None,
+        skill_telemetry=None,
+        response_source=None,
+    )
 
 
 @contextlib.asynccontextmanager
-async def patched_record_agent_invocation(
-    ctx, agent
-) -> AsyncIterator[adk_instrumentation.TelemetryContext]:
+async def patched_record_agent_invocation(ctx, agent) -> AsyncIterator[Any]:
     start_time = adk_instrumentation.time.monotonic()
     caught_error: Exception | None = None
-    span_name = f"invoke_agent {getattr(agent, 'name', 'unknown')}"
+    agent_name = getattr(agent, "name", "unknown")
+    span_name = f"invoke_agent {agent_name}"
     span = adk_instrumentation.tracing.tracer.start_span(span_name)
     token = adk_instrumentation.context_api.attach(
         adk_instrumentation.trace.set_span_in_context(span)
     )
     try:
         adk_instrumentation.tracing.trace_agent_invocation(span, agent, ctx)
-        tel_ctx = _build_telemetry_context(adk_instrumentation, span)
+        tel_ctx = _build_telemetry_context(
+            adk_instrumentation,
+            span,
+            agent_name=agent_name,
+            for_tool=False,
+        )
         yield tel_ctx
     except Exception as exc:
         caught_error = exc
@@ -947,28 +983,46 @@ async def patched_record_agent_invocation(
                 _safe_otel_context_detach(
                     adk_instrumentation.context_api._RUNTIME_CONTEXT, token
                 )
-            elapsed_ms = adk_instrumentation._get_elapsed_ms(span, start_time)
-            adk_instrumentation._record_agent_metrics(
-                getattr(agent, "name", "unknown"),
-                elapsed_ms,
-                getattr(ctx, "user_content", None),
-                getattr(getattr(ctx, "session", None), "events", []),
-                caught_error,
-            )
+            with contextlib.suppress(Exception):
+                if hasattr(adk_instrumentation, "_get_elapsed_ms"):
+                    elapsed_ms = adk_instrumentation._get_elapsed_ms(span, start_time)
+                    adk_instrumentation._record_agent_metrics(
+                        agent_name,
+                        elapsed_ms,
+                        getattr(ctx, "user_content", None),
+                        getattr(getattr(ctx, "session", None), "events", []),
+                        caught_error,
+                    )
+                else:
+                    elapsed_s = adk_instrumentation._metrics.get_elapsed_s(
+                        span, start_time
+                    )
+                    adk_instrumentation._record_agent_metrics(
+                        agent_name,
+                        elapsed_s,
+                        caught_error,
+                    )
 
 
 @contextlib.asynccontextmanager
 async def patched_record_tool_execution(
-    tool, agent, function_args
-) -> AsyncIterator[adk_instrumentation.TelemetryContext]:
+    tool, agent, function_args, invocation_context=None
+) -> AsyncIterator[Any]:
     start_time = adk_instrumentation.time.monotonic()
     caught_error: Exception | None = None
-    span_name = f"execute_tool {getattr(tool, 'name', 'unknown')}"
+    tool_name = getattr(tool, "name", "unknown")
+    agent_name = getattr(agent, "name", "unknown")
+    span_name = f"execute_tool {tool_name}"
     span = adk_instrumentation.tracing.tracer.start_span(span_name)
     token = adk_instrumentation.context_api.attach(
         adk_instrumentation.trace.set_span_in_context(span)
     )
-    tel_ctx = _build_telemetry_context(adk_instrumentation, span)
+    tel_ctx = _build_telemetry_context(
+        adk_instrumentation,
+        span,
+        agent_name=agent_name,
+        for_tool=True,
+    )
     try:
         try:
             yield tel_ctx
@@ -981,14 +1035,25 @@ async def patched_record_tool_execution(
             )
             error_type = getattr(tel_ctx, "error_type", None)
             try:
-                adk_instrumentation.tracing.trace_tool_call(
-                    tool=tool,
-                    args=function_args,
-                    function_response_event=response_event,
-                    error=caught_error,
-                    span=span,
-                    error_type=error_type,
-                )
+                if invocation_context is not None:
+                    adk_instrumentation.tracing.trace_tool_call(
+                        tool=tool,
+                        args=function_args,
+                        function_response_event=response_event,
+                        error=caught_error,
+                        span=span,
+                        error_type=error_type,
+                        invocation_context=invocation_context,
+                    )
+                else:
+                    adk_instrumentation.tracing.trace_tool_call(
+                        tool=tool,
+                        args=function_args,
+                        function_response_event=response_event,
+                        error=caught_error,
+                        span=span,
+                        error_type=error_type,
+                    )
             except TypeError:
                 try:
                     adk_instrumentation.tracing.trace_tool_call(
@@ -1008,7 +1073,7 @@ async def patched_record_tool_execution(
             except Exception:
                 adk_instrumentation.logger.exception(
                     "Failed to trace tool call for tool %s",
-                    getattr(tool, "name", "unknown"),
+                    tool_name,
                 )
     finally:
         try:
@@ -1019,16 +1084,30 @@ async def patched_record_tool_execution(
                     adk_instrumentation.context_api._RUNTIME_CONTEXT, token
                 )
             try:
-                adk_instrumentation._metrics.record_tool_execution_duration(
-                    tool_name=getattr(tool, "name", "unknown"),
-                    agent_name=getattr(agent, "name", "unknown"),
-                    elapsed_ms=adk_instrumentation._get_elapsed_ms(span, start_time),
-                    error=caught_error,
-                )
+                if hasattr(adk_instrumentation, "_get_elapsed_ms"):
+                    adk_instrumentation._metrics.record_tool_execution_duration(
+                        tool_name=tool_name,
+                        agent_name=agent_name,
+                        elapsed_ms=adk_instrumentation._get_elapsed_ms(
+                            span, start_time
+                        ),
+                        error=caught_error,
+                    )
+                else:
+                    adk_instrumentation._metrics.record_tool_execution_duration(
+                        tool_name=tool_name,
+                        tool_type=tool.__class__.__name__,
+                        agent_name=agent_name,
+                        elapsed_s=adk_instrumentation._metrics.get_elapsed_s(
+                            span, start_time
+                        ),
+                        error=caught_error,
+                        error_type=getattr(tel_ctx, "error_type", None),
+                    )
             except Exception:
                 adk_instrumentation.logger.exception(
                     "Failed to record tool execution duration for tool %s",
-                    getattr(tool, "name", "unknown"),
+                    tool_name,
                 )
 
 
@@ -2695,6 +2774,94 @@ async def delegate_to_detection_engineer(query: str, tool_context: Context) -> s
         return f"Failed to communicate with the remote Detection Engineer specialist agent: {e}"
 
 
+async def delegate_to_wizard_agent(query: str, tool_context: Context) -> str:
+    """
+    Delegates cloud security posture, Wiz Cloud Security Graph, Attack Path visualization,
+    Toxic Combinations, IAM scope over-privilege, AI-SPM findings, and Terraform root-cause
+    remediation queries to the standalone Wizard_Agent specialist via Agent-to-Agent (A2A) call.
+
+    Args:
+        query: The cloud posture or Attack Path question for Wizard_Agent (for example,
+            'Inspect Wiz Attack Path, OAuth scope exposure, and Terraform remediation for DataBot').
+    """
+    logger.info(f"A2A_DELEGATION: Attempting to delegate to Wizard_Agent for: {query}")
+    try:
+        engine_name = get_secret("WIZARD_AGENT_RESOURCE_NAME")
+        if not engine_name:
+            logger.error("A2A_DELEGATION_ERROR: WIZARD_AGENT_RESOURCE_NAME not set.")
+            return "Error: Wizard_Agent is not configured in the environment."
+
+        import re
+
+        m = re.search(r"locations/([^/]+)/", engine_name)
+        target_location = m.group(1) if m else "us-central1"
+
+        import vertexai
+
+        client = vertexai.Client(
+            project=os.environ.get("GCP_PROJECT_ID"), location=target_location
+        )
+        remote_engine = client.agent_engines.get(name=engine_name)
+        session_id = None
+        user_id = "secops_assistant"
+
+        if (
+            hasattr(tool_context, "_invocation_context")
+            and tool_context._invocation_context
+        ):
+            root_ctx = tool_context._invocation_context
+            if hasattr(root_ctx, "user_id"):
+                user_id = root_ctx.user_id
+
+        logger.info(
+            f"A2A_DELEGATION: Calling remote Wizard_Agent ({engine_name}) with User: {user_id}"
+        )
+
+        response_parts = []
+        async for event in remote_engine.async_stream_query(
+            user_id=user_id, session_id=session_id, message=query
+        ):
+
+            def get_field(obj, field_name):
+                if obj is None:
+                    return None
+                if isinstance(obj, dict):
+                    return obj.get(field_name)
+                return getattr(obj, field_name, None)
+
+            content = get_field(event, "content")
+            if content:
+                parts = get_field(content, "parts")
+                if parts and isinstance(parts, list):
+                    for part in parts:
+                        text = get_field(part, "text")
+                        if text:
+                            response_parts.append(text)
+
+                        function_call = get_field(part, "function_call")
+                        if function_call:
+                            name = get_field(function_call, "name")
+                            response_parts.append(
+                                f"[Specialist Action] Invoking Wiz Cloud Graph tool: {name}"
+                            )
+
+        final_text = "".join(response_parts).strip()
+        if not final_text:
+            final_text = "The Wizard_Agent specialist completed the request without generating a text response."
+
+        logger.info(
+            "A2A_DELEGATION_SUCCESS: Successfully completed remote A2A call to Wizard_Agent."
+        )
+        return f"--- Response from Wizard_Agent Specialist ---\n{final_text}"
+
+    except Exception as e:
+        logger.error(
+            f"A2A_DELEGATION_ERROR: Failed to delegate to Wizard_Agent: {e}",
+            exc_info=True,
+        )
+        return f"Failed to communicate with the remote Wizard_Agent specialist: {e}"
+
+
 def _find_mcp_paths() -> list[str]:
     root_dir = Path(__file__).parent.parent.absolute()
 
@@ -2824,6 +2991,34 @@ def create_remote_secops_toolset(region, tool_filter=None) -> McpToolset:
         tool_filter=tool_filter,
         errlog=None,  # explicitly None to prevent sys.stderr capturing (which cannot be pickled)
     )
+
+
+def create_remote_wiz_toolset_if_enabled():
+    """Returns a Wiz Remote McpToolset when Wiz MCP is enabled/configured."""
+    try:
+        from .wiz_mcp import create_remote_wiz_toolset, is_wiz_mcp_enabled
+    except ImportError:
+        from agent_soc_manager.wiz_mcp import (
+            create_remote_wiz_toolset,
+            is_wiz_mcp_enabled,
+        )
+
+    if not is_wiz_mcp_enabled():
+        logger.info(
+            "Wiz Remote MCP disabled or unconfigured (set WIZ_MCP_ENABLED=True "
+            "or configure WIZ_AUTH_PROVIDER / WIZ_OAUTH_TOKEN_CACHE to enable)."
+        )
+        return None
+    return create_remote_wiz_toolset(tool_filter=["discover", "execute"])
+
+
+def _get_wiz_readonly_callback():
+    """Imports `enforce_wiz_readonly_callback` from `wiz_mcp`."""
+    try:
+        from .wiz_mcp import enforce_wiz_readonly_callback
+    except ImportError:
+        from agent_soc_manager.wiz_mcp import enforce_wiz_readonly_callback
+    return enforce_wiz_readonly_callback
 
 
 def get_secret(secret_name: str, project_id: str | None = None) -> str:
@@ -3098,6 +3293,9 @@ def create_agent():
     skill_dir = Path(__file__).parent / "skills"
     malware_triage_skill = load_skill_from_dir(skill_dir / "malware-triage-skill")
     tier1_skills = [malware_triage_skill]
+    wiz_skill_dir = skill_dir / "secops-wiz-cloud-security"
+    if wiz_skill_dir.is_dir():
+        tier1_skills.append(load_skill_from_dir(wiz_skill_dir))
     if CHATOPS_ENABLED:
         chatops_skill = load_skill_from_dir(skill_dir / "chatops-skill")
         tier1_skills.append(chatops_skill)
@@ -3175,6 +3373,9 @@ def create_agent():
         )
     )
 
+    # Wiz Remote MCP is owned by the dedicated opt-in `wizard_agent` specialist
+    wiz_toolset = create_remote_wiz_toolset_if_enabled()
+
     # GTI for basic reputation checks
     tier1_tools.append(
         McpToolset(
@@ -3231,6 +3432,43 @@ You MUST use the following exact values for any Chronicle or SecOps tool calls (
         generate_content_config=strict_config,
         disallow_transfer_to_peers=True,
     )
+
+    wizard_subagent = None
+    if wiz_toolset is not None:
+        WIZARD_AGENT_MODEL = os.environ.get("WIZARD_AGENT_MODEL", TIER1_ANALYST_MODEL)
+        wizard_tools = [wiz_toolset]
+        if wiz_skill_dir.is_dir():
+            wizard_tools.append(
+                skill_toolset.SkillToolset(skills=[load_skill_from_dir(wiz_skill_dir)])
+            )
+        wizard_instruction = (
+            "You are Wizard_Agent, the dedicated cloud security posture, Attack Path, "
+            "and AI-SPM specialist connected to Wiz Remote MCP (`wiz_discover` and "
+            "read-only `wiz_execute`). Use `wiz_discover` to inspect domain schemas and "
+            "read-only `wiz_execute` across `issues`, `detections`, `vulnerabilities`, "
+            "`network_exposure`, `iam_and_graph`, and `ai_spm` to map internet exposure, "
+            "Toxic Combinations, IAM privilege paths, DAST scanner dispositions, and "
+            "least-privilege Terraform remediations. Never attempt mutating Wiz calls, "
+            "distinguish Chronicle SIEM YARA-L 2.0 rules from standard YARA file rules, "
+            "and return a structured Markdown summary back to the Orchestrator."
+        )
+        wizard_subagent = PatchedAgent(
+            name="wizard_agent",
+            model=WIZARD_AGENT_MODEL,
+            description=(
+                "Wizard_Agent cloud security specialist for Wiz Cloud Security Graph, "
+                "Attack Paths, Toxic Combinations, IAM scope exposure, AI-SPM findings, "
+                "and Terraform root-cause remediation."
+            ),
+            instruction=wizard_instruction,
+            tools=wizard_tools,
+            before_model_callback=prevent_runaway_loop_callback,
+            before_tool_callback=[_get_wiz_readonly_callback(), before_tool_cache],
+            after_tool_callback=after_tool_cache,
+            after_agent_callback=generate_memory,
+            generate_content_config=strict_config,
+            disallow_transfer_to_peers=True,
+        )
 
     # Flash agent removed - orchestrator will route simple queries to CTI or Tier1 based on complexity
 
@@ -3301,6 +3539,11 @@ You MUST use the following exact values for any Chronicle or SecOps tool calls (
         delegate_to_detection_engineer,
         delegate_concurrently,
     ]
+    if (
+        os.environ.get("WIZARD_AGENT_RESOURCE_NAME", "").strip()
+        or wiz_toolset is not None
+    ):
+        orchestrator_tools.append(delegate_to_wizard_agent)
     orchestrator_tools = _strip_chatops(orchestrator_tools)
 
     # Add grounding/retrieval tool based on configuration
@@ -3353,6 +3596,10 @@ You MUST use the following exact values for any Chronicle or SecOps tool calls (
     )
     orchestrator_instruction = orchestrator_instruction_base + routing_context
 
+    orchestrator_sub_agents = [tier1_subagent]
+    if wizard_subagent is not None:
+        orchestrator_sub_agents.append(wizard_subagent)
+
     # Create orchestrator with LLM delegation to specialists (as sub_agents or AgentTool wrappers)
     orchestrator = PatchedAgent(
         name="secops_assistant",
@@ -3360,7 +3607,7 @@ You MUST use the following exact values for any Chronicle or SecOps tool calls (
         description="SecOps Security Agent - An intelligent SOC orchestrator for Google SecOps that delegates security operations to specialized persona-based agents.",
         instruction=orchestrator_instruction,
         tools=orchestrator_tools,
-        sub_agents=[tier1_subagent],  # LLM delegation to specialists
+        sub_agents=orchestrator_sub_agents,  # LLM delegation to specialists
         before_tool_callback=before_tool_cache,
         after_tool_callback=after_tool_cache,
         after_agent_callback=generate_memory,
@@ -3488,6 +3735,7 @@ except Exception as e:
 # Export key functions and the root agent
 __all__ = [
     "create_agent",
+    "delegate_to_wizard_agent",
     "root_agent",
     "memory_bank_config",
 ]

@@ -27,16 +27,20 @@ os.environ["CHATOPS_BASE_URL"] = "https://handler.example.com/chatops"
 # and stub the one ADK symbol chatops_tools needs.
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _PKG_ROOT = _REPO_ROOT / "agent_soc_manager"
-for _name, _path in (
-    ("agent_soc_manager", _PKG_ROOT),
-    ("agent_soc_manager.tools", _PKG_ROOT / "tools"),
-):
-    if _name not in sys.modules:
-        _mod = types.ModuleType(_name)
-        _mod.__path__ = [str(_path)]
-        sys.modules[_name] = _mod
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 
-if "google.adk.agents.context" not in sys.modules:
+try:
+    import google.adk.agents.context  # noqa: F401
+except ImportError:
+    for _name, _path in (
+        ("agent_soc_manager", _PKG_ROOT),
+        ("agent_soc_manager.tools", _PKG_ROOT / "tools"),
+    ):
+        if _name not in sys.modules:
+            _mod = types.ModuleType(_name)
+            _mod.__path__ = [str(_path)]
+            sys.modules[_name] = _mod
     _adk = types.ModuleType("google.adk")
     _adk_agents = types.ModuleType("google.adk.agents")
     _adk_context = types.ModuleType("google.adk.agents.context")
@@ -44,9 +48,6 @@ if "google.adk.agents.context" not in sys.modules:
     sys.modules.setdefault("google.adk", _adk)
     sys.modules.setdefault("google.adk.agents", _adk_agents)
     sys.modules.setdefault("google.adk.agents.context", _adk_context)
-
-if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
 
 from fastapi.testclient import TestClient
 

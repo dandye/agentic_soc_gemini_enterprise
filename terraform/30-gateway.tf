@@ -44,6 +44,7 @@ resource "google_network_services_agent_gateway" "egress" {
     google_agent_registry_service.google_apis,
     google_agent_registry_service.gti_api,
     google_agent_registry_service.chronicle_mcp,
+    google_agent_registry_service.wiz_mcp,
   ]
 }
 

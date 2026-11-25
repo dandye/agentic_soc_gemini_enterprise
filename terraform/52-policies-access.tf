@@ -109,32 +109,42 @@ locals {
     local.mcp_specialist_rules,
   )
 
-  agent_a2a_rules = local.a2a_policies_enabled ? {
-    orch_to_cti_researcher = {
-      description = "SOC Orchestrator -> CTI Researcher (A2A)"
-      effect      = "ALLOW"
-      principal   = local.agent_principals["soc_orchestrator"]
-      expression  = "destination.agent_registry.agent.name == 'projects/${var.project_id}/locations/${var.region}/agents/${data.google_agent_registry_agent.cti_researcher[0].agent_id}'"
-    }
-    orch_to_threat_hunter = {
-      description = "SOC Orchestrator -> Threat Hunter (A2A)"
-      effect      = "ALLOW"
-      principal   = local.agent_principals["soc_orchestrator"]
-      expression  = "destination.agent_registry.agent.name == 'projects/${var.project_id}/locations/${var.region}/agents/${data.google_agent_registry_agent.threat_hunter[0].agent_id}'"
-    }
-    orch_to_detection_engineer = {
-      description = "SOC Orchestrator -> Detection Engineer (A2A)"
-      effect      = "ALLOW"
-      principal   = local.agent_principals["soc_orchestrator"]
-      expression  = "destination.agent_registry.agent.name == 'projects/${var.project_id}/locations/${var.region}/agents/${data.google_agent_registry_agent.detection_engineer[0].agent_id}'"
-    }
-    orch_to_tier2_responder = {
-      description = "SOC Orchestrator -> Tier-2 Responder (A2A)"
-      effect      = "ALLOW"
-      principal   = local.agent_principals["soc_orchestrator"]
-      expression  = "destination.agent_registry.agent.name == 'projects/${var.project_id}/locations/${var.region}/agents/${data.google_agent_registry_agent.tier2_responder[0].agent_id}'"
-    }
-  } : {}
+  agent_a2a_rules = local.a2a_policies_enabled ? merge(
+    {
+      orch_to_cti_researcher = {
+        description = "SOC Orchestrator -> CTI Researcher (A2A)"
+        effect      = "ALLOW"
+        principal   = local.agent_principals["soc_orchestrator"]
+        expression  = "destination.agent_registry.agent.name == 'projects/${var.project_id}/locations/${var.region}/agents/${data.google_agent_registry_agent.cti_researcher[0].agent_id}'"
+      }
+      orch_to_threat_hunter = {
+        description = "SOC Orchestrator -> Threat Hunter (A2A)"
+        effect      = "ALLOW"
+        principal   = local.agent_principals["soc_orchestrator"]
+        expression  = "destination.agent_registry.agent.name == 'projects/${var.project_id}/locations/${var.region}/agents/${data.google_agent_registry_agent.threat_hunter[0].agent_id}'"
+      }
+      orch_to_detection_engineer = {
+        description = "SOC Orchestrator -> Detection Engineer (A2A)"
+        effect      = "ALLOW"
+        principal   = local.agent_principals["soc_orchestrator"]
+        expression  = "destination.agent_registry.agent.name == 'projects/${var.project_id}/locations/${var.region}/agents/${data.google_agent_registry_agent.detection_engineer[0].agent_id}'"
+      }
+      orch_to_tier2_responder = {
+        description = "SOC Orchestrator -> Tier-2 Responder (A2A)"
+        effect      = "ALLOW"
+        principal   = local.agent_principals["soc_orchestrator"]
+        expression  = "destination.agent_registry.agent.name == 'projects/${var.project_id}/locations/${var.region}/agents/${data.google_agent_registry_agent.tier2_responder[0].agent_id}'"
+      }
+    },
+    var.enable_wiz_mcp ? {
+      orch_to_wizard_agent = {
+        description = "SOC Orchestrator -> Wizard Agent (A2A)"
+        effect      = "ALLOW"
+        principal   = local.agent_principals["soc_orchestrator"]
+        expression  = "destination.agent_registry.agent.name == 'projects/${var.project_id}/locations/${var.region}/agents/${data.google_agent_registry_agent.wizard_agent[0].agent_id}'"
+      }
+    } : {},
+  ) : {}
 }
 
 resource "google_org_policy_policy" "allow_access_policy_binding" {
@@ -196,8 +206,8 @@ resource "google_iam_project_access_policy" "google_apis" {
       error_message = "google_apis must have 1..10 FGAC rules, each non-empty and at most 1024 characters."
     }
     precondition {
-      condition     = !anytrue([for c in local.google_apis_rule_conditions : strcontains(c, local.gti_endpoint_id) || strcontains(c, local.chronicle_mcp_server_id)])
-      error_message = "The Google APIs access policy condition must not contain the GTI endpoint or Chronicle MCP server."
+      condition     = !anytrue([for c in local.google_apis_rule_conditions : strcontains(c, local.gti_endpoint_id) || strcontains(c, local.chronicle_mcp_server_id) || (var.enable_wiz_mcp && local.wiz_mcp_server_id != "" && strcontains(c, local.wiz_mcp_server_id))])
+      error_message = "The Google APIs access policy condition must not contain the GTI endpoint, Chronicle MCP server, or Wiz MCP server."
     }
   }
 }

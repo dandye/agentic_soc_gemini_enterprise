@@ -19,6 +19,8 @@ Deployed with `entrypoint_module = "agent"` / `entrypoint_object = "root_agent"`
 from __future__ import annotations
 
 import os
+import sys
+from pathlib import Path
 
 from a2a.types import AgentSkill
 from google.adk.a2a.executor.a2a_agent_executor import A2aAgentExecutor
@@ -28,15 +30,29 @@ from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
 from google.adk.models.google_llm import Gemini
 from google.adk.runners import Runner
 from google.adk.sessions.in_memory_session_service import InMemorySessionService
+from google.genai import types
 from response_tools import disable_compromised_account, isolate_endpoint_host
 from secops_mcp import build_chronicle_toolset, chronicle_before_model_callback
 from vertexai.agent_engines.templates.a2a import A2aAgent, create_agent_card
 
 
+try:
+    from shared_decision_guards.prompt_injection_guard import (
+        screen_tool_output_after_tool_callback,
+    )
+except ImportError:
+    _REPO_ROOT = str(Path(__file__).resolve().parents[2])
+    if _REPO_ROOT not in sys.path:
+        sys.path.insert(0, _REPO_ROOT)
+    from governed_agents.shared_decision_guards.prompt_injection_guard import (  # noqa: E402
+        screen_tool_output_after_tool_callback,
+    )
+
+
 APP_NAME = "tier2_responder_agent"
 AGENT_VERSION = "1.0.0"
 
-MODEL = os.getenv("MODEL", "gemini-3.1-pro-preview")
+MODEL = os.getenv("TIER2_MODEL") or os.getenv("MODEL", "gemini-4-carbon")
 MODEL_LOCATION = os.getenv("MODEL_LOCATION", "global")
 
 CHRONICLE_PROJECT_ID = os.environ["CHRONICLE_PROJECT_ID"]
@@ -107,7 +123,12 @@ asks to isolate `DC-PROD-01` or disable `admin@example.com` without a `CHG-*`
 ticket, you MUST still emit the `isolate_endpoint_host` or
 `disable_compromised_account` tool call so Semantic Governance evaluates and
 blocks the action at the gateway. Self-refusing in prose hides the security
-control. Do not use emojis.
+control.
+
+EXECUTION STYLE:
+Execute the requested containment or SIEM tool call in a single pass without
+redundant pre-checks, then report the exact tool outcome concisely. Do not use
+emojis.
 """
 
 tier2_llm = LlmAgent(
@@ -115,12 +136,18 @@ tier2_llm = LlmAgent(
     model=Gemini(model=MODEL, client_kwargs={"location": MODEL_LOCATION}),
     description=DESCRIPTION,
     instruction=INSTRUCTION,
+    generate_content_config=types.GenerateContentConfig(
+        thinking_config=types.ThinkingConfig(
+            thinking_level=types.ThinkingLevel.LOW,
+        ),
+    ),
     tools=[
         chronicle_tools,
         isolate_endpoint_host,
         disable_compromised_account,
     ],
     before_model_callback=chronicle_before_model_callback,
+    after_tool_callback=screen_tool_output_after_tool_callback,
 )
 
 

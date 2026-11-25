@@ -24,7 +24,7 @@ locals {
   ]
 
   agent_card_json = {
-    for name in local.agent_names :
+    for name in local.all_agent_names :
     name => jsonencode(jsondecode(file("${path.module}/agentcards/${name}.json")))
   }
 
@@ -70,7 +70,7 @@ locals {
   ]
 
   agent_a2a_class_methods = {
-    for name in local.agent_names : name => [
+    for name in local.all_agent_names : name => [
       for method in local.a2a_class_methods : {
         name        = method
         api_mode    = "a2a_extension"
@@ -86,19 +86,19 @@ locals {
   }
 
   agent_class_methods = {
-    for name in local.agent_names : name => "[${join(",", concat(
+    for name in local.all_agent_names : name => "[${join(",", concat(
       [for method in local.agent_a2a_class_methods[name] : jsonencode(method)],
       name == "soc_orchestrator" ? [for method in local.stream_class_methods : jsonencode(method)] : [],
     ))}]"
   }
 
   agent_version = {
-    for name in local.agent_names :
+    for name in local.all_agent_names :
     name => jsondecode(file("${path.module}/agentcards/${name}.json")).version
   }
 
   agent_labels = {
-    for name in local.agent_names : name => {
+    for name in local.all_agent_names : name => {
       managed-by = "terraform"
       stack      = var.resource_prefix
       version    = replace(local.agent_version[name], ".", "-")
@@ -121,6 +121,10 @@ locals {
       OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT = "EVENT_ONLY"
     } : {},
   )
+
+  gemini_decision_env = local.gemini_auth_provider_enabled ? {
+    GEMINI_AUTH_PROVIDER = local.gemini_auth_provider_name
+  } : {}
 }
 
 # 1. CTI Researcher — external GTI / VirusTotal v3 REST enrichment only.
@@ -176,6 +180,14 @@ resource "google_vertex_ai_reasoning_engine" "cti_researcher" {
         }
       }
 
+      dynamic "env" {
+        for_each = local.gemini_decision_env
+        content {
+          name  = env.key
+          value = env.value
+        }
+      }
+
       min_instances = var.min_instances
       max_instances = var.max_instances
 
@@ -199,6 +211,7 @@ resource "google_vertex_ai_reasoning_engine" "cti_researcher" {
     google_project_service_identity.service_agents,
     terraform_data.package,
     terraform_data.gti_auth_provider,
+    terraform_data.gemini_auth_provider,
     google_network_security_authz_policy.request_authz,
     google_iam_project_access_policy.google_apis,
     google_iam_projects_policy_binding.google_apis,
@@ -266,6 +279,14 @@ resource "google_vertex_ai_reasoning_engine" "threat_hunter" {
         }
       }
 
+      dynamic "env" {
+        for_each = local.gemini_decision_env
+        content {
+          name  = env.key
+          value = env.value
+        }
+      }
+
       min_instances = var.min_instances
       max_instances = var.max_instances
 
@@ -288,6 +309,7 @@ resource "google_vertex_ai_reasoning_engine" "threat_hunter" {
     google_project_service.apis,
     google_project_service_identity.service_agents,
     terraform_data.package,
+    terraform_data.gemini_auth_provider,
     google_network_security_authz_policy.request_authz,
     google_iam_project_access_policy.google_apis,
     google_iam_projects_policy_binding.google_apis,
@@ -355,6 +377,14 @@ resource "google_vertex_ai_reasoning_engine" "detection_engineer" {
         }
       }
 
+      dynamic "env" {
+        for_each = local.gemini_decision_env
+        content {
+          name  = env.key
+          value = env.value
+        }
+      }
+
       min_instances = var.min_instances
       max_instances = var.max_instances
 
@@ -377,6 +407,7 @@ resource "google_vertex_ai_reasoning_engine" "detection_engineer" {
     google_project_service.apis,
     google_project_service_identity.service_agents,
     terraform_data.package,
+    terraform_data.gemini_auth_provider,
     google_network_security_authz_policy.request_authz,
     google_iam_project_access_policy.google_apis,
     google_iam_projects_policy_binding.google_apis,
@@ -444,6 +475,14 @@ resource "google_vertex_ai_reasoning_engine" "tier2_responder" {
         }
       }
 
+      dynamic "env" {
+        for_each = local.gemini_decision_env
+        content {
+          name  = env.key
+          value = env.value
+        }
+      }
+
       min_instances = var.min_instances
       max_instances = var.max_instances
 
@@ -466,6 +505,108 @@ resource "google_vertex_ai_reasoning_engine" "tier2_responder" {
     google_project_service.apis,
     google_project_service_identity.service_agents,
     terraform_data.package,
+    terraform_data.gemini_auth_provider,
+    google_network_security_authz_policy.request_authz,
+    google_iam_project_access_policy.google_apis,
+    google_iam_projects_policy_binding.google_apis,
+  ]
+}
+
+# 4b. Wizard Agent (opt-in): read-only Wiz Cloud Graph and Attack Path MCP specialist.
+resource "google_vertex_ai_reasoning_engine" "wizard_agent" {
+  count = var.enable_wiz_mcp ? 1 : 0
+
+  provider        = google-beta
+  project         = var.project_id
+  region          = var.region
+  display_name    = "${var.resource_prefix}-wizard-agent"
+  description     = "Wizard Agent specialist. Correlates Wiz Cloud Graph exposure, Attack Paths, Toxic Combinations, IAM privilege hops, AI-SPM findings, and Terraform remediations via Wiz Remote MCP using credentials retrieved from Agent Platform Auth Manager."
+  labels          = local.agent_labels["wizard_agent"]
+  deletion_policy = "FORCE"
+
+  spec {
+    agent_framework = local.agent_framework
+    class_methods   = local.agent_class_methods["wizard_agent"]
+    identity_type   = "AGENT_IDENTITY"
+
+    source_code_spec {
+      inline_source {
+        source_archive = local.agent_source_archive["wizard_agent"]
+      }
+      python_spec {
+        entrypoint_module = "agent"
+        entrypoint_object = "root_agent"
+        requirements_file = "requirements.txt"
+        version           = var.python_version
+      }
+    }
+
+    deployment_spec {
+      env {
+        name  = "MODEL"
+        value = var.specialist_model
+      }
+      env {
+        name  = "MODEL_LOCATION"
+        value = var.model_location
+      }
+      env {
+        name  = "WIZ_MCP_URL"
+        value = var.wiz_mcp_url
+      }
+      env {
+        name  = "WIZ_AUTH_PROVIDER"
+        value = local.wiz_auth_provider_name
+      }
+      env {
+        name  = "WIZ_ALLOWED_TOOLS"
+        value = join(",", var.wiz_mcp_allowed_tools)
+      }
+      env {
+        name  = "GOOGLE_API_USE_CLIENT_CERTIFICATE"
+        value = "false"
+      }
+
+      dynamic "env" {
+        for_each = local.telemetry_env
+        content {
+          name  = env.key
+          value = env.value
+        }
+      }
+
+      dynamic "env" {
+        for_each = local.gemini_decision_env
+        content {
+          name  = env.key
+          value = env.value
+        }
+      }
+
+      min_instances = var.min_instances
+      max_instances = var.max_instances
+
+      agent_gateway_config {
+        agent_to_anywhere_config {
+          agent_gateway = local.agent_gateway_name
+        }
+      }
+    }
+  }
+
+  lifecycle {
+    precondition {
+      condition     = local.agent_package_ok["wizard_agent"]
+      error_message = local.agent_package_error["wizard_agent"]
+    }
+  }
+
+  depends_on = [
+    google_project_service.apis,
+    google_project_service_identity.service_agents,
+    terraform_data.package,
+    terraform_data.gemini_auth_provider,
+    terraform_data.wiz_auth_provider,
     google_network_security_authz_policy.request_authz,
     google_iam_project_access_policy.google_apis,
     google_iam_projects_policy_binding.google_apis,
@@ -473,12 +614,17 @@ resource "google_vertex_ai_reasoning_engine" "tier2_responder" {
 }
 
 locals {
-  specialist_engine_paths = {
-    cti_researcher     = "projects/${var.project_id}/locations/${var.region}/reasoningEngines/${google_vertex_ai_reasoning_engine.cti_researcher.name}"
-    threat_hunter      = "projects/${var.project_id}/locations/${var.region}/reasoningEngines/${google_vertex_ai_reasoning_engine.threat_hunter.name}"
-    detection_engineer = "projects/${var.project_id}/locations/${var.region}/reasoningEngines/${google_vertex_ai_reasoning_engine.detection_engineer.name}"
-    tier2_responder    = "projects/${var.project_id}/locations/${var.region}/reasoningEngines/${google_vertex_ai_reasoning_engine.tier2_responder.name}"
-  }
+  specialist_engine_paths = merge(
+    {
+      cti_researcher     = "projects/${var.project_id}/locations/${var.region}/reasoningEngines/${google_vertex_ai_reasoning_engine.cti_researcher.name}"
+      threat_hunter      = "projects/${var.project_id}/locations/${var.region}/reasoningEngines/${google_vertex_ai_reasoning_engine.threat_hunter.name}"
+      detection_engineer = "projects/${var.project_id}/locations/${var.region}/reasoningEngines/${google_vertex_ai_reasoning_engine.detection_engineer.name}"
+      tier2_responder    = "projects/${var.project_id}/locations/${var.region}/reasoningEngines/${google_vertex_ai_reasoning_engine.tier2_responder.name}"
+    },
+    var.enable_wiz_mcp ? {
+      wizard_agent = "projects/${var.project_id}/locations/${var.region}/reasoningEngines/${google_vertex_ai_reasoning_engine.wizard_agent[0].name}"
+    } : {},
+  )
 
   specialist_a2a_urls = {
     for name, path in local.specialist_engine_paths :
@@ -552,7 +698,25 @@ resource "google_vertex_ai_reasoning_engine" "soc_orchestrator" {
       }
 
       dynamic "env" {
+        for_each = var.enable_wiz_mcp ? {
+          WIZARD_AGENT_CARD_URL = local.specialist_a2a_urls["wizard_agent"]
+        } : {}
+        content {
+          name  = env.key
+          value = env.value
+        }
+      }
+
+      dynamic "env" {
         for_each = local.telemetry_env
+        content {
+          name  = env.key
+          value = env.value
+        }
+      }
+
+      dynamic "env" {
+        for_each = local.gemini_decision_env
         content {
           name  = env.key
           value = env.value
@@ -581,6 +745,7 @@ resource "google_vertex_ai_reasoning_engine" "soc_orchestrator" {
     google_project_service.apis,
     google_project_service_identity.service_agents,
     terraform_data.package,
+    terraform_data.gemini_auth_provider,
     google_network_security_authz_policy.request_authz,
     google_iam_project_access_policy.google_apis,
     google_iam_projects_policy_binding.google_apis,
@@ -588,13 +753,20 @@ resource "google_vertex_ai_reasoning_engine" "soc_orchestrator" {
 }
 
 locals {
-  agents = {
+  core_agents = {
     cti_researcher     = google_vertex_ai_reasoning_engine.cti_researcher
     threat_hunter      = google_vertex_ai_reasoning_engine.threat_hunter
     detection_engineer = google_vertex_ai_reasoning_engine.detection_engineer
     tier2_responder    = google_vertex_ai_reasoning_engine.tier2_responder
     soc_orchestrator   = google_vertex_ai_reasoning_engine.soc_orchestrator
   }
+
+  agents = merge(
+    local.core_agents,
+    var.enable_wiz_mcp ? {
+      wizard_agent = google_vertex_ai_reasoning_engine.wizard_agent[0]
+    } : {},
+  )
 }
 
 # hashicorp/google-beta omits min_instances = 0 from Create and Update JSON
@@ -604,7 +776,7 @@ locals {
 # spec updates. Re-assert spec.deploymentSpec.minInstances via field-masked REST
 # PATCH whenever an engine is created, updated in-place, or min_instances changes.
 resource "terraform_data" "reasoning_engine_min_instances" {
-  for_each = local.agents
+  for_each = local.core_agents
 
   triggers_replace = [
     each.value.name,
@@ -626,6 +798,32 @@ resource "terraform_data" "reasoning_engine_min_instances" {
       RE_PROJECT_ID       = var.project_id
       RE_REGION           = var.region
       RE_ENGINE_NAME      = each.value.name
+      RE_MIN_INSTANCES    = tostring(var.min_instances)
+      RE_EXPECTED_GATEWAY = local.agent_gateway_name
+    }
+    command = "bash ${path.module}/../scripts/governance/reasoning_engine_scaling.sh ensure"
+  }
+}
+
+resource "terraform_data" "wizard_agent_min_instances" {
+  count = var.enable_wiz_mcp ? 1 : 0
+
+  triggers_replace = [
+    google_vertex_ai_reasoning_engine.wizard_agent[0].name,
+    tostring(var.min_instances),
+  ]
+
+  lifecycle {
+    replace_triggered_by = [
+      google_vertex_ai_reasoning_engine.wizard_agent,
+    ]
+  }
+
+  provisioner "local-exec" {
+    environment = {
+      RE_PROJECT_ID       = var.project_id
+      RE_REGION           = var.region
+      RE_ENGINE_NAME      = google_vertex_ai_reasoning_engine.wizard_agent[0].name
       RE_MIN_INSTANCES    = tostring(var.min_instances)
       RE_EXPECTED_GATEWAY = local.agent_gateway_name
     }

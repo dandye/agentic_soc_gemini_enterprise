@@ -21,6 +21,8 @@ from typing import Any
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 OUT_DIR = ROOT / "terraform" / "agentcards"
 
 AGENTS = (
@@ -28,6 +30,7 @@ AGENTS = (
     "threat_hunter",
     "detection_engineer",
     "tier2_responder",
+    "wizard_agent",
     "soc_orchestrator",
 )
 
@@ -38,6 +41,10 @@ PLACEHOLDER_ENV = {
         "projects/example-secops-project/locations/us-central1/"
         "authProviders/agw-secops-gti-api-key"
     ),
+    "WIZ_AUTH_PROVIDER": (
+        "projects/example-secops-project/locations/us-central1/"
+        "authProviders/agw-secops-wiz-oauth"
+    ),
     "CHRONICLE_PROJECT_ID": "example-secops-project",
     "CHRONICLE_CUSTOMER_ID": "00000000-0000-0000-0000-000000000000",
     "CHRONICLE_REGION": "us",
@@ -47,7 +54,15 @@ PLACEHOLDER_ENV = {
     "TIER2_RESPONDER_URL": "https://example.invalid/tier2_responder/a2a",
 }
 
-_SIBLING_MODULES = ("agent", "gti_tools", "secops_mcp", "response_tools")
+_SIBLING_MODULES = (
+    "agent",
+    "decision_client",
+    "gti_tools",
+    "response_tools",
+    "secops_mcp",
+    "triage_tools",
+    "wiz_mcp",
+)
 
 
 def card_for(name: str) -> dict[str, Any]:

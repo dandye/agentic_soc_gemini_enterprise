@@ -14,10 +14,21 @@ import urllib.parse
 from typing import Any
 
 import httpx
+from decision_client import evaluate_decisions
 from google.cloud.agentidentitycredentials_v1 import (
     AuthProviderCredentialsServiceClient,
     RetrieveCredentialsRequest,
 )
+
+
+try:
+    from shared_decision_guards.multimodal_cti_ingress import (
+        triage_multimodal_security_artifact,
+    )
+except ImportError:
+    from governed_agents.shared_decision_guards.multimodal_cti_ingress import (
+        triage_multimodal_security_artifact,
+    )
 
 
 GTI_API_BASE_URL = os.getenv("GTI_API_BASE_URL", "https://www.virustotal.com/api/v3")
@@ -157,3 +168,34 @@ def get_threat_collection(collection_id: str) -> dict[str, Any]:
         "targeted_industries": attrs.get("targeted_industries") or [],
         "targeted_regions": attrs.get("targeted_regions") or [],
     }
+
+
+def triage_unstructured_cti_artifact(
+    content: str, mime_type: str = "text/plain"
+) -> dict[str, Any]:
+    """Backwards-compatible wrapper delegating to pre-agent multimodal ingress."""
+    cleaned_mime = (mime_type or "text/plain").strip().lower()
+    captured_answers: dict[str, Any] = {}
+
+    def _compat_eval(**kwargs: Any) -> dict[str, Any]:
+        reply = evaluate_decisions(**kwargs)
+        if isinstance(reply, dict) and isinstance(reply.get("answers"), dict):
+            captured_answers.update(reply["answers"])
+        return reply
+
+    res = triage_multimodal_security_artifact(
+        content,
+        mime_type=cleaned_mime,
+        is_base64=not cleaned_mime.startswith("text/"),
+        evaluator=_compat_eval,
+    )
+    if res.get("enabled") and "error" not in res and "confidence_score" not in res:
+        conf_ans = captured_answers.get("confidence_score")
+        if isinstance(conf_ans, dict):
+            raw_conf = conf_ans.get("raw_score", conf_ans.get("score"))
+            res["confidence_score"] = (
+                round(float(raw_conf) + 1.0, 2) if raw_conf is not None else None
+            )
+        else:
+            res["confidence_score"] = res.get("confidence")
+    return res

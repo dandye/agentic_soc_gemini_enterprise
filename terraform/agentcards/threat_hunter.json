@@ -13,7 +13,7 @@
   "name": "threat_hunter_agent",
   "skills": [
     {
-      "description": "Searches Chronicle SIEM UDM events, lists recent security alerts, summarizes host/user/IP entities, and checks IOC matches.",
+      "description": "Searches Chronicle SIEM UDM events, lists recent security alerts (with automatic pre-LLM Decision 1 noise filtering and triage scoring), summarizes host/user/IP entities, and checks IOC matches.",
       "examples": [
         "List the 5 most recent security alerts in Chronicle SIEM",
         "Run a UDM search for recent network or process events"
@@ -25,7 +25,8 @@
         "siem",
         "udm",
         "alerts",
-        "threat-hunting"
+        "threat-hunting",
+        "decision-1"
       ]
     },
     {

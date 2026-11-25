@@ -1,0 +1,48 @@
+{
+  "capabilities": {
+    "extendedAgentCard": true,
+    "streaming": false
+  },
+  "defaultInputModes": [
+    "text/plain"
+  ],
+  "defaultOutputModes": [
+    "application/json"
+  ],
+  "description": "Wiz Cloud Security Graph and Attack Path specialist (Wizard_Agent) that correlates cloud exposure, Toxic Combinations, IAM privilege paths, CVEs, AI-SPM findings, and Terraform root-cause remediations via Wiz Remote MCP.",
+  "name": "wizard_agent",
+  "skills": [
+    {
+      "description": "Queries Wiz Remote MCP (wiz_discover and read-only wiz_execute) for internet exposure, IAM service-account privilege paths, vulnerabilities, runtime threats, and Toxic Combinations.",
+      "examples": [
+        "Inspect the Wiz Attack Path and OAuth scope exposure for the DataBot GCP Compute Instance",
+        "List open CRITICAL Toxic Combination issues and internet-exposed cloud assets in Wiz"
+      ],
+      "id": "wiz_cloud_graph_and_attack_path",
+      "name": "Wiz Cloud Graph, Attack Path, and Toxic Combination analysis",
+      "tags": [
+        "wiz",
+        "cloud-security",
+        "attack-path",
+        "iam",
+        "vulnerabilities"
+      ]
+    },
+    {
+      "description": "Retrieves Wiz AI Security Posture Management (AI-SPM) findings, DAST scanner dispositions, and least-privilege Terraform fixes.",
+      "examples": [
+        "Retrieve Wiz AI security findings and Green Agent Terraform remediation for DataBot"
+      ],
+      "id": "wiz_ai_spm_and_terraform_remediation",
+      "name": "Wiz AI-SPM posture and least-privilege Terraform remediation",
+      "tags": [
+        "wiz",
+        "ai-spm",
+        "terraform",
+        "remediation",
+        "posture"
+      ]
+    }
+  ],
+  "version": "1.0.0"
+}

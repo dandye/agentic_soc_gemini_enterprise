@@ -88,6 +88,74 @@ variable "gti_auth_provider_workload_ids" {
   default     = []
 }
 
+variable "gemini_api_key" {
+  description = "Optional Gemini API key stored in Agent Platform Auth Manager for the Gemini Decisions API (`gemini-decision-1`). Pass via `TF_VAR_gemini_api_key` in the shell environment, never in a committed file. When empty, Auth Manager provisioning is skipped and agents fall back to runtime `GEMINI_API_KEY` or disable Decisions API calls."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "gemini_api_key_version" {
+  description = "Monotonic version counter used to trigger rotation of the Gemini API key in Agent Platform Auth Manager."
+  type        = number
+  default     = 1
+}
+
+variable "gemini_auth_provider_workload_ids" {
+  description = "Optional create-time SPIFFE workload IDs on the Gemini AuthProvider. Leave empty; 20-authmanager.tf binds `roles/agentidentity.user` directly to all five governed agents."
+  type        = list(string)
+  default     = []
+}
+
+# Wiz Remote MCP integration (opt-in; defaults keep baseline plan drift at zero)
+
+variable "enable_wiz_mcp" {
+  description = "Register Wiz Remote MCP in Agent Registry, provision its Auth Manager provider, deploy `wizard_agent` (`<resource_prefix>-wizard-agent`), and bind `<resource_prefix>-wiz-tools`."
+  type        = bool
+  default     = false
+}
+
+variable "wiz_mcp_url" {
+  description = "Wiz Remote MCP endpoint URL registered in Agent Registry."
+  type        = string
+  default     = "https://mcp.app.wiz.io/"
+
+  validation {
+    condition     = can(regex("^https://[a-zA-Z0-9.-]+(/.*)?$", var.wiz_mcp_url))
+    error_message = "wiz_mcp_url must be a valid https:// URL."
+  }
+}
+
+variable "wiz_mcp_allowed_tools" {
+  description = "Wiz Remote MCP tools permitted for `wizard_agent` at the Agent Gateway inside dedicated policy `<resource_prefix>-wiz-tools` (chunked at <= 9 tools per IAM v3 CEL rule)."
+  type        = list(string)
+  default     = ["discover", "execute"]
+
+  validation {
+    condition     = length(var.wiz_mcp_allowed_tools) > 0 && length(var.wiz_mcp_allowed_tools) <= 90 && alltrue([for t in var.wiz_mcp_allowed_tools : can(regex("^[a-zA-Z0-9_-]+$", t))])
+    error_message = "wiz_mcp_allowed_tools must contain 1..90 valid MCP tool names so wiz_tools stays within the 10-rule IAM v3 policy ceiling (9 tools per rule)."
+  }
+}
+
+variable "wiz_oauth_token" {
+  description = "Wiz Remote MCP OAuth bearer token stored in Agent Platform Auth Manager when `enable_wiz_mcp = true`. Pass via `TF_VAR_wiz_oauth_token` in the shell environment, never in a committed file."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "wiz_oauth_token_version" {
+  description = "Monotonic version counter used to trigger rotation of the Wiz OAuth token in Agent Platform Auth Manager."
+  type        = number
+  default     = 1
+}
+
+variable "wiz_auth_provider_workload_ids" {
+  description = "Optional create-time SPIFFE workload IDs on the Wiz AuthProvider. Leave empty; 20-authmanager.tf binds `roles/agentidentity.user` directly to `wizard_agent`."
+  type        = list(string)
+  default     = []
+}
+
 # Gemini Enterprise integration (opt-in defaults so shared apps remain untouched)
 
 variable "ge_engine_id" {
@@ -158,21 +226,21 @@ variable "ge_agent_sharing_scope" {
 # Models and runtime
 
 variable "orchestrator_model" {
-  description = "Gemini 3+ model ID used by `soc_orchestrator`."
+  description = "Gemini model ID used by `soc_orchestrator`."
   type        = string
-  default     = "gemini-3.1-pro-preview"
+  default     = "gemini-4-hydrogen"
 }
 
 variable "tier2_model" {
-  description = "Gemini 3+ model ID used by `tier2_responder`."
+  description = "Gemini model ID used by `tier2_responder`."
   type        = string
-  default     = "gemini-3.1-pro-preview"
+  default     = "gemini-4-carbon"
 }
 
 variable "specialist_model" {
-  description = "Gemini 3+ model ID used by `cti_researcher`, `threat_hunter`, and `detection_engineer`."
+  description = "Gemini model ID used by `cti_researcher`, `threat_hunter`, and `detection_engineer`."
   type        = string
-  default     = "gemini-3.5-flash"
+  default     = "gemini-3.8-flash"
 }
 
 variable "model_location" {
@@ -201,7 +269,7 @@ variable "trace_capture_message_content" {
 variable "min_instances" {
   description = "Minimum warm container instances per Reasoning Engine (`0` scales idle memory cost to $0/hr with a cold start on first request; `1` keeps one warm instance at ~$24/mo per engine)."
   type        = number
-  default     = 0
+  default     = 1
   nullable    = false
 
   validation {
@@ -257,9 +325,10 @@ variable "agent_registry_filters" {
       "threat_hunter",
       "detection_engineer",
       "tier2_responder",
+      "wizard_agent",
       "soc_orchestrator",
     ])) == 0
-    error_message = "agent_registry_filters keys must be among: cti_researcher, threat_hunter, detection_engineer, tier2_responder, soc_orchestrator."
+    error_message = "agent_registry_filters keys must be among: cti_researcher, threat_hunter, detection_engineer, tier2_responder, wizard_agent, soc_orchestrator."
   }
 }
 

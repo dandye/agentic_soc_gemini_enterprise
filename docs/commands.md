@@ -275,6 +275,9 @@ just governance-plan                             # Run terraform plan against th
 just governance-enforce mode="status"            # Toggle IAP authorization enforcement mode (enforced | dry-run | status)
 just governance-logs action="audit" freshness="1h"  # Inspect Agent Gateway, IAP Data Access, and telemetry logs
 just governance-smoke-test case=""               # Run live A2A governance smoke tests against the deployed SOC Orchestrator
+just governance-ge-status                        # Check Gemini Enterprise app gateway binding and governed orchestrator status
+just governance-demos-seed                       # Seed fresh Chronicle SIEM UDM events for live Gemini Decision 1 demos
+just governance-demos port="8787"                # Launch the 3-tab Gemini Decision 1 interactive demo web app
 just governance-test                             # Run every offline governance shell harness (no network, no credentials)
 just governance-lint                             # Lint governance shell scripts and check Terraform formatting
 ```

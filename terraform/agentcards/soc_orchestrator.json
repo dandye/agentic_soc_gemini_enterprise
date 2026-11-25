@@ -27,6 +27,19 @@
         "yaral2",
         "governance"
       ]
+    },
+    {
+      "description": "Evaluates incoming SOC requests for specialist routing, workflow mode, change-ticket presence, and urgency before A2A delegation.",
+      "examples": [
+        "Classify whether an alert triage request needs CTI enrichment and UDM hunting"
+      ],
+      "id": "preflight_routing_triage",
+      "name": "Pre-flight routing and urgency classification",
+      "tags": [
+        "routing",
+        "triage",
+        "governance"
+      ]
     }
   ],
   "version": "1.0.0"

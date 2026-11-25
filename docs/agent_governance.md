@@ -16,7 +16,10 @@ access policies against the calling agent's SPIFFE workload identity, screens
 request and response bodies with Model Armor, and asks a Semantic Governance
 policy engine whether a containment action against a Tier-0 asset is allowed.
 No agent holds a static credential: the GTI API key lives in Agent Platform Auth
-Manager and is retrievable only by `cti_researcher`.
+Manager and is retrievable only by `cti_researcher`. See
+[Gemini Decision 1 for Governed SOC Agents](gemini_decision_1.md) for the
+`gemini-decision-1` pre-flight routing, rubric triage, and Auth Manager
+integration across all five engines.
 
 | Layer | What enforces it | Terraform file(s) |
 | --- | --- | --- |
@@ -208,13 +211,13 @@ Every variable in `terraform/variables.tf`:
 | `ge_agent_display_name` | string | `"Governed SecOps Orchestrator"` | Display name in the agent picker |
 | `ge_agent_icon_path` | string | `""` | Optional repo-relative PNG or SVG icon |
 | `ge_agent_sharing_scope` | string | `"ALL_USERS"` | `ALL_USERS` or `RESTRICTED` visibility when published |
-| `orchestrator_model` | string | `"gemini-3.1-pro-preview"` | Model for `soc_orchestrator` |
-| `tier2_model` | string | `"gemini-3.1-pro-preview"` | Model for `tier2_responder` |
-| `specialist_model` | string | `"gemini-3.5-flash"` | Model for `cti_researcher`, `threat_hunter`, `detection_engineer` |
+| `orchestrator_model` | string | `"gemini-4-hydrogen"` | Model for `soc_orchestrator` |
+| `tier2_model` | string | `"gemini-4-carbon"` | Model for `tier2_responder` |
+| `specialist_model` | string | `"gemini-3.8-flash"` | Model for `cti_researcher`, `threat_hunter`, `detection_engineer` |
 | `model_location` | string | `"global"` | Vertex AI model endpoint location (`global`, `us`, `eu`) |
 | `python_version` | string | `"3.12"` | Python runtime for the Reasoning Engines |
 | `trace_capture_message_content` | bool | `true` | Set `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=EVENT_ONLY` |
-| `min_instances` | number | `0` | Minimum warm container instances per Reasoning Engine (`0` scales idle memory cost to \$0; `1` keeps one warm instance) |
+| `min_instances` | number | `1` | Minimum warm container instances per Reasoning Engine (`1` keeps one warm instance; `0` scales idle memory cost to \$0) |
 | `max_instances` | number | `null` | Maximum container instances per Reasoning Engine (`null` preserves the platform default of `100`) |
 | `extra_google_api_hosts` | list(string) | `[]` | Additional Google API hosts to register and permit for all agents |
 | `chronicle_enforce_tool_allowlist` | bool | `true` | Enforce per-specialist Chronicle MCP tool allowlists in IAP |
@@ -454,10 +457,10 @@ just governance-smoke-test case=3b
 
 The script prints `Summary: N/6 scenarios passed` and exits non-zero on any
 failure. Pass `--json-out <path>` through the Python entrypoint to save results.
-Because `min_instances` defaults to `0`, the first turn after an idle period
-incurs a 10 to 25 second cold start per specialist; run
-`just governance-smoke-test` shortly before a live demo to warm all five
-engines, or set `min_instances = 1` when continuous warm capacity is needed.
+By default `min_instances = 1` keeps one warm container per specialist; if you
+scale `min_instances` down to `0` for \$0/hr idle compute, the first turn after
+an idle period incurs a 10 to 25 second cold start per specialist unless you run
+`just governance-smoke-test` or set `minInstances = 1` beforehand.
 
 ### Logs
 
@@ -652,7 +655,7 @@ region.
 
 | Item | Where it comes from | Approximate cost |
 | --- | --- | --- |
-| Reasoning Engine idle memory | Five `google_vertex_ai_reasoning_engine` resources in `41-agents.tf` | \$0 while idle by default (`min_instances = 0`). Setting `min_instances = 1` keeps one warm instance per engine at about \$24 per month per engine |
+| Reasoning Engine idle memory | Five `google_vertex_ai_reasoning_engine` resources in `41-agents.tf` | About \$24 per month per engine at the `min_instances = 1` warm default; setting `min_instances = 0` scales idle memory cost to \$0 |
 | Egress Agent Gateway | `google_network_services_agent_gateway.egress` in `30-gateway.tf` | \$0 idle; about \$5.67 per million proxied requests |
 | Semantic Governance PSC endpoint | Forwarding rule created by `sgp_gateway_config.sh attach` in `65-semantic-governance.tf` | About \$7.30 per month |
 | Semantic Governance private DNS zone | `google_dns_managed_zone.sgp` in `65-semantic-governance.tf` | About \$0.20 per month |

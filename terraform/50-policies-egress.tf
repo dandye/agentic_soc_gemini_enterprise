@@ -76,9 +76,11 @@ locals {
     "update_reference_list",
   ]
 
-  # Destructive / administrative MCP tools advertised to specialists so a prompt
-  # asking for them reaches the Agent Gateway and triggers a deterministic IAP
-  # 403 tool-allowlist denial.
+  # Destructive / administrative MCP tools advertised on read-only specialists
+  # and passed to `soc_orchestrator` via DENIED_MCP_TOOLS so an out-of-scope
+  # call reaches the Agent Gateway and returns an IAP 403 TOOL ALLOWLIST banner.
+  # Note: `create_reference_list` is allowed on `tier2_responder` above and
+  # denied by IAP on `threat_hunter` and `detection_engineer` (see troubleshooting docs).
   denied_mcp_tools = [
     "list_feeds",
     "create_rule",

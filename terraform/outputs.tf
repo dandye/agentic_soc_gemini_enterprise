@@ -23,9 +23,19 @@ output "chronicle_mcp_server_id" {
   value       = local.chronicle_mcp_server_id
 }
 
+output "wiz_mcp_server_id" {
+  description = "Agent Registry MCP server ID for Wiz Remote MCP when `enable_wiz_mcp` is true."
+  value       = var.enable_wiz_mcp ? local.wiz_mcp_server_id : null
+}
+
 output "gti_auth_provider_name" {
   description = "Agent Platform Auth Manager resource name holding the GTI / VirusTotal v3 API key."
   value       = terraform_data.gti_auth_provider.output.name
+}
+
+output "wiz_auth_provider_name" {
+  description = "Agent Platform Auth Manager resource name holding the Wiz Remote MCP credential when `enable_wiz_mcp` is true."
+  value       = var.enable_wiz_mcp ? terraform_data.wiz_auth_provider[0].output.name : null
 }
 
 output "agent_gateway_name" {
@@ -79,7 +89,16 @@ output "agent_principals_long_form" {
 
 output "agent_source_hashes" {
   description = "Deterministic SHA-256 source-tree hashes packaged into `terraform/dist/<name>.tar.gz`."
-  value       = local.agent_source_hash
+  value       = { for name in local.agent_names : name => local.agent_source_hash[name] }
+}
+
+output "wiz_tool_policy" {
+  description = "Dedicated IAM v3 access policy ID, allowed Wiz MCP tools, and compiled CEL rules for `wizard_agent` when `enable_wiz_mcp` is true."
+  value = var.enable_wiz_mcp ? {
+    policy_id   = local.wiz_tools_access_policy_id
+    allowed     = var.wiz_mcp_allowed_tools
+    expressions = local.wiz_mcp_cels
+  } : null
 }
 
 output "chronicle_tool_policies" {
@@ -103,12 +122,17 @@ output "chronicle_tool_policies" {
 
 output "a2a_edges" {
   description = "Permitted A2A edges (`soc_orchestrator -> <specialist>`)."
-  value = local.a2a_policies_enabled ? {
-    "soc_orchestrator -> cti_researcher"     = one(data.google_agent_registry_agent.cti_researcher[*].urn)
-    "soc_orchestrator -> threat_hunter"      = one(data.google_agent_registry_agent.threat_hunter[*].urn)
-    "soc_orchestrator -> detection_engineer" = one(data.google_agent_registry_agent.detection_engineer[*].urn)
-    "soc_orchestrator -> tier2_responder"    = one(data.google_agent_registry_agent.tier2_responder[*].urn)
-  } : {}
+  value = local.a2a_policies_enabled ? merge(
+    {
+      "soc_orchestrator -> cti_researcher"     = one(data.google_agent_registry_agent.cti_researcher[*].urn)
+      "soc_orchestrator -> threat_hunter"      = one(data.google_agent_registry_agent.threat_hunter[*].urn)
+      "soc_orchestrator -> detection_engineer" = one(data.google_agent_registry_agent.detection_engineer[*].urn)
+      "soc_orchestrator -> tier2_responder"    = one(data.google_agent_registry_agent.tier2_responder[*].urn)
+    },
+    var.enable_wiz_mcp ? {
+      "soc_orchestrator -> wizard_agent" = one(data.google_agent_registry_agent.wizard_agent[*].urn)
+    } : {},
+  ) : {}
 }
 
 output "ge_binding" {

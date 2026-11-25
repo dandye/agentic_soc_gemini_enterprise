@@ -8,6 +8,7 @@ on:
       - 'scripts/governance/**'
       - 'terraform/**'
       - 'tests/test_governed_agents.py'
+      - 'tests/test_wiz_mcp.py'
       - '.github/workflows/governance-ci.yml'
   push:
     branches:
@@ -17,6 +18,7 @@ on:
       - 'scripts/governance/**'
       - 'terraform/**'
       - 'tests/test_governed_agents.py'
+      - 'tests/test_wiz_mcp.py'
 
 permissions:
   contents: read
@@ -57,8 +59,8 @@ jobs:
 
       - name: Install pinned dependencies
         run: |
-          pip install pytest==8.3.5
-          for agent in soc_orchestrator cti_researcher threat_hunter detection_engineer tier2_responder; do
+          pip install pytest==8.3.5 google-cloud-secret-manager==2.28.0
+          for agent in soc_orchestrator cti_researcher threat_hunter detection_engineer tier2_responder wizard_agent; do
             pip install -r "governed_agents/${agent}/requirements.txt"
           done
 
@@ -68,7 +70,7 @@ jobs:
           GOOGLE_CLOUD_LOCATION: us-central1
           GOOGLE_GENAI_USE_VERTEXAI: 'TRUE'
         run: |
-          python -m pytest -o addopts="" tests/test_governed_agents.py
+          python -m pytest -o addopts="" tests/test_governed_agents.py tests/test_wiz_mcp.py
 
   terraform:
     name: Terraform fmt and validate
@@ -87,7 +89,7 @@ jobs:
 
       - name: Install pinned agent dependencies (card generation imports the agents)
         run: |
-          for agent in soc_orchestrator cti_researcher threat_hunter detection_engineer tier2_responder; do
+          for agent in soc_orchestrator cti_researcher threat_hunter detection_engineer tier2_responder wizard_agent; do
             pip install -r "governed_agents/${agent}/requirements.txt"
           done
 

@@ -1322,3 +1322,15 @@ governance-ge-rollback:
     eval "$(bash scripts/governance/ge_env.sh)"
     bash scripts/governance/ge_agent.sh delete
     bash scripts/governance/bind_ge_app.sh unbind
+
+# Launch the 3-tab Gemini Decision 1 interactive demo web app
+governance-demos port="8787":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    RAW={{ quote(port) }}
+    PORT="${RAW#port=}"
+    {{ python }} scripts/governance/demos/simple_demos_app.py --port "$PORT"
+
+# Seed fresh Chronicle SIEM UDM events for the live Gemini Enterprise demos (Demos 1 and 3)
+governance-demos-seed:
+    {{ python }} scripts/governance/demos/seed_simple_demos_udm.py
