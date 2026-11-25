@@ -191,18 +191,27 @@ CONTENT_RULES: tuple[HygieneRule, ...] = (
         rule_id="TERRAFORM_HARDCODED_TENANT",
         pattern=re.compile(
             r"(?:secops-demo-env|dandye-0324-chronicle|workshops-2026\d*"
+            r"|secops-app_1775242571|mcp\.demo\.wiz\.io|\bDAST_ATTACKER\b"
             r"|a13f6726-efed-452e-9008-8fe0d3cb0f75"
             r"|7e977ce4-f45d-43b2-aea0-52f8b66acd80"
             r"|ytvgh\.siemplify-soar\.com"
             r"|\b1002894625780\b|\b89865786164\b)",
             re.IGNORECASE,
         ),
-        message="Hardcoded lab/demo tenant identifier inside infrastructure module.",
+        message="Hardcoded lab/demo tenant identifier inside infrastructure or agent module.",
         remediation=(
-            "Use `var.project_id`, `var.project_number`, `var.org_id`, or "
-            "`var.chronicle_customer_id` in `terraform/` and `governance/`."
+            "Use `var.project_id`, `var.project_number`, `var.org_id`, "
+            "`var.chronicle_customer_id`, or `<YOUR_PROJECT_ID>` placeholders."
         ),
-        scoped_prefixes=("terraform/", "governance/"),
+        scoped_prefixes=(
+            "terraform/",
+            "governance/",
+            "scripts/governance/",
+            "governed_agents/",
+            "agent_soc_manager/wiz_mcp.py",
+            "agent_soc_manager/skills/secops-wiz-cloud-security/",
+            "tests/test_wiz_mcp.py",
+        ),
     ),
 )
 

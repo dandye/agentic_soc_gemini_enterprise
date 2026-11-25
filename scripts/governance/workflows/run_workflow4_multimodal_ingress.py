@@ -186,7 +186,9 @@ def _resolve_gemini_api_key() -> str:
     env_key = os.environ.get("GEMINI_API_KEY", "").strip()
     if env_key:
         return env_key
-    project = os.environ.get("GOOGLE_CLOUD_PROJECT", "dandye-0324-chronicle")
+    project = os.environ.get("GOOGLE_CLOUD_PROJECT", "").strip()
+    if not project:
+        return ""
     try:
         key = subprocess.check_output(  # noqa: S603, S607
             [

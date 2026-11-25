@@ -120,8 +120,8 @@ def test_agent_soc_manager_wiz_mcp_url_and_enablement(tmp_path: Path) -> None:
     ):
         assert wiz_mcp.resolve_wiz_mcp_url() == "https://mcp.app.wiz.io/"
         assert (
-            wiz_mcp.resolve_wiz_mcp_url("https://mcp.demo.wiz.io")
-            == "https://mcp.demo.wiz.io/"
+            wiz_mcp.resolve_wiz_mcp_url("https://mcp.example.com")
+            == "https://mcp.example.com/"
         )
         assert not wiz_mcp.is_wiz_mcp_enabled(cache)
 

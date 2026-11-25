@@ -175,7 +175,7 @@ just adk-eval-py
 GOOGLE_API_USE_MTLS_ENDPOINT=never \
 GOOGLE_API_USE_CLIENT_CERTIFICATE=false \
 GOOGLE_GENAI_USE_VERTEXAI=TRUE \
-GOOGLE_CLOUD_PROJECT=dandye-0324-chronicle \
+GOOGLE_CLOUD_PROJECT=your-project-id \
 GOOGLE_CLOUD_LOCATION=us-central1 \
 .venv/bin/adk eval test_agents/soc_triage_agent \
   test_agents/soc_triage_agent/soc_triage_evalset.json \

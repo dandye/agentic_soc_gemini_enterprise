@@ -27,7 +27,7 @@ os.environ["GOOGLE_API_USE_CLIENT_CERTIFICATE"] = "false"
 os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "TRUE"
 if "GOOGLE_CLOUD_PROJECT" not in os.environ:
     os.environ["GOOGLE_CLOUD_PROJECT"] = os.environ.get(
-        "GCP_PROJECT_ID", "dandye-0324-chronicle"
+        "GCP_PROJECT_ID", "your-project-id"
     )
 if "GOOGLE_CLOUD_LOCATION" not in os.environ:
     os.environ["GOOGLE_CLOUD_LOCATION"] = "us-central1"
