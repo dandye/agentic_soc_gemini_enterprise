@@ -42,7 +42,6 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_WIZ_MCP_URL = "https://mcp.app.wiz.io/"
 DEFAULT_WIZ_TOKEN_CACHE = Path.home() / ".config" / "agentic_soc" / "wiz_tokens.json"
-LEGACY_WIZ_TOKEN_CACHE = Path.home() / ".config" / "wiz-secops-mcp" / "tokens.json"
 DEFAULT_WIZ_CLIENT_NAME = "agentic-soc-wiz-mcp"
 
 _ALLOWED_WIZ_TOOL_NAMES = frozenset(
@@ -172,16 +171,12 @@ def resolve_wiz_mcp_url(mcp_url: str | None = None) -> str:
 
 
 def resolve_wiz_token_cache_path(cache_path: str | Path | None = None) -> Path:
-    """Resolves the OAuth token cache path, honoring existing legacy caches."""
+    """Resolves the configured OAuth token cache path."""
     if cache_path:
         return Path(cache_path).expanduser()
     env_path = os.getenv("WIZ_OAUTH_TOKEN_CACHE", "").strip()
     if env_path:
         return Path(env_path).expanduser()
-    if DEFAULT_WIZ_TOKEN_CACHE.exists():
-        return DEFAULT_WIZ_TOKEN_CACHE
-    if LEGACY_WIZ_TOKEN_CACHE.exists():
-        return LEGACY_WIZ_TOKEN_CACHE
     return DEFAULT_WIZ_TOKEN_CACHE
 
 
