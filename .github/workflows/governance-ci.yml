@@ -59,7 +59,7 @@ jobs:
 
       - name: Install pinned dependencies
         run: |
-          pip install pytest==8.3.5
+          pip install pytest==8.3.5 google-cloud-secret-manager==2.28.0
           for agent in soc_orchestrator cti_researcher threat_hunter detection_engineer tier2_responder wizard_agent; do
             pip install -r "governed_agents/${agent}/requirements.txt"
           done
